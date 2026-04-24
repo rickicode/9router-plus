@@ -133,4 +133,86 @@ export function migrateFromJSON() {
   }
 }
 
+export function loadAllDataFromSqlite() {
+  const db = getSqliteDb();
+  const data = {};
+  
+  // Load collections (array-based)
+  const collections = ['providerConnections', 'providerNodes', 
+                      'proxyPools', 'combos', 'apiKeys', 'customModels'];
+  
+  for (const collection of collections) {
+    const rows = db.prepare(
+      'SELECT value FROM entities WHERE collection = ? ORDER BY updated_at'
+    ).all(collection);
+    
+    data[collection] = rows.map(row => JSON.parse(row.value));
+  }
+  
+  // Load singletons (object-based)
+  const singletonKeys = ['settings', 'modelAliases', 'pricing', 'mitmAlias', 'opencodeSync'];
+  
+  for (const key of singletonKeys) {
+    const row = db.prepare(
+      'SELECT value FROM settings WHERE key = ?'
+    ).get(key);
+    
+    data[key] = row ? JSON.parse(row.value) : {};
+  }
+  
+  return data;
+}
+
+export function saveAllDataToSqlite(data) {
+  const db = getSqliteDb();
+  
+  const transaction = db.transaction(() => {
+    // Write collections
+    const collections = ['providerConnections', 'providerNodes',
+                        'proxyPools', 'combos', 'apiKeys', 'customModels'];
+    
+    for (const collection of collections) {
+      const items = data[collection] || [];
+      
+      // Delete removed items
+      const ids = items.map(item => item.id).filter(Boolean);
+      if (ids.length > 0) {
+        const placeholders = ids.map(() => '?').join(',');
+        db.prepare(
+          `DELETE FROM entities WHERE collection = ? AND id NOT IN (${placeholders})`
+        ).run(collection, ...ids);
+      } else {
+        db.prepare(
+          'DELETE FROM entities WHERE collection = ?'
+        ).run(collection);
+      }
+      
+      // Upsert items
+      const stmt = db.prepare(
+        'INSERT OR REPLACE INTO entities (collection, id, value, updated_at) VALUES (?, ?, ?, ?)'
+      );
+      
+      for (const item of items) {
+        if (item.id) {
+          stmt.run(collection, item.id, JSON.stringify(item), Date.now());
+        }
+      }
+    }
+    
+    // Write singletons
+    const singletonKeys = ['settings', 'modelAliases', 'pricing', 'mitmAlias', 'opencodeSync'];
+    const stmt = db.prepare(
+      'INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)'
+    );
+    
+    for (const key of singletonKeys) {
+      if (data[key] !== undefined) {
+        stmt.run(key, JSON.stringify(data[key]), Date.now());
+      }
+    }
+  });
+  
+  transaction();
+}
+
 export { DB_SQLITE_FILE, DB_JSON_FILE };
