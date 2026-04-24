@@ -92,3 +92,4 @@ context-snapshot.json
 .pi/taskplane.json
 state.md
 session-log.md
+.worktrees/
