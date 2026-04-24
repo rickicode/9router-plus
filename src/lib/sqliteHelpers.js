@@ -1,26 +1,29 @@
 import Database from 'better-sqlite3';
 import path from 'node:path';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from '@/lib/dataDir.js';
 
 const DB_SQLITE_FILE = path.join(DATA_DIR, 'db.sqlite');
+const MIGRATIONS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'migrations');
 
 let sqliteDb = null;
 
 export function getSqliteDb() {
   if (sqliteDb) return sqliteDb;
-  
-  sqliteDb = new Database(DB_SQLITE_FILE);
-  
+
+  const db = new Database(DB_SQLITE_FILE);
+
   // Enable WAL mode
-  sqliteDb.pragma('journal_mode = WAL');
-  sqliteDb.pragma('synchronous = NORMAL');
-  
+  db.pragma('journal_mode = WAL');
+  db.pragma('synchronous = NORMAL');
+
   // Performance optimizations
-  sqliteDb.pragma('cache_size = -64000'); // 64MB
-  sqliteDb.pragma('temp_store = MEMORY');
-  sqliteDb.pragma('mmap_size = 30000000000'); // 30GB
-  
+  db.pragma('cache_size = -64000'); // 64MB
+  db.pragma('temp_store = MEMORY');
+  db.pragma('mmap_size = 30000000000'); // 30GB
+
+  sqliteDb = db;
   return sqliteDb;
 }
 
@@ -31,8 +34,8 @@ export function ensureSchema(db) {
   ).all();
   
   if (tables.length === 0) {
-    // Run migration
-    const schemaPath = path.join(path.dirname(new URL(import.meta.url).pathname), 'migrations', '001_initial_schema.sql');
+    // Phase 3: create the temporary SQLite read-side schema while lowdb remains the write-side source.
+    const schemaPath = path.join(MIGRATIONS_DIR, '001_initial_schema.sql');
     const schema = fs.readFileSync(schemaPath, 'utf-8');
     db.exec(schema);
   }
@@ -48,12 +51,15 @@ export function closeSqliteDb() {
 const DB_JSON_FILE = path.join(DATA_DIR, 'db.json');
 
 export function migrateFromJSON() {
+  const options = arguments[0] && typeof arguments[0] === 'object' ? arguments[0] : {};
+  const preserveJson = options.preserveJson !== false;
+
   // Check if migration needed
   const jsonExists = fs.existsSync(DB_JSON_FILE);
   const sqliteExists = fs.existsSync(DB_SQLITE_FILE);
   
   if (!jsonExists || sqliteExists) {
-    return { migrated: false, reason: sqliteExists ? 'already_migrated' : 'no_json' };
+    return { migrated: false };
   }
   
   console.log('[DB] Starting migration from JSON to SQLite...');
@@ -62,7 +68,7 @@ export function migrateFromJSON() {
     // Read JSON data
     const jsonData = JSON.parse(fs.readFileSync(DB_JSON_FILE, 'utf-8'));
     
-    // Create SQLite with schema
+    // Phase 3: create the temporary SQLite read mirror while lowdb remains the active write backend.
     const db = getSqliteDb();
     ensureSchema(db);
     
@@ -113,13 +119,16 @@ export function migrateFromJSON() {
       }
     }
     
-    // Backup original JSON
-    fs.renameSync(DB_JSON_FILE, `${DB_JSON_FILE}.backup`);
+    if (!preserveJson) {
+      fs.renameSync(DB_JSON_FILE, `${DB_JSON_FILE}.backup`);
+    }
     
     console.log('[DB] Migration completed successfully');
-    console.log(`[DB] Backup saved to ${DB_JSON_FILE}.backup`);
+    if (preserveJson) {
+      console.log('[DB] JSON source preserved because Phase 3 keeps writes on lowdb while reads may prefer SQLite');
+    }
     
-    return { migrated: true, backupPath: `${DB_JSON_FILE}.backup` };
+    return { migrated: true };
     
   } catch (error) {
     console.error('[DB] Migration failed:', error);
@@ -163,8 +172,81 @@ export function loadAllDataFromSqlite() {
   return data;
 }
 
+export function loadCollectionFromSqlite(collection) {
+  const db = getSqliteDb();
+  const rows = db.prepare(
+    'SELECT value FROM entities WHERE collection = ? ORDER BY updated_at'
+  ).all(collection);
+
+  return rows.map((row) => JSON.parse(row.value));
+}
+
+export function loadSettingsSingletonFromSqlite(key = 'settings') {
+  return loadSingletonFromSqlite(key);
+}
+
+export function loadSingletonFromSqlite(key) {
+  const db = getSqliteDb();
+  const row = db.prepare(
+    'SELECT value FROM settings WHERE key = ?'
+  ).get(key);
+
+  if (!row) {
+    return null;
+  }
+
+  return JSON.parse(row.value);
+}
+
+export function upsertSettingsSingleton(key, value) {
+  upsertSingleton(key, value);
+}
+
+export function upsertSingleton(key, value) {
+  const db = getSqliteDb();
+  ensureSchema(db);
+  db.prepare(
+    'INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)'
+  ).run(key, JSON.stringify(value), Date.now());
+}
+
+export function upsertEntity(collection, entity) {
+  if (!collection || typeof collection !== 'string') {
+    throw new TypeError('collection must be a non-empty string');
+  }
+
+  if (!entity || typeof entity !== 'object') {
+    throw new TypeError('entity must be an object');
+  }
+
+  if (!entity.id || typeof entity.id !== 'string') {
+    throw new TypeError('entity.id must be a non-empty string');
+  }
+
+  const db = getSqliteDb();
+  ensureSchema(db);
+  db.prepare(
+    'INSERT OR REPLACE INTO entities (collection, id, value, updated_at) VALUES (?, ?, ?, ?)'
+  ).run(collection, entity.id, JSON.stringify(entity), Date.now());
+}
+
+export function deleteEntity(collection, id) {
+  if (!collection || typeof collection !== 'string') {
+    throw new TypeError('collection must be a non-empty string');
+  }
+
+  if (!id || typeof id !== 'string') {
+    throw new TypeError('id must be a non-empty string');
+  }
+
+  const db = getSqliteDb();
+  ensureSchema(db);
+  db.prepare('DELETE FROM entities WHERE collection = ? AND id = ?').run(collection, id);
+}
+
 export function saveAllDataToSqlite(data) {
   const db = getSqliteDb();
+  ensureSchema(db);
   
   const transaction = db.transaction(() => {
     // Write collections
