@@ -56,20 +56,16 @@ export default function Sidebar({ onClose }) {
   const INSTALL_CMD = UPDATER_CONFIG.installCmd;
 
   useEffect(() => {
-    fetch("/api/settings")
-      .then(res => res.json())
-      .then(data => {
-        if (data.enableTranslator) setEnableTranslator(true);
-        setRedisInfo(data.redis || null);
-      })
-      .catch(() => {});
-  }, []);
+    Promise.all([
+      fetch("/api/settings").then(res => res.json()),
+      fetch("/api/version").then(res => res.json()),
+    ])
+      .then(([settingsData, versionData]) => {
+        if (settingsData.enableTranslator) setEnableTranslator(true);
+        setRedisInfo(settingsData.redis || null);
 
-  // Lazy check for new npm version on mount
-  useEffect(() => {
-    fetch("/api/version")
-      .then(res => res.json())
-      .then(data => { if (data.hasUpdate) setUpdateInfo(data); })
+        if (versionData.hasUpdate) setUpdateInfo(versionData);
+      })
       .catch(() => {});
   }, []);
 

@@ -77,6 +77,9 @@ class GoProxyManager {
       this.handleExit(code, signal, config);
     });
 
+    // Add immediate log to confirm manager is working
+    this.addLog(`[INFO] Process spawned with PID ${this.process.pid}`);
+
     return {
       pid: this.process.pid,
       startedAt: new Date().toISOString(),
