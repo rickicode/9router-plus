@@ -8,10 +8,6 @@ const readline = require("node:readline/promises");
 const { stdin, stdout, env, exit } = require("node:process");
 const { Writable } = require("node:stream");
 
-const GO_PROXY_DEFAULT_HOST = "127.0.0.1";
-const GO_PROXY_DEFAULT_PORT = 8080;
-const GO_PROXY_DEFAULT_HEALTH_PATH = "/health";
-
 async function main() {
   const {
     readRuntimeConfig,
@@ -163,26 +159,8 @@ async function main() {
     exit(1);
   }
 
-  const goProxyWrapper = resolveGoProxyWrapperOptions(env);
-  let goProxyChild = null;
-
-  if (goProxyWrapper.enabled) {
-    assertGoProxyWrapperAuthConfigured(env);
-
-    goProxyChild = spawnGoProxyWrapper(goProxyWrapper, env);
-
-    const isHealthy = await waitForHttpHealth(goProxyWrapper.healthUrl, goProxyWrapper.healthTimeoutMs);
-    if (!isHealthy) {
-      console.error(`[Go Wrapper] Health check failed: ${goProxyWrapper.healthUrl}`);
-      if (goProxyChild && !goProxyChild.killed) {
-        goProxyChild.kill("SIGTERM");
-      }
-      exit(1);
-      return;
-    }
-
-    console.log(`[Go Wrapper] Healthy: ${goProxyWrapper.healthUrl}`);
-  }
+  // Go Proxy is now managed by goProxyManager in the Next.js app
+  // Auto-start and monitoring handled by src/lib/goProxyManager.js
 
   const hasStandaloneServer = fs.existsSync(standaloneServerPath);
   const child = hasStandaloneServer
@@ -199,13 +177,6 @@ async function main() {
 
   let shuttingDown = false;
   let forcedExitCode = null;
-  const detachGoProxySupervisor = superviseGoProxyWrapper(goProxyChild, child, {
-    isShuttingDown: () => shuttingDown,
-    onFatal: () => {
-      shuttingDown = true;
-      forcedExitCode = 1;
-    },
-  });
 
   if (!hasStandaloneServer) {
     console.log("[Start] Standalone server.js not found; falling back to next start.");
@@ -220,17 +191,11 @@ async function main() {
 
   child.on("error", (error) => {
     console.error("[Start] Failed to start production server process:", error);
-    if (goProxyChild && !goProxyChild.killed) {
-      goProxyChild.kill("SIGTERM");
-    }
     exit(1);
   });
 
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
     process.on(signal, () => {
-      if (goProxyChild && !goProxyChild.killed) {
-        goProxyChild.kill(signal);
-      }
       if (!child.killed) {
         child.kill(signal);
       }
@@ -239,13 +204,6 @@ async function main() {
 
   child.on("exit", (code, signal) => {
     shuttingDown = true;
-    if (typeof detachGoProxySupervisor === "function") {
-      detachGoProxySupervisor();
-    }
-
-    if (goProxyChild && !goProxyChild.killed) {
-      goProxyChild.kill("SIGTERM");
-    }
 
     if (signal) {
       process.kill(process.pid, signal);
@@ -262,30 +220,8 @@ async function main() {
 }
 
 function superviseGoProxyWrapper(goProxyChild, appChild, { isShuttingDown = () => false, onFatal = () => {} } = {}) {
-  if (!goProxyChild || !appChild) {
-    return () => {};
-  }
-
-  const onGoProxyExit = (code, signal) => {
-    if (isShuttingDown()) {
-      return;
-    }
-
-    const reason = signal ? `signal ${signal}` : `code ${code ?? 0}`;
-    console.error(`[Go Wrapper] Exited unexpectedly (${reason}); stopping app process.`);
-
-    onFatal();
-
-    if (!appChild.killed) {
-      appChild.kill("SIGTERM");
-    }
-  };
-
-  goProxyChild.once("exit", onGoProxyExit);
-
-  return () => {
-    goProxyChild.removeListener("exit", onGoProxyExit);
-  };
+  // Removed: Go Proxy now managed by goProxyManager in Next.js app
+  return () => {};
 }
 
 function resolveStandaloneServerPath(projectRoot = process.cwd()) {
@@ -342,208 +278,6 @@ function syncStandaloneAssets(projectRoot, standaloneServerPath) {
   }
 
   console.log("[Start] Synced standalone public/static assets.");
-}
-
-function resolveGoProxyWrapperOptions(sourceEnv = process.env) {
-  const enabledRaw = String(sourceEnv.GO_PROXY_WRAPPER_ENABLED || "").trim().toLowerCase();
-  const enabled = ["1", "true", "yes", "on"].includes(enabledRaw);
-
-  const host = String(sourceEnv.GO_PROXY_WRAPPER_HOST || GO_PROXY_DEFAULT_HOST).trim() || GO_PROXY_DEFAULT_HOST;
-  const parsedPort = Number.parseInt(String(sourceEnv.GO_PROXY_WRAPPER_PORT || GO_PROXY_DEFAULT_PORT), 10);
-  const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : GO_PROXY_DEFAULT_PORT;
-
-  const healthPath = String(sourceEnv.GO_PROXY_WRAPPER_HEALTH_PATH || GO_PROXY_DEFAULT_HEALTH_PATH).trim() || GO_PROXY_DEFAULT_HEALTH_PATH;
-  const normalizedHealthPath = healthPath.startsWith("/") ? healthPath : `/${healthPath}`;
-
-  const parsedTimeout = Number.parseInt(String(sourceEnv.GO_PROXY_WRAPPER_HEALTH_TIMEOUT_MS || "4000"), 10);
-  const healthTimeoutMs = Number.isFinite(parsedTimeout) && parsedTimeout >= 100 ? parsedTimeout : 4000;
-
-  return {
-    enabled,
-    mode: "compatibility-bootstrap",
-    primaryRuntimeContract: "go-proxy runtime control API",
-    host,
-    port,
-    healthPath: normalizedHealthPath,
-    healthUrl: `http://${host}:${port}${normalizedHealthPath}`,
-    healthTimeoutMs,
-  };
-}
-
-function assertGoProxyWrapperAuthConfigured(sourceEnv = process.env) {
-  const resolveToken = String(sourceEnv.INTERNAL_PROXY_RESOLVE_TOKEN || "").trim();
-  const reportToken = String(sourceEnv.INTERNAL_PROXY_REPORT_TOKEN || "").trim();
-
-  const missing = [];
-  if (!resolveToken) missing.push("INTERNAL_PROXY_RESOLVE_TOKEN");
-  if (!reportToken) missing.push("INTERNAL_PROXY_REPORT_TOKEN");
-
-  if (missing.length > 0) {
-    throw new Error(`[Go Wrapper] Missing required internal auth token(s): ${missing.join(", ")}`);
-  }
-}
-
-function spawnGoProxyWrapper(options, runtimeEnv) {
-  const goProxyDir = path.join(process.cwd(), "go-proxy");
-  const goProxyMain = path.join(goProxyDir, "main.go");
-
-  const wrapperEnv = {
-    ...runtimeEnv,
-    GO_PROXY_HOST: options.host,
-    GO_PROXY_PORT: String(options.port),
-  };
-
-  console.log(`[Go Wrapper] Starting on ${options.host}:${options.port}`);
-
-  // Try precompiled binary first
-  const homeDir = require("node:os").homedir();
-  const installedBinary = path.join(homeDir, ".9router", "bin", "9router-go-proxy");
-  const localBinary = path.join(process.cwd(), "bin", "9router-go-proxy");
-
-  let child;
-
-  if (fs.existsSync(installedBinary)) {
-    console.log(`[Go Wrapper] Using installed binary: ${installedBinary}`);
-    child = spawn(installedBinary, [], {
-      stdio: "inherit",
-      env: wrapperEnv,
-      shell: false,
-    });
-  } else if (fs.existsSync(localBinary)) {
-    console.log(`[Go Wrapper] Using local binary: ${localBinary}`);
-    child = spawn(localBinary, [], {
-      stdio: "inherit",
-      env: wrapperEnv,
-      shell: false,
-    });
-  } else {
-    // Fallback to go run
-    if (!fs.existsSync(goProxyMain)) {
-      throw new Error(`[Go Wrapper] Missing entrypoint: ${goProxyMain}`);
-    }
-    console.log(`[Go Wrapper] No binary found, using 'go run' (slower startup)`);
-    child = spawn("go", ["run", "main.go"], {
-      cwd: goProxyDir,
-      stdio: "inherit",
-      env: wrapperEnv,
-      shell: false,
-    });
-  }
-
-  child.on("exit", (code, signal) => {
-    if (signal) {
-      console.error(`[Go Wrapper] Exited with signal ${signal}`);
-      return;
-    }
-    if (code !== 0) {
-      console.error(`[Go Wrapper] Exited with code ${code}`);
-    }
-  });
-
-  return child;
-}
-
-async function waitForHttpHealth(url, timeoutMs = 4000) {
-  const startedAt = Date.now();
-
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 500);
-      try {
-        const response = await fetch(url, { method: "GET", signal: controller.signal });
-        if (response.ok) {
-          return true;
-        }
-      } finally {
-        clearTimeout(timeout);
-      }
-    } catch {
-      // keep polling until timeout
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-
-  return false;
-}
-
-function parseArgs(argv) {
-  const result = {
-    redisServerUrl: "",
-    redisServerId: "",
-    redisName: "",
-    redisUrl: "",
-    redisMode: "replace",
-    forwardArgs: [],
-  };
-
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-
-    if (arg === "--") {
-      result.forwardArgs.push(...argv.slice(i + 1));
-      break;
-    }
-
-    if (arg === "--redis-url" && argv[i + 1]) {
-      result.redisUrl = argv[++i];
-      continue;
-    }
-
-    if (arg === "--redis-server" && argv[i + 1]) {
-      result.redisServerUrl = argv[++i];
-      continue;
-    }
-
-    if (arg === "--redis-server-id" && argv[i + 1]) {
-      result.redisServerId = argv[++i];
-      continue;
-    }
-
-    if (arg === "--redis-name" && argv[i + 1]) {
-      result.redisName = argv[++i];
-      continue;
-    }
-
-    if (arg === "--redis-mode" && argv[i + 1]) {
-      result.redisMode = argv[++i] === "add" ? "add" : "replace";
-      continue;
-    }
-
-    if (arg.startsWith("--redis-url=")) {
-      result.redisUrl = arg.split("=", 2)[1];
-      continue;
-    }
-
-    if (arg.startsWith("--redis-server=")) {
-      result.redisServerUrl = arg.split("=", 2)[1];
-      continue;
-    }
-
-    if (arg.startsWith("--redis-server-id=")) {
-      result.redisServerId = arg.split("=", 2)[1];
-      continue;
-    }
-
-    if (arg.startsWith("--redis-name=")) {
-      result.redisName = arg.split("=", 2)[1];
-      continue;
-    }
-
-    if (arg.startsWith("--redis-mode=")) {
-      result.redisMode = arg.split("=", 2)[1] === "add" ? "add" : "replace";
-      continue;
-    }
-
-    result.forwardArgs.push(arg);
-  }
-
-  return result;
-}
-
-function resolveRedisUrl({ cliRedisUrl = "", configRedisUrl = "", envRedisUrl = "" } = {}) {
-  return cliRedisUrl || configRedisUrl || envRedisUrl || "redis://127.0.0.1:6379";
 }
 
 async function detectRedisServer() {
@@ -718,7 +452,6 @@ module.exports = {
   askPassword,
   askSecret,
   askYesNo,
-  assertGoProxyWrapperAuthConfigured,
   checkRedisService,
   detectRedisServer,
   hasStandaloneRuntime,
@@ -727,13 +460,9 @@ module.exports = {
   normalizeRedisUrl,
   parseArgs,
   probeRedis,
-  resolveGoProxyWrapperOptions,
   resolveRedisUrl,
   resolveStandaloneServerPath,
   shouldSyncStandaloneAssets,
-  spawnGoProxyWrapper,
   startRedisServer,
-  superviseGoProxyWrapper,
   syncStandaloneAssets,
-  waitForHttpHealth,
 };

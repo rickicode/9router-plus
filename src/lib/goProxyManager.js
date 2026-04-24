@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
 import net from "node:net";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { buildGoProxyCommand } from "./goProxyRuntime.js";
 
 function isPortAvailable(port) {
@@ -21,11 +24,124 @@ class GoProxyManager {
     this.retryCount = 0;
     this.maxRetries = 3;
     this.retryTimeouts = [1000, 2000, 4000]; // exponential backoff
+    this.binaryPath = path.join(os.homedir(), ".9router", "bin", "9router-go-proxy");
+    this.monitorInterval = null;
+    this.healthCheckLatency = null;
+    this.autoStartEnabled = false;
+    this.lastConfig = null;
+    
+    // Start monitoring on initialization
+    this.startMonitoring();
+  }
+
+  checkBinaryExists() {
+    try {
+      return fs.existsSync(this.binaryPath) && fs.statSync(this.binaryPath).isFile();
+    } catch (error) {
+      return false;
+    }
+  }
+
+  async checkProcessRunning() {
+    if (!this.process || !this.process.pid) {
+      return false;
+    }
+    
+    try {
+      // Check if process is still alive
+      process.kill(this.process.pid, 0);
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  async checkHealthWithLatency(port = 20138) {
+    const startTime = Date.now();
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/health`, {
+        signal: AbortSignal.timeout(3000)
+      });
+      const latency = Date.now() - startTime;
+      this.healthCheckLatency = latency;
+      return { ok: response.ok, latency };
+    } catch (error) {
+      this.healthCheckLatency = null;
+      return { ok: false, latency: null, error: error.message };
+    }
+  }
+
+  async getDefaultConfig() {
+    // Import here to avoid circular dependency
+    const { getInternalProxyTokens } = await import("./internalProxyTokens.js");
+    const { getSettings } = await import("./localDb.js");
+    const path = await import("node:path");
+    const os = await import("node:os");
+    
+    const tokens = await getInternalProxyTokens();
+    const settings = await getSettings();
+    const dataDir = settings?.dataDir || path.join(os.homedir(), ".9router", "data");
+    const credentialsFile = path.join(dataDir, "credentials.json");
+    
+    return {
+      binaryPath: this.binaryPath,
+      host: "127.0.0.1",
+      port: 20138,
+      ninerouterBaseUrl: "http://localhost:20128",
+      internalResolveToken: tokens.resolveToken,
+      internalReportToken: tokens.reportToken,
+      credentialsFile,
+      httpTimeoutSeconds: 30,
+    };
+  }
+
+  startMonitoring() {
+    if (this.monitorInterval) {
+      clearInterval(this.monitorInterval);
+    }
+
+    // Monitor every 5 seconds
+    this.monitorInterval = setInterval(async () => {
+      const binaryExists = this.checkBinaryExists();
+      
+      if (!binaryExists) {
+        this.autoStartEnabled = false;
+        return;
+      }
+
+      this.autoStartEnabled = true;
+      const processRunning = await this.checkProcessRunning();
+      
+      // Auto-start if binary exists but process not running
+      if (!processRunning) {
+        const config = this.lastConfig || await this.getDefaultConfig();
+        this.addLog("[MONITOR] Process not running, attempting auto-start...");
+        try {
+          await this.start(config);
+        } catch (error) {
+          this.addLog(`[MONITOR] Auto-start failed: ${error.message}`);
+        }
+      }
+    }, 5000);
+  }
+
+  stopMonitoring() {
+    if (this.monitorInterval) {
+      clearInterval(this.monitorInterval);
+      this.monitorInterval = null;
+    }
   }
 
   async start(config) {
     if (this.process) {
       throw new Error("Go Proxy is already running");
+    }
+
+    // Check if binary exists
+    if (!this.checkBinaryExists()) {
+      const error = `Binary not found at ${this.binaryPath}`;
+      this.addLog(`[ERROR] ${error}`);
+      throw new Error(error);
     }
 
     // Check port availability
@@ -35,6 +151,9 @@ class GoProxyManager {
       this.addLog(`[ERROR] ${error}`);
       throw new Error(error);
     }
+
+    // Store config for auto-restart
+    this.lastConfig = config;
 
     const { file, args, env } = buildGoProxyCommand(config);
     
@@ -157,6 +276,10 @@ class GoProxyManager {
       retryCount: this.retryCount,
       lastError: hasError ? lastLog : null,
       logsCount: this.logs.length,
+      binaryPath: this.binaryPath,
+      binaryExists: this.checkBinaryExists(),
+      autoStartEnabled: this.autoStartEnabled,
+      healthCheckLatency: this.healthCheckLatency,
     };
   }
 }

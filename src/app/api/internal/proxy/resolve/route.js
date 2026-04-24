@@ -3,11 +3,13 @@ import { getProviderConnections, getSettings } from "@/lib/localDb";
 import { getEligibleConnections } from "@/lib/providerHotState";
 import { getConnectionStatusDetails } from "@/lib/connectionStatus";
 import { resolveProviderId } from "@/shared/constants/providers.js";
+import { getInternalProxyTokens } from "@/lib/internalProxyTokens";
 
 const INTERNAL_AUTH_HEADER = "x-internal-auth";
 
-function hasValidInternalAuth(request) {
-  const expectedToken = process.env.INTERNAL_PROXY_RESOLVE_TOKEN;
+async function hasValidInternalAuth(request) {
+  const tokens = await getInternalProxyTokens();
+  const expectedToken = tokens.resolveToken;
   if (!expectedToken) return false;
 
   const providedToken = request.headers.get(INTERNAL_AUTH_HEADER);
@@ -98,7 +100,7 @@ function pickConnections(selectionPool = [], strategy = "fill-first") {
 }
 
 export async function POST(request) {
-  if (!hasValidInternalAuth(request)) {
+  if (!(await hasValidInternalAuth(request))) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 

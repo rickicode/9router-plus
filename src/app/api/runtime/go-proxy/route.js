@@ -25,20 +25,15 @@ export async function GET() {
       // Ignore usage fetch errors
     }
 
-    // Check health connection to NineRouter
-    let health = { connected: false, ninerouterUrl: "http://localhost:20128" };
+    // Check health connection to NineRouter with latency
+    let health = { connected: false, ninerouterUrl: "http://localhost:20128", latency: null };
     if (managerStatus.running) {
-      try {
-        const healthRes = await fetch("http://localhost:20138/health", {
-          signal: AbortSignal.timeout(2000)
-        });
-        if (healthRes.ok) {
-          health.connected = true;
-          health.lastCheck = new Date().toISOString();
-        }
-      } catch (error) {
-        // Go Proxy not responding
-        health.error = error.message;
+      const healthCheck = await goProxyManager.checkHealthWithLatency(runtimeStatus.port || 20138);
+      health.connected = healthCheck.ok;
+      health.latency = healthCheck.latency;
+      health.lastCheck = new Date().toISOString();
+      if (healthCheck.error) {
+        health.error = healthCheck.error;
       }
     }
 

@@ -191,6 +191,17 @@ export default function GoProxyTab() {
           {/* Status Section */}
           <div className="space-y-2 text-sm">
             <div className="flex items-center gap-2">
+              <span className="w-24 text-[var(--color-text-muted)]">Binary:</span>
+              <span className={`font-medium ${status?.binaryExists ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}`}>
+                {status?.binaryExists ? "✓ Detected" : "✗ Not Found"}
+              </span>
+              {status?.binaryExists && (
+                <span className="text-xs text-[var(--color-text-muted)]">
+                  (Auto-start {status?.autoStartEnabled ? "enabled" : "disabled"})
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
               <span className="w-24 text-[var(--color-text-muted)]">Runtime:</span>
               <span className="font-medium text-[var(--color-text-main)]">{status?.running ? "Running" : "Stopped"}</span>
             </div>
@@ -213,6 +224,11 @@ export default function GoProxyTab() {
                   <span className={status.health?.connected ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}>
                     {status.health?.connected ? "✓ Connected to NineRouter" : "✗ Not connected"}
                   </span>
+                  {status.health?.latency && (
+                    <span className="text-xs text-[var(--color-text-muted)]">
+                      ({status.health.latency}ms)
+                    </span>
+                  )}
                 </div>
               </>
             )}

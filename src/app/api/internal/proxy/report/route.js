@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { applyProxyOutcomeReport } from "@/lib/usageStatus";
+import { getInternalProxyTokens } from "@/lib/internalProxyTokens";
 
 const INTERNAL_AUTH_HEADER = "x-internal-auth";
 
-function hasValidInternalAuth(request) {
-  const expectedToken = process.env.INTERNAL_PROXY_REPORT_TOKEN;
+async function hasValidInternalAuth(request) {
+  const tokens = await getInternalProxyTokens();
+  const expectedToken = tokens.reportToken;
   if (!expectedToken) return false;
 
   const providedToken = request.headers.get(INTERNAL_AUTH_HEADER);
@@ -14,7 +16,7 @@ function hasValidInternalAuth(request) {
 export { applyProxyOutcomeReport };
 
 export async function POST(request) {
-  if (!hasValidInternalAuth(request)) {
+  if (!(await hasValidInternalAuth(request))) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
