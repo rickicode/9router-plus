@@ -3,7 +3,7 @@
   
   # 9Router Plus - Enhanced AI Router
   
-  **Never stop coding. Auto-route to FREE & cheap AI models with smart fallback + Go Proxy Runtime.**
+  **Never stop coding. Auto-route to FREE & cheap AI models with smart fallback.**
   
   **Connect All AI Code Tools (Claude Code, Cursor, Antigravity, Copilot, Codex, Gemini, OpenCode, Cline, OpenClaw...) to 40+ AI Providers & 100+ Models.**
   
@@ -24,16 +24,13 @@
 | **Core Routing** | ✅ Smart fallback | ✅ Smart fallback |
 | **Providers** | 40+ providers | 40+ providers |
 | **Translation Layer** | OpenAI ↔ Claude | ✅ OpenAI ↔ Claude ↔ Gemini |
-| **Go Proxy Runtime** | ❌ | ✅ High-performance data plane |
-| **Tab-Based UI** | ❌ | ✅ Main/Cloud/Go Proxy tabs |
+| **Tab-Based UI** | ❌ | ✅ Main/Cloud tabs |
 | **Security Hardening** | Basic | ✅ 12 critical bug fixes + SSRF protection |
 | **Real-Time Monitoring** | Basic | ✅ Live status + logs viewer |
 | **Auto-Restart** | ❌ | ✅ Config change detection |
 | **Responsive Design** | Basic | ✅ Mobile/Tablet/Desktop optimized |
-| **Performance** | Node.js only | ✅ Go proxy for faster forwarding |
 
 **Key Enhancements:**
-- 🚀 **Go Proxy Runtime** - High-performance Go-based data plane (port 20138)
 - 🔄 **Enhanced Translation** - Full OpenAI ↔ Claude ↔ Gemini format support
 - 🎨 **Modern UI** - Tab-based interface with glassmorphism design
 - 🔒 **Security First** - Fixed 12 critical bugs, added SSRF protection
@@ -57,7 +54,6 @@
 - ✅ **Auto fallback** - Subscription → Cheap → Free, zero downtime
 - ✅ **Multi-account** - Round-robin between accounts per provider
 - ✅ **Universal** - Works with Claude Code, Codex, Gemini CLI, Cursor, Cline, any CLI tool
-- ✅ **Go Proxy Runtime** - High-performance data plane for faster request forwarding
 - ✅ **Enhanced Security** - 12 critical bug fixes + SSRF protection + audit logging
 
 ---
@@ -76,7 +72,6 @@
 │  • Format translation (OpenAI ↔ Claude ↔ Gemini) │
 │  • Quota tracking                       │
 │  • Auto token refresh                   │
-│  • Go Proxy Runtime (high-performance)  │
 └──────┬──────────────────────────────────┘
        │
        ├─→ [Tier 1: SUBSCRIPTION] Claude Code, Codex, Gemini CLI
@@ -108,7 +103,7 @@ npm run dev
 
 **Alternative: Install original 9router globally:**
 
-For the base version without Go Proxy Runtime and enhanced features:
+For the base version without enhanced features:
 
 ```bash
 npm install -g 9router
@@ -128,7 +123,7 @@ Claude Code/Codex/Gemini CLI/OpenClaw/Cursor/Cline Settings:
   Model: if/kimi-k2-thinking
 ```
 
-**That's it!** Start coding with FREE AI models + Go Proxy Runtime for enhanced performance.
+**That's it!** Start coding with FREE AI models.
 
 Production mode:
 
@@ -397,7 +392,6 @@ Default URLs:
 | 📝 **Request Logging** | Debug mode with full request/response logs | Troubleshoot issues easily |
 | 💾 **Cloud Sync** | Sync config across devices | Same setup everywhere |
 | 📊 **Usage Analytics** | Track tokens, cost, trends over time | Optimize spending |
-| ⚡ **Go Proxy Runtime** | High-performance data plane for request forwarding | 2x faster than Node.js |
 | 🌐 **Deploy Anywhere** | Localhost, VPS, Docker, Cloudflare Workers | Flexible deployment options |
 
 <details>

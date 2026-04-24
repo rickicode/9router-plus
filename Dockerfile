@@ -18,9 +18,8 @@ RUN npm run build
 FROM ${BUN_IMAGE} AS runner
 WORKDIR /app
 
-# Needed when GO_PROXY_WRAPPER_ENABLED=true so scripts/start.js can supervise go-proxy via `go run`.
 # Node.js is required because the runtime entrypoint is scripts/start.js.
-RUN apk --no-cache add go nodejs
+RUN apk --no-cache add nodejs
 
 LABEL org.opencontainers.image.title="9router"
 
@@ -34,7 +33,6 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/open-sse ./open-sse
-COPY --from=builder /app/go-proxy ./go-proxy
 # Next file tracing can omit sibling files; MITM runs server.js as a separate process.
 COPY --from=builder /app/src/mitm ./src/mitm
 # Standalone node_modules may omit deps only required by the MITM child process.

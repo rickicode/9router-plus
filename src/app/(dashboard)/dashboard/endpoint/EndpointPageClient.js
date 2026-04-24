@@ -4,12 +4,11 @@ import { useState } from "react";
 import PropTypes from "prop-types";
 import MainTab from "./components/MainTab";
 import CloudTab from "./components/CloudTab";
-import GoProxyTab from "./components/GoProxyTab";
 
 export default function EndpointPageClient({ machineId }) {
   const [activeTab, setActiveTab] = useState("Main");
 
-  const tabs = ["Main", "Cloud", "Go Proxy"];
+  const tabs = ["Main", "Cloud"];
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -36,7 +35,6 @@ export default function EndpointPageClient({ machineId }) {
       {/* Tab Content */}
       {activeTab === "Main" && <MainTab machineId={machineId} />}
       {activeTab === "Cloud" && <CloudTab />}
-      {activeTab === "Go Proxy" && <GoProxyTab />}
     </div>
   );
 }

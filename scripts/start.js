@@ -8,6 +8,45 @@ const readline = require("node:readline/promises");
 const { stdin, stdout, env, exit } = require("node:process");
 const { Writable } = require("node:stream");
 
+function parseArgs(args) {
+  const parsed = {
+    redisUrl: null,
+    redisServerUrl: null,
+    redisName: null,
+    redisServerId: null,
+    redisMode: "replace",
+    forwardArgs: [],
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    
+    if (arg === "--redis-url" && i + 1 < args.length) {
+      parsed.redisUrl = args[++i];
+    } else if (arg === "--redis-server-url" && i + 1 < args.length) {
+      parsed.redisServerUrl = args[++i];
+    } else if (arg === "--redis-name" && i + 1 < args.length) {
+      parsed.redisName = args[++i];
+    } else if (arg === "--redis-server-id" && i + 1 < args.length) {
+      parsed.redisServerId = args[++i];
+    } else if (arg === "--redis-mode" && i + 1 < args.length) {
+      parsed.redisMode = args[++i];
+    } else {
+      parsed.forwardArgs.push(arg);
+    }
+  }
+
+  return parsed;
+}
+
+function resolveRedisUrl({ cliRedisUrl, configRedisUrl, envRedisUrl }) {
+  // Priority: CLI > Config > Environment
+  if (cliRedisUrl) return cliRedisUrl;
+  if (configRedisUrl) return configRedisUrl;
+  if (envRedisUrl) return envRedisUrl;
+  return null;
+}
+
 async function main() {
   const {
     readRuntimeConfig,
@@ -159,9 +198,6 @@ async function main() {
     exit(1);
   }
 
-  // Go Proxy is now managed by goProxyManager in the Next.js app
-  // Auto-start and monitoring handled by src/lib/goProxyManager.js
-
   const hasStandaloneServer = fs.existsSync(standaloneServerPath);
   const child = hasStandaloneServer
     ? spawn(process.execPath, [standaloneServerPath, ...args.forwardArgs], {
@@ -217,11 +253,6 @@ async function main() {
 
     exit(code ?? 0);
   });
-}
-
-function superviseGoProxyWrapper(goProxyChild, appChild, { isShuttingDown = () => false, onFatal = () => {} } = {}) {
-  // Removed: Go Proxy now managed by goProxyManager in Next.js app
-  return () => {};
 }
 
 function resolveStandaloneServerPath(projectRoot = process.cwd()) {
