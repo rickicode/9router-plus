@@ -74,13 +74,16 @@ export function buildGoProxyCommand(runtime = {}) {
     String(normalizedRuntime.credentialsFile),
   ];
 
+  // HTTP timeout is set via environment variable, not CLI flag
+  const env = {};
   if (isNonEmptyValue(normalizedRuntime.httpTimeoutSeconds)) {
-    args.push("--http-timeout-seconds", String(normalizedRuntime.httpTimeoutSeconds));
+    env.GO_PROXY_HTTP_TIMEOUT_SECONDS = String(normalizedRuntime.httpTimeoutSeconds);
   }
 
   return {
     file: String(normalizedRuntime.binaryPath),
     args,
+    env,
   };
 }
 

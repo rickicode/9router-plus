@@ -36,7 +36,7 @@ class GoProxyManager {
       throw new Error(error);
     }
 
-    const { file, args } = buildGoProxyCommand(config);
+    const { file, args, env } = buildGoProxyCommand(config);
     
     this.addLog(`[INFO] Starting Go Proxy: ${file} ${args.join(" ")}`);
     console.log("[GoProxyManager] Starting:", file, args);
@@ -45,6 +45,7 @@ class GoProxyManager {
       this.process = spawn(file, args, {
         stdio: ["ignore", "pipe", "pipe"],
         detached: false,
+        env: { ...process.env, ...env },
       });
       console.log("[GoProxyManager] Spawned PID:", this.process.pid);
     } catch (error) {
