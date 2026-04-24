@@ -28,10 +28,10 @@ export default function TokenManagerCard({
       title="Auto-sync tokens"
       subtitle="Create tokens to enable automatic config sync from this dashboard."
       icon="vpn_key"
-      className="rounded-[24px] border-black/5 shadow-[0_16px_42px_rgba(0,0,0,0.04)] dark:border-white/5"
+      className="rounded border-border"
     >
       <div className="space-y-6">
-        <div className="rounded-[24px] border border-primary/10 bg-gradient-to-br from-primary/[0.05] via-transparent to-transparent px-5 py-[1.125rem]">
+        <div className="rounded border border-primary/10 bg-[var(--color-primary-soft)] px-5 py-[1.125rem]">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-semibold text-text-main">Create a sync token</p>
@@ -41,7 +41,7 @@ export default function TokenManagerCard({
           </div>
         </div>
 
-        <Card.Section className="rounded-[24px] border border-black/5 bg-white/[0.78] px-5 py-5 dark:border-white/5 dark:bg-white/[0.02]">
+        <Card.Section className="rounded border border-border bg-[var(--color-surface)] px-5 py-5">
           <div className="mb-4 space-y-1">
             <p className="text-sm font-semibold text-text-main">Issue a new token</p>
             <p className="text-xs leading-5 text-text-muted">New token values are only shown once, so create them only when you are ready to copy.</p>
@@ -68,46 +68,46 @@ export default function TokenManagerCard({
         </Card.Section>
 
         {createError ? (
-          <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-600 dark:text-red-400">
+          <div className="rounded border border-[var(--color-danger)]/20 bg-[var(--color-danger-soft)] px-4 py-3 text-sm text-[var(--color-danger)]">
             {createError}
           </div>
         ) : null}
 
         {createdToken ? (
           <div className="space-y-4">
-            <Card.Section className="space-y-3 rounded-[24px] border border-emerald-500/20 bg-emerald-500/[0.06] px-5 py-[1.125rem]">
+            <Card.Section className="space-y-3 rounded border border-[var(--color-success)]/20 bg-[var(--color-success-soft)] px-5 py-[1.125rem]">
               <div className="flex items-center gap-2">
                 <Badge variant="success">New token</Badge>
                 <span className="text-xs text-text-muted">Shown once — copy it now.</span>
               </div>
-              <code className="block overflow-x-auto rounded-md bg-black px-3 py-2 text-xs text-slate-100">
+              <code className="block overflow-x-auto rounded bg-[var(--color-editor-bg)] px-3 py-2 text-xs text-[var(--color-text-inverse)]">
                 {createdToken}
               </code>
-              <div className="rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              <div className="rounded border border-[var(--color-warning)]/20 bg-[var(--color-warning-soft)] px-3 py-2 text-xs text-[var(--color-warning)]">
                 ⚠️ This token will not be shown again. Save it securely before closing this message.
               </div>
             </Card.Section>
 
             {/* Setup Instructions */}
-            <Card.Section className="space-y-3 rounded-[24px] border border-blue-500/20 bg-blue-500/[0.06] px-5 py-[1.125rem]">
+            <Card.Section className="space-y-3 rounded border border-[var(--color-info)]/20 bg-[var(--color-info-soft)] px-5 py-[1.125rem]">
               <button
                 type="button"
                 onClick={() => setShowInstructions(!showInstructions)}
                 className="flex w-full items-center justify-between text-left"
               >
-                <span className="text-sm font-semibold text-blue-700 dark:text-blue-400">
+                <span className="text-sm font-semibold text-[var(--color-info)]">
                   📋 Setup Instructions
                 </span>
-                <span className="text-blue-700 dark:text-blue-400">
+                <span className="text-[var(--color-info)]">
                   {showInstructions ? "▼" : "▶"}
                 </span>
               </button>
 
               {showInstructions && (
-                <div className="space-y-4 pt-2 text-xs text-blue-900 dark:text-blue-300">
+                <div className="space-y-4 pt-2 text-xs text-[var(--color-text-main)]">
                   <div>
                     <p className="font-semibold mb-2">1. Add to opencode.json plugin array:</p>
-                    <code className="block rounded-md bg-black px-3 py-2 text-xs text-slate-100 overflow-x-auto">
+                    <code className="block rounded bg-[var(--color-editor-bg)] px-3 py-2 text-xs text-[var(--color-text-inverse)] overflow-x-auto">
                       "plugin": ["opencode-9router-sync@latest", ...]
                     </code>
                   </div>
@@ -116,12 +116,12 @@ export default function TokenManagerCard({
                     <p className="font-semibold mb-2">2. Create config file:</p>
                     
                     {/* Standard */}
-                    <div className="mb-3 rounded-md border border-gray-500/20 bg-gray-500/10 p-3">
-                      <p className="font-semibold mb-1 text-gray-700 dark:text-gray-300">Standard:</p>
-                      <code className="block text-[10px] text-gray-600 dark:text-gray-400 mb-2">
+                    <div className="mb-3 rounded border border-border bg-[var(--color-bg-alt)] p-3">
+                      <p className="font-semibold mb-1 text-[var(--color-text-main)]">Standard:</p>
+                      <code className="block text-[10px] text-[var(--color-text-muted)] mb-2">
                         ~/.config/opencode-9router-sync/config.json
                       </code>
-                      <pre className="rounded-md bg-black px-3 py-2 text-[10px] text-slate-100 overflow-x-auto">
+                      <pre className="rounded bg-[var(--color-editor-bg)] px-3 py-2 text-[10px] text-[var(--color-text-inverse)] overflow-x-auto">
 {`{
   "dashboardUrl": "${typeof window !== "undefined" ? window.location.origin : "http://localhost:20129"}",
   "syncToken": "${createdToken}",
@@ -131,12 +131,12 @@ export default function TokenManagerCard({
                     </div>
 
                     {/* OCX Profile */}
-                    <div className="rounded-md border border-emerald-500/20 bg-emerald-500/10 p-3">
-                      <p className="font-semibold mb-1 text-emerald-700 dark:text-emerald-400">With OCX Profile:</p>
-                      <code className="block text-[10px] text-emerald-600 dark:text-emerald-400 mb-2">
+                    <div className="rounded border border-[var(--color-success)]/20 bg-[var(--color-success-soft)] p-3">
+                      <p className="font-semibold mb-1 text-[var(--color-success)]">With OCX Profile:</p>
+                      <code className="block text-[10px] text-[var(--color-success)] mb-2">
                         ~/.config/opencode/profiles/&lt;profilename&gt;/opencode-9router-sync/config.json
                       </code>
-                      <pre className="rounded-md bg-black px-3 py-2 text-[10px] text-slate-100 overflow-x-auto">
+                      <pre className="rounded bg-[var(--color-editor-bg)] px-3 py-2 text-[10px] text-[var(--color-text-inverse)] overflow-x-auto">
 {`{
   "dashboardUrl": "${typeof window !== "undefined" ? window.location.origin : "http://localhost:20129"}",
   "syncToken": "${createdToken}",
@@ -146,8 +146,8 @@ export default function TokenManagerCard({
                     </div>
                   </div>
 
-                  <div className="rounded-md border border-blue-500/20 bg-blue-500/10 px-3 py-2">
-                    <p className="text-blue-700 dark:text-blue-300">
+                  <div className="rounded border border-[var(--color-info)]/20 bg-[var(--color-info-soft)] px-3 py-2">
+                    <p className="text-[var(--color-info)]">
                       ✨ <strong>Auto-sync:</strong> The plugin will automatically sync your config from 9Router dashboard on OpenCode startup.
                     </p>
                   </div>
@@ -159,12 +159,12 @@ export default function TokenManagerCard({
 
         <div className="space-y-4">
           {tokens.length === 0 ? (
-            <div className="rounded-[22px] border border-dashed border-black/8 bg-black/[0.015] px-5 py-6 text-sm text-text-muted dark:border-white/10 dark:bg-white/[0.015]">
+            <div className="rounded border border-dashed border-border bg-[var(--color-bg-alt)] px-5 py-6 text-sm text-text-muted">
               No auto-sync tokens created yet.
             </div>
           ) : (
             tokens.map((token) => (
-              <Card.Section key={token.id} className="space-y-4 rounded-[24px] border border-black/5 bg-white/[0.75] px-5 py-5 dark:border-white/5 dark:bg-white/[0.02]">
+              <Card.Section key={token.id} className="space-y-4 rounded border border-border bg-[var(--color-surface)] px-5 py-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="text-sm font-semibold text-text-main">{token.name}</div>
@@ -172,7 +172,7 @@ export default function TokenManagerCard({
                   </div>
                 </div>
                 {token.metadata && Object.keys(token.metadata).length > 0 ? (
-                  <pre className="overflow-x-auto rounded-md bg-black/[0.03] px-3 py-2 text-xs text-text-muted dark:bg-white/[0.03]">
+                  <pre className="overflow-x-auto rounded bg-[var(--color-bg-alt)] px-3 py-2 text-xs text-text-muted">
                     {JSON.stringify(token.metadata, null, 2)}
                   </pre>
                 ) : null}

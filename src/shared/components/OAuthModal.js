@@ -364,14 +364,14 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
       <div className="flex flex-col gap-4">
         {/* Waiting Step (Localhost - popup mode) */}
         {step === "waiting" && !isDeviceCode && (
-          <div className="text-center py-6">
-            <div className="size-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
-              <span className="material-symbols-outlined text-3xl text-primary animate-spin">
+          <div className="py-6 text-center">
+            <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full [background-color:color-mix(in_srgb,var(--color-primary)_12%,transparent)]">
+              <span className="material-symbols-outlined text-3xl text-[var(--color-primary)] animate-spin">
                 progress_activity
               </span>
             </div>
-            <h3 className="text-lg font-semibold mb-2">Waiting for Authorization</h3>
-            <p className="text-sm text-text-muted mb-4">
+            <h3 className="mb-2 text-lg font-semibold text-[var(--color-text-main)]">Waiting for Authorization</h3>
+            <p className="mb-4 text-sm text-[var(--color-text-muted)]">
               Complete the authorization in the popup window.
             </p>
             <Button variant="ghost" onClick={() => setStep("input")}>
@@ -383,14 +383,14 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
         {/* Device Code Flow - Waiting */}
         {step === "waiting" && isDeviceCode && deviceData && (
           <>
-            <div className="text-center py-4">
-              <p className="text-sm text-text-muted mb-4">
+            <div className="py-4 text-center">
+              <p className="mb-4 text-sm text-[var(--color-text-muted)]">
                 Visit the login URL below and authorize:
               </p>
-              <div className="bg-sidebar p-4 rounded-lg mb-4">
-                <p className="text-xs text-text-muted mb-1">Login URL</p>
+              <div className="mb-4 rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4">
+                <p className="mb-1 text-xs text-[var(--color-text-muted)]">Login URL</p>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 text-sm break-all">{deviceLoginUrl}</code>
+                  <code className="flex-1 break-all text-sm text-[var(--color-text-main)]">{deviceLoginUrl}</code>
                   <Button
                     size="sm"
                     variant="ghost"
@@ -409,10 +409,10 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
                   </Button>
                 </div>
               </div>
-              <div className="bg-primary/10 p-4 rounded-lg">
-                <p className="text-xs text-text-muted mb-1">Your Code</p>
+              <div className="rounded border border-[var(--color-border)] [background-color:color-mix(in_srgb,var(--color-primary)_10%,var(--color-surface))] p-4">
+                <p className="mb-1 text-xs text-[var(--color-text-muted)]">Your Code</p>
                 <div className="flex items-center justify-center gap-2">
-                  <p className="text-2xl font-mono font-bold text-primary">{deviceData.user_code}</p>
+                  <p className="text-2xl font-mono font-bold text-[var(--color-primary)]">{deviceData.user_code}</p>
                   <Button
                     size="sm"
                     variant="ghost"
@@ -423,7 +423,7 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
               </div>
             </div>
             {polling && (
-              <div className="flex items-center justify-center gap-2 text-sm text-text-muted">
+              <div className="flex items-center justify-center gap-2 text-sm text-[var(--color-text-muted)]">
                 <span className="material-symbols-outlined animate-spin">progress_activity</span>
                 Waiting for authorization...
               </div>
@@ -436,7 +436,7 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
           <>
             <div className="space-y-4">
               <div>
-                <p className="text-sm font-medium mb-2">Step 1: Open this URL in your browser</p>
+                <p className="mb-2 text-sm font-medium text-[var(--color-text-main)]">Step 1: Open this URL in your browser</p>
                 <div className="flex gap-2">
                   <Input value={authData?.authUrl || ""} readOnly className="flex-1 font-mono text-xs" />
                   <Button variant="secondary" icon={copied === "auth_url" ? "check" : "content_copy"} onClick={() => copy(authData?.authUrl, "auth_url")}>
@@ -446,8 +446,8 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
               </div>
 
               <div>
-                <p className="text-sm font-medium mb-2">Step 2: Paste the callback URL here</p>
-                <p className="text-xs text-text-muted mb-2">
+                <p className="mb-2 text-sm font-medium text-[var(--color-text-main)]">Step 2: Paste the callback URL here</p>
+                <p className="mb-2 text-xs text-[var(--color-text-muted)]">
                   After authorization, copy the full URL from your browser.
                 </p>
                 <Input
@@ -472,12 +472,12 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
 
         {/* Success Step */}
         {step === "success" && (
-          <div className="text-center py-6">
-            <div className="size-16 mx-auto mb-4 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-              <span className="material-symbols-outlined text-3xl text-green-600">check_circle</span>
+          <div className="py-6 text-center">
+            <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full [background-color:color-mix(in_srgb,var(--color-success,#16a34a)_12%,transparent)]">
+              <span className="material-symbols-outlined text-3xl [color:var(--color-success,#16a34a)]">check_circle</span>
             </div>
-            <h3 className="text-lg font-semibold mb-2">Connected Successfully!</h3>
-            <p className="text-sm text-text-muted mb-4">
+            <h3 className="mb-2 text-lg font-semibold text-[var(--color-text-main)]">Connected Successfully!</h3>
+            <p className="mb-4 text-sm text-[var(--color-text-muted)]">
               Your {providerInfo.name} account has been connected.
             </p>
             <Button onClick={handleClose} fullWidth>
@@ -488,12 +488,12 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
 
         {/* Error Step */}
         {step === "error" && (
-          <div className="text-center py-6">
-            <div className="size-16 mx-auto mb-4 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-              <span className="material-symbols-outlined text-3xl text-red-600">error</span>
+          <div className="py-6 text-center">
+            <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full [background-color:color-mix(in_srgb,var(--color-danger)_12%,transparent)]">
+              <span className="material-symbols-outlined text-3xl text-[var(--color-danger)]">error</span>
             </div>
-            <h3 className="text-lg font-semibold mb-2">Connection Failed</h3>
-            <p className="text-sm text-red-600 mb-4">{error}</p>
+            <h3 className="mb-2 text-lg font-semibold text-[var(--color-text-main)]">Connection Failed</h3>
+            <p className="mb-4 text-sm text-[var(--color-danger)]">{error}</p>
             <div className="flex gap-2">
               <Button onClick={startOAuthFlow} variant="secondary" fullWidth>
                 Try Again

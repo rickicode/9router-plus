@@ -116,7 +116,7 @@ export default function LanguageSwitcher({ className = "", isOpen: controlledOpe
         <button
           onClick={() => setIsOpen(!isOpen)}
           disabled={isPending}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg text-text-muted hover:text-text-main hover:bg-surface/60 transition-colors"
+          className="flex items-center gap-2 rounded px-3 py-2 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-text-main)]"
           title="Language"
           data-i18n-skip="true"
         >
@@ -131,21 +131,21 @@ export default function LanguageSwitcher({ className = "", isOpen: controlledOpe
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" data-i18n-skip="true">
           {/* Overlay */}
           <div
-            className="absolute inset-0 bg-black/30 backdrop-blur-sm"
+            className="absolute inset-0 [background-color:var(--color-overlay,rgba(0,0,0,0.48))]"
             onClick={() => setIsOpen(false)}
           />
 
           {/* Modal content */}
           <div
             ref={modalRef}
-            className="relative w-full bg-surface border border-black/10 dark:border-white/10 rounded-xl shadow-2xl animate-in fade-in zoom-in-95 duration-200 max-w-2xl flex flex-col max-h-[80vh]"
+            className="relative flex max-h-[80vh] w-full max-w-2xl flex-col rounded border border-[var(--color-border)] bg-[var(--color-surface)] animate-in fade-in zoom-in-95 duration-200"
           >
             {/* Modal header */}
-            <div className="flex items-center justify-between p-3 border-b border-black/5 dark:border-white/5">
-              <h2 className="text-lg font-semibold text-text-main">Select Language</h2>
+            <div className="flex items-center justify-between border-b border-[var(--color-border)] p-3">
+              <h2 className="text-lg font-semibold text-[var(--color-text-main)]">Select Language</h2>
               <button
                 onClick={() => setIsOpen(false)}
-                className="p-1.5 rounded-lg text-text-muted hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                className="rounded p-1.5 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-text-main)]"
                 aria-label="Close"
               >
                 <span className="material-symbols-outlined text-[20px]">close</span>
@@ -163,10 +163,10 @@ export default function LanguageSwitcher({ className = "", isOpen: controlledOpe
                       key={item}
                       onClick={() => handleSetLocale(item)}
                       disabled={isPending}
-                      className={`flex flex-col items-center justify-start gap-1 px-2 py-3 rounded-lg text-xs font-medium transition-colors w-full ${
+                      className={`flex w-full flex-col items-center justify-start gap-1 rounded border px-2 py-3 text-xs font-medium transition-colors ${
                         active
-                          ? "bg-primary/15 text-primary ring-2 ring-primary"
-                          : "text-text-main hover:bg-black/5 dark:hover:bg-white/5"
+                          ? "border-[var(--color-primary)] bg-[var(--color-bg-alt)] text-[var(--color-primary)]"
+                          : "border-[var(--color-border)] text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)]"
                       } ${isPending ? "opacity-70 cursor-wait" : ""}`}
                       title={info.name}
                     >

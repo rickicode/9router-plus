@@ -42,27 +42,27 @@ function formatResetTimeDisplay(resetTime) {
 function getColorClasses(remainingPercentage) {
   if (remainingPercentage > 70) {
     return {
-      text: "text-green-600 dark:text-green-400",
-      bg: "bg-green-500",
-      bgLight: "bg-green-500/10",
+      text: "text-[var(--color-success)]",
+      bg: "bg-[var(--color-success)]",
+      bgLight: "bg-[var(--color-success-soft)]",
       emoji: "🟢"
     };
   }
   
   if (remainingPercentage >= 30) {
     return {
-      text: "text-yellow-600 dark:text-yellow-400",
-      bg: "bg-yellow-500",
-      bgLight: "bg-yellow-500/10",
+      text: "text-[var(--color-warning)]",
+      bg: "bg-[var(--color-warning)]",
+      bgLight: "bg-[var(--color-warning-soft)]",
       emoji: "🟡"
     };
   }
   
   // 0-29% including 0% (out of quota) - show red
   return {
-    text: "text-red-600 dark:text-red-400",
-    bg: "bg-red-500",
-    bgLight: "bg-red-500/10",
+    text: "text-[var(--color-danger)]",
+    bg: "bg-[var(--color-danger)]",
+    bgLight: "bg-[var(--color-danger-soft)]",
     emoji: "🔴"
   };
 }
@@ -96,13 +96,13 @@ export default function QuotaTable({ quotas = [], compact = false }) {
             return (
               <tr 
                 key={index}
-                className="border-b border-black/5 dark:border-white/5 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors"
+                className="border-b border-border hover:bg-bg-subtle transition-colors"
               >
                 {/* Model Name with Status Emoji */}
                 <td className={`${cellPad} w-[30%]`}>
                   <div className="flex items-center gap-1.5 min-w-0">
                     <span className="text-[10px] shrink-0">{colors.emoji}</span>
-                    <span className={`${nameText} font-medium text-text-primary truncate`}>
+                    <span className={`${nameText} font-medium text-text-main truncate`}>
                       {quota.name}
                     </span>
                   </div>
@@ -113,7 +113,7 @@ export default function QuotaTable({ quotas = [], compact = false }) {
                   <div className={compact ? "space-y-1" : "space-y-1.5"}>
                     {/* Progress bar - always show with border for visibility */}
                     <div className={`${compact ? "h-1" : "h-1.5"} rounded-full overflow-hidden border ${colors.bgLight} ${
-                      remaining === 0 ? 'border-black/10 dark:border-white/10' : 'border-transparent'
+                      remaining === 0 ? 'border-border' : 'border-transparent'
                     }`}>
                       <div
                         className={`h-full transition-all duration-300 ${colors.bg}`}
@@ -138,7 +138,7 @@ export default function QuotaTable({ quotas = [], compact = false }) {
                   {countdown !== "-" || resetDisplay ? (
                     <div className="space-y-0.5">
                       {countdown !== "-" && (
-                        <div className={`${resetPrimary} text-text-primary font-medium`}>
+                        <div className={`${resetPrimary} text-text-main font-medium`}>
                           in {countdown}
                         </div>
                       )}

@@ -18,21 +18,42 @@ class GoProxyManager {
 
     const { file, args } = buildGoProxyCommand(config);
     
-    this.process = spawn(file, args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: false,
+    this.addLog(`[INFO] Starting Go Proxy: ${file} ${args.join(" ")}`);
+    console.log("[GoProxyManager] Starting:", file, args);
+    
+    try {
+      this.process = spawn(file, args, {
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: false,
+      });
+      console.log("[GoProxyManager] Spawned PID:", this.process.pid);
+    } catch (error) {
+      console.error("[GoProxyManager] Spawn error:", error);
+      this.addLog(`[ERROR] Failed to spawn process: ${error.message}`);
+      throw error;
+    }
+
+    this.process.on("error", (error) => {
+      console.error("[GoProxyManager] Process error:", error);
+      this.addLog(`[ERROR] Process error: ${error.message}`);
+      this.process = null;
     });
 
     this.process.stdout.on("data", (data) => {
-      this.addLog(`[INFO] ${data.toString().trim()}`);
+      const msg = data.toString().trim();
+      console.log("[GoProxyManager] STDOUT:", msg);
+      this.addLog(`[INFO] ${msg}`);
     });
 
     this.process.stderr.on("data", (data) => {
-      this.addLog(`[ERROR] ${data.toString().trim()}`);
+      const msg = data.toString().trim();
+      console.error("[GoProxyManager] STDERR:", msg);
+      this.addLog(`[INFO] ${msg}`);  // Go logs to stderr by default
     });
 
-    this.process.on("exit", (code) => {
-      this.handleExit(code, config);
+    this.process.on("exit", (code, signal) => {
+      console.log("[GoProxyManager] Exit:", code, signal);
+      this.handleExit(code, signal, config);
     });
 
     return {
@@ -58,10 +79,12 @@ class GoProxyManager {
     return this.start(config);
   }
 
-  handleExit(code, config) {
+  handleExit(code, signal, config) {
+    const exitReason = signal ? `signal ${signal}` : `code ${code}`;
+    this.addLog(`[INFO] Process exited: ${exitReason}`);
     this.process = null;
     
-    if (code !== 0 && this.retryCount < this.maxRetries) {
+    if (code !== 0 && !signal && this.retryCount < this.maxRetries) {
       const timeout = this.retryTimeouts[this.retryCount];
       this.addLog(`[WARN] Process exited with code ${code}, retrying in ${timeout}ms (attempt ${this.retryCount + 1}/${this.maxRetries})`);
       
@@ -75,6 +98,9 @@ class GoProxyManager {
       }, timeout);
     } else if (code !== 0) {
       this.addLog(`[ERROR] Process stopped after ${this.maxRetries} retry attempts (exit code: ${code})`);
+      this.retryCount = 0;
+    } else {
+      this.addLog(`[INFO] Process stopped gracefully`);
       this.retryCount = 0;
     }
   }
@@ -93,10 +119,15 @@ class GoProxyManager {
   }
 
   getStatus() {
+    const lastLog = this.logs[this.logs.length - 1];
+    const hasError = lastLog && lastLog.includes("[ERROR]");
+    
     return {
       running: this.process !== null,
       pid: this.process?.pid || null,
       retryCount: this.retryCount,
+      lastError: hasError ? lastLog : null,
+      logsCount: this.logs.length,
     };
   }
 }

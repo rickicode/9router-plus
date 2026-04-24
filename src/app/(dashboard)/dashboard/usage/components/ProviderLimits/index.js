@@ -101,7 +101,7 @@ function getSchedulerTone(status, enabled) {
       icon: "pause_circle",
       label: "Scheduler paused",
       tone: "text-text-muted",
-      surface: "border-black/5 dark:border-white/10 bg-surface",
+      surface: "border-border bg-surface",
     };
   }
 
@@ -110,29 +110,29 @@ function getSchedulerTone(status, enabled) {
       return {
         icon: "progress_activity",
         label: "Sweep running",
-        tone: "text-primary",
-        surface: "border-primary/20 bg-primary/5",
+        tone: "text-[var(--color-primary)]",
+        surface: "border-[var(--color-primary-border)] bg-[var(--color-primary-soft)]",
       };
     case "cancelling":
       return {
         icon: "sync",
         label: "Restarting sweep",
-        tone: "text-amber-600 dark:text-amber-400",
-        surface: "border-amber-500/20 bg-amber-500/10",
+        tone: "text-[var(--color-warning)]",
+        surface: "border-[var(--color-warning-border)] bg-[var(--color-warning-soft)]",
       };
     case "error":
       return {
         icon: "error",
         label: "Scheduler error",
-        tone: "text-red-500",
-        surface: "border-red-500/20 bg-red-500/10",
+        tone: "text-[var(--color-danger)]",
+        surface: "border-[var(--color-danger-border)] bg-[var(--color-danger-soft)]",
       };
     default:
       return {
         icon: "schedule",
         label: "Watching shared state",
-        tone: "text-emerald-600 dark:text-emerald-400",
-        surface: "border-emerald-500/20 bg-emerald-500/10",
+        tone: "text-[var(--color-success)]",
+        surface: "border-[var(--color-success-border)] bg-[var(--color-success-soft)]",
       };
   }
 }
@@ -503,7 +503,7 @@ export default function ProviderLimits() {
           <span className="material-symbols-outlined text-[64px] text-text-muted opacity-20">
             cloud_off
           </span>
-          <h3 className="mt-4 text-lg font-semibold text-text-primary">
+          <h3 className="mt-4 text-lg font-semibold text-text-main">
             No Providers Connected
           </h3>
           <p className="mt-2 text-sm text-text-muted max-w-md mx-auto">
@@ -516,10 +516,10 @@ export default function ProviderLimits() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-black/5 dark:border-white/10 bg-white/70 dark:bg-white/5 backdrop-blur-sm shadow-sm px-4 py-4 space-y-4">
+      <div className="rounded border border-border bg-surface px-4 py-4 space-y-4">
         <div className="space-y-3">
           <div>
-            <h2 className="text-xl font-semibold text-text-primary">
+            <h2 className="text-xl font-semibold text-text-main">
               Provider Limits
             </h2>
             <p className="mt-1 text-sm text-text-muted">
@@ -529,34 +529,34 @@ export default function ProviderLimits() {
 
           <div className="space-y-2 text-xs text-text-muted">
             <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-              <span className="inline-flex items-center rounded-full border border-black/5 dark:border-white/10 bg-surface px-2.5 py-1">
+              <span className="inline-flex items-center rounded-full border border-border bg-surface px-2.5 py-1">
                 {sortedConnections.length} matching {sortedConnections.length === 1 ? "connection" : "connections"}
               </span>
-              <span className="inline-flex items-center rounded-full border border-black/5 dark:border-white/10 bg-surface px-2.5 py-1">
+              <span className="inline-flex items-center rounded-full border border-border bg-surface px-2.5 py-1">
                 {activeWithLimits} with quota data
               </span>
             </div>
 
             <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-              <span className="inline-flex items-center rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-emerald-700 dark:text-emerald-300">
+              <span className="inline-flex items-center rounded-full border border-[var(--color-success-border)] bg-[var(--color-success-soft)] px-2.5 py-1 text-[var(--color-success)]">
                 {canonicalStatusCounts.eligible} eligible
               </span>
-              <span className="inline-flex items-center rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-amber-700 dark:text-amber-300">
+              <span className="inline-flex items-center rounded-full border border-[var(--color-warning-border)] bg-[var(--color-warning-soft)] px-2.5 py-1 text-[var(--color-warning)]">
                 {canonicalStatusCounts.exhausted} exhausted
               </span>
-              <span className="inline-flex items-center rounded-full border border-red-500/20 bg-red-500/10 px-2.5 py-1 text-red-700 dark:text-red-300">
+              <span className="inline-flex items-center rounded-full border border-[var(--color-danger-border)] bg-[var(--color-danger-soft)] px-2.5 py-1 text-[var(--color-danger)]">
                 {canonicalStatusCounts.blocked} blocked
               </span>
-              <span className="inline-flex items-center rounded-full border border-black/5 dark:border-white/10 bg-surface px-2.5 py-1">
+              <span className="inline-flex items-center rounded-full border border-border bg-surface px-2.5 py-1">
                 {canonicalStatusCounts.disabled} disabled
               </span>
-              <span className="inline-flex items-center rounded-full border border-black/5 dark:border-white/10 bg-surface px-2.5 py-1">
+              <span className="inline-flex items-center rounded-full border border-border bg-surface px-2.5 py-1">
                 {canonicalStatusCounts.unknown} unknown
               </span>
             </div>
           </div>
 
-          <div className={`flex w-full items-start gap-3 rounded-2xl border px-3 py-3 ${schedulerTone.surface}`}>
+          <div className={`flex w-full items-start gap-3 rounded border px-3 py-3 ${schedulerTone.surface}`}>
             <span className={`material-symbols-outlined text-[18px] shrink-0 mt-0.5 ${schedulerTone.tone} ${schedulerStatus?.status === "running" ? "animate-spin" : schedulerStatus?.restartRequested ? "animate-pulse" : ""}`}>
               {schedulerTone.icon}
             </span>
@@ -637,13 +637,13 @@ export default function ProviderLimits() {
         </div>
 
         {(schedulerStatusError || refreshActionError) && (
-          <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-300">
+          <div className="rounded border border-[var(--color-danger-border)] bg-[var(--color-danger-soft)] px-3 py-2 text-xs text-[var(--color-danger)]">
             {refreshActionError || schedulerStatusError}
           </div>
         )}
 
         {schedulerStatusLoading && !schedulerStatus && (
-          <div className="rounded-xl border border-black/5 dark:border-white/10 bg-surface px-3 py-2 text-xs text-text-muted">
+          <div className="rounded border border-border bg-surface px-3 py-2 text-xs text-text-muted">
             Loading scheduler status…
           </div>
         )}
@@ -663,10 +663,10 @@ export default function ProviderLimits() {
               padding="none"
               className={`min-w-0 ${isInactive ? "opacity-60" : ""}`}
             >
-              <div className="px-4 py-3 border-b border-black/10 dark:border-white/10">
+              <div className="px-4 py-3 border-b border-border">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-8 h-8 shrink-0 rounded-md flex items-center justify-center overflow-hidden">
+                    <div className="w-8 h-8 shrink-0 rounded flex items-center justify-center overflow-hidden">
                       <ProviderIcon
                         src={`/providers/${conn.provider}.png`}
                         alt={conn.provider}
@@ -676,7 +676,7 @@ export default function ProviderLimits() {
                       />
                     </div>
                     <div className="min-w-0">
-                      <h3 className="text-sm font-semibold text-text-primary capitalize truncate">
+                      <h3 className="text-sm font-semibold text-text-main capitalize truncate">
                         {conn.provider}
                       </h3>
                       {conn.name && (
@@ -689,7 +689,7 @@ export default function ProviderLimits() {
 
                   <div className="flex items-center gap-1 shrink-0">
                     <div
-                      className="inline-flex items-center rounded-lg border border-black/5 dark:border-white/10 bg-surface px-2 py-1 text-[11px] text-text-muted"
+                      className="inline-flex items-center rounded border border-border bg-surface px-2 py-1 text-[11px] text-text-muted"
                       title="Current provider account status"
                     >
                       {getConnectionCentralizedStatus(conn)}
@@ -698,7 +698,7 @@ export default function ProviderLimits() {
                       type="button"
                       onClick={() => refreshConnectionUsage(conn.id)}
                       disabled={rowBusy || isRefreshingConnection}
-                      className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-text-muted hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="p-1.5 rounded hover:bg-bg-subtle text-text-muted hover:text-[var(--color-primary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       title="Refresh quota"
                     >
                       <span
@@ -714,7 +714,7 @@ export default function ProviderLimits() {
                         setShowEditModal(true);
                       }}
                       disabled={rowBusy}
-                      className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-text-muted hover:text-primary transition-colors disabled:opacity-50"
+                      className="p-1.5 rounded hover:bg-bg-subtle text-text-muted hover:text-[var(--color-primary)] transition-colors disabled:opacity-50"
                       title="Edit connection"
                     >
                       <span className="material-symbols-outlined text-[18px]">
@@ -725,7 +725,7 @@ export default function ProviderLimits() {
                       type="button"
                       onClick={() => handleDeleteConnection(conn.id)}
                       disabled={rowBusy}
-                      className="p-1.5 rounded-lg hover:bg-red-500/10 text-red-500 transition-colors disabled:opacity-50"
+                      className="p-1.5 rounded hover:bg-[var(--color-danger-soft)] text-[var(--color-danger)] transition-colors disabled:opacity-50"
                       title="Delete connection"
                     >
                       <span
@@ -751,19 +751,19 @@ export default function ProviderLimits() {
 
               <div className="px-3 py-3">
                 {connectionRefreshError && (
-                  <div className="mb-3 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-300">
+                  <div className="mb-3 rounded border border-[var(--color-danger-border)] bg-[var(--color-danger-soft)] px-3 py-2 text-xs text-[var(--color-danger)]">
                     {connectionRefreshError}
                   </div>
                 )}
                 {quota.message ? (
-                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-3 text-xs text-text-muted">
+                  <div className="rounded border border-[var(--color-warning-border)] bg-[var(--color-warning-soft)] px-3 py-3 text-xs text-text-muted">
                     {quota.message}
                   </div>
                 ) : quota.quotas?.length > 0 ? (
                   <QuotaTable quotas={quota.quotas} compact />
                 ) : (
-                  <div className="rounded-xl border border-dashed border-black/10 dark:border-white/10 bg-surface/70 px-3 py-4 text-center">
-                    <p className="text-xs font-medium text-text-primary">Waiting for backend quota snapshot</p>
+                  <div className="rounded border border-dashed border-border bg-surface/70 px-3 py-4 text-center">
+                    <p className="text-xs font-medium text-text-main">Waiting for backend quota snapshot</p>
                     <p className="mt-1 text-xs text-text-muted">
                       Use the reload icon to refresh just this account, or Refresh All to request a backend sweep.
                     </p>

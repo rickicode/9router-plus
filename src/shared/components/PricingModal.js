@@ -94,14 +94,14 @@ export default function PricingModal({ isOpen, onClose, onSave }) {
   const pricingFields = ["input", "output", "cached", "reasoning", "cache_creation"];
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-bg-base border border-border rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 [background-color:var(--color-overlay,rgba(0,0,0,0.48))]">
+      <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded border border-[var(--color-border)] bg-[var(--color-surface)]">
         {/* Header */}
-        <div className="p-4 border-b border-border flex items-center justify-between">
-          <h2 className="text-xl font-semibold">Pricing Configuration</h2>
+        <div className="flex items-center justify-between border-b border-[var(--color-border)] p-4">
+          <h2 className="text-xl font-semibold text-[var(--color-text-main)]">Pricing Configuration</h2>
           <button
             onClick={onClose}
-            className="text-text-muted hover:text-text text-2xl leading-none"
+            className="text-2xl leading-none text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-main)]"
           >
             ×
           </button>
@@ -110,13 +110,13 @@ export default function PricingModal({ isOpen, onClose, onSave }) {
         {/* Content */}
         <div className="flex-1 overflow-auto p-4">
           {loading ? (
-            <div className="text-center py-8 text-text-muted">Loading pricing data...</div>
+            <div className="py-8 text-center text-[var(--color-text-muted)]">Loading pricing data...</div>
           ) : (
             <div className="space-y-6">
               {/* Instructions */}
-              <div className="bg-bg-subtle border border-border rounded-lg p-3 text-sm">
-                <p className="font-medium mb-1">Pricing Rates Format</p>
-                <p className="text-text-muted">
+              <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-3 text-sm">
+                <p className="mb-1 font-medium text-[var(--color-text-main)]">Pricing Rates Format</p>
+                <p className="text-[var(--color-text-muted)]">
                   All rates are in <strong>dollars per million tokens</strong> ($/1M tokens).
                   Example: Input rate of 2.50 means $2.50 per 1,000,000 input tokens.
                 </p>
@@ -126,13 +126,13 @@ export default function PricingModal({ isOpen, onClose, onSave }) {
               {allProviders.map(provider => {
                 const models = Object.keys(pricingData[provider]).sort();
                 return (
-                  <div key={provider} className="border border-border rounded-lg overflow-hidden">
-                    <div className="bg-bg-subtle px-4 py-2 font-semibold text-sm">
+                  <div key={provider} className="overflow-hidden rounded border border-[var(--color-border)]">
+                    <div className="bg-[var(--color-bg-alt)] px-4 py-2 text-sm font-semibold text-[var(--color-text-main)]">
                       {provider.toUpperCase()}
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
-                        <thead className="bg-bg-hover text-text-muted uppercase text-xs">
+                        <thead className="bg-[var(--color-bg-alt)] text-[var(--color-text-muted)] uppercase text-xs">
                           <tr>
                             <th className="px-3 py-2 text-left">Model</th>
                             <th className="px-3 py-2 text-right">Input</th>
@@ -142,10 +142,10 @@ export default function PricingModal({ isOpen, onClose, onSave }) {
                             <th className="px-3 py-2 text-right">Cache Creation</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-border">
+                        <tbody className="divide-y divide-[var(--color-border)]">
                           {models.map(model => (
-                            <tr key={model} className="hover:bg-bg-subtle/50">
-                              <td className="px-3 py-2 font-medium">{model}</td>
+                            <tr key={model} className="hover:bg-[var(--color-bg-alt)]">
+                              <td className="px-3 py-2 font-medium text-[var(--color-text-main)]">{model}</td>
                               {pricingFields.map(field => (
                                 <td key={field} className="px-3 py-2">
                                   <input
@@ -154,7 +154,7 @@ export default function PricingModal({ isOpen, onClose, onSave }) {
                                     min="0"
                                     value={pricingData[provider][model][field] || 0}
                                     onChange={(e) => handlePricingChange(provider, model, field, e.target.value)}
-                                    className="w-20 px-2 py-1 text-right bg-bg-base border border-border rounded focus:outline-none focus:border-primary"
+                                    className="w-20 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-right text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:outline-none"
                                   />
                                 </td>
                               ))}
@@ -168,7 +168,7 @@ export default function PricingModal({ isOpen, onClose, onSave }) {
               })}
 
               {allProviders.length === 0 && (
-                <div className="text-center py-8 text-text-muted">
+                <div className="py-8 text-center text-[var(--color-text-muted)]">
                   No pricing data available
                 </div>
               )}
@@ -177,10 +177,10 @@ export default function PricingModal({ isOpen, onClose, onSave }) {
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-border flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-2 border-t border-[var(--color-border)] p-4">
           <button
             onClick={handleReset}
-            className="px-4 py-2 text-sm text-red-500 hover:bg-red-500/10 rounded border border-red-500/20 transition-colors"
+            className="rounded border border-[var(--color-danger)]/20 px-4 py-2 text-sm text-[var(--color-danger)] transition-colors hover:bg-[var(--color-danger)]/10"
             disabled={saving}
           >
             Reset to Defaults
@@ -188,14 +188,14 @@ export default function PricingModal({ isOpen, onClose, onSave }) {
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-sm text-text-muted hover:text-text border border-border rounded transition-colors"
+              className="rounded border border-[var(--color-border)] px-4 py-2 text-sm text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-main)]"
               disabled={saving}
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
-              className="px-4 py-2 text-sm bg-primary text-white rounded hover:bg-primary/90 transition-colors disabled:opacity-50"
+              className="rounded bg-[var(--color-primary)] px-4 py-2 text-sm text-white transition-colors hover:bg-[var(--color-primary-hover)] disabled:opacity-50"
               disabled={saving}
             >
               {saving ? "Saving..." : "Save Changes"}

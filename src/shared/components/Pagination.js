@@ -56,30 +56,30 @@ export default function Pagination({
   return (
     <div
       className={cn(
-        "flex flex-col gap-4 rounded-2xl border border-black/5 dark:border-white/10 bg-white/70 dark:bg-white/5 backdrop-blur-sm px-4 py-3 shadow-sm",
+        "flex flex-col gap-4 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3",
         className
       )}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         {totalItems > 0 ? (
-          <div className="text-sm text-text-muted">
-            Showing <span className="font-medium text-text-main">{startItem}</span> to{" "}
-            <span className="font-medium text-text-main">{endItem}</span> of{" "}
-            <span className="font-medium text-text-main">{totalItems}</span> results
+          <div className="text-sm text-[var(--color-text-muted)]">
+            Showing <span className="font-medium text-[var(--color-text-main)]">{startItem}</span> to{" "}
+            <span className="font-medium text-[var(--color-text-main)]">{endItem}</span> of{" "}
+            <span className="font-medium text-[var(--color-text-main)]">{totalItems}</span> results
           </div>
         ) : (
-          <div className="text-sm text-text-muted">No results</div>
+          <div className="text-sm text-[var(--color-text-muted)]">No results</div>
         )}
 
         {onPageSizeChange && totalPages > 1 && (
-          <div className="flex items-center gap-2 text-sm text-text-muted">
+          <div className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
             <span>Rows</span>
             <select
               value={pageSize}
               onChange={(e) => onPageSizeChange(Number(e.target.value))}
               className={cn(
-                "h-9 rounded-lg border border-black/10 dark:border-white/10 bg-surface px-3",
-                "text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20",
+                "h-9 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-3",
+                "text-sm text-[var(--color-text-main)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20",
                 "cursor-pointer"
               )}
             >
@@ -116,7 +116,7 @@ export default function Pagination({
               >
                 1
               </Button>
-              {pageNumbers[0] > 2 && <span className="px-1 text-text-muted">...</span>}
+              {pageNumbers[0] > 2 && <span className="px-1 text-[var(--color-text-muted)]">...</span>}
             </>
           )}
 
@@ -135,7 +135,7 @@ export default function Pagination({
           {!lastPageVisible && (
             <>
               {pageNumbers[pageNumbers.length - 1] < totalPages - 1 && (
-                <span className="px-1 text-text-muted">...</span>
+                <span className="px-1 text-[var(--color-text-muted)]">...</span>
               )}
               <Button
                 variant="ghost"

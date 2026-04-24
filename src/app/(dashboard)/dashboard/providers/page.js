@@ -27,6 +27,7 @@ import { useNotificationStore } from "@/store/notificationStore";
 import ModelAvailabilityBadge from "./components/ModelAvailabilityBadge";
 import { getConnectionErrorTag } from "./errorTag";
 import { getDashboardConnectionStatus, getStatusDisplayItems } from "./statusDisplay";
+import { feedbackClass } from "./designSystem";
 
 export default function ProvidersPage() {
   const [connections, setConnections] = useState([]);
@@ -382,10 +383,10 @@ export default function ProvidersPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <Card className="border border-border shadow-sm">
+      <Card className="border border-border">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
-            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-black/[0.03] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
+            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-[var(--color-bg-alt)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
               <span className="material-symbols-outlined text-[14px]">
                 backup
               </span>
@@ -400,7 +401,7 @@ export default function ProvidersPage() {
               usable after moving devices.
             </p>
           </div>
-          <div className="flex items-center gap-2 rounded-2xl border border-border bg-bg/80 p-2 shadow-inner">
+          <div className="flex items-center gap-2 rounded border border-border bg-[var(--color-bg-alt)]/60 p-2">
             <Button
               variant="outline"
               size="sm"
@@ -435,10 +436,10 @@ export default function ProvidersPage() {
             <button
               onClick={() => handleBatchTest("oauth")}
               disabled={!!testingMode}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border transition-colors ${
                 testingMode === "oauth"
-                  ? "bg-primary/20 border-primary/40 text-primary animate-pulse"
-                  : "bg-bg border-border text-text-muted hover:text-text-main hover:border-primary/40"
+                  ? "bg-[color:color-mix(in_srgb,var(--color-primary)_12%,transparent)] border-[var(--color-primary)]/30 text-primary animate-pulse"
+                  : "bg-[var(--color-surface)] border-border text-text-muted hover:text-text-main hover:border-primary/40"
               }`}
               title="Test all OAuth connections"
               aria-label="Test all OAuth connections"
@@ -475,10 +476,10 @@ export default function ProvidersPage() {
           <button
             onClick={() => handleBatchTest("free")}
             disabled={!!testingMode}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border transition-colors ${
               testingMode === "free"
-                ? "bg-primary/20 border-primary/40 text-primary animate-pulse"
-                : "bg-bg border-border text-text-muted hover:text-text-main hover:border-primary/40"
+                ? "bg-[color:color-mix(in_srgb,var(--color-primary)_12%,transparent)] border-[var(--color-primary)]/30 text-primary animate-pulse"
+                : "bg-[var(--color-surface)] border-border text-text-muted hover:text-text-main hover:border-primary/40"
             }`}
             title="Test all Free connections"
             aria-label="Test all Free provider connections"
@@ -524,10 +525,10 @@ export default function ProvidersPage() {
           <button
             onClick={() => handleBatchTest("apikey")}
             disabled={!!testingMode}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border transition-colors ${
               testingMode === "apikey"
-                ? "bg-primary/20 border-primary/40 text-primary animate-pulse"
-                : "bg-bg border-border text-text-muted hover:text-text-main hover:border-primary/40"
+                ? "bg-[color:color-mix(in_srgb,var(--color-primary)_12%,transparent)] border-[var(--color-primary)]/30 text-primary animate-pulse"
+                : "bg-[var(--color-surface)] border-border text-text-muted hover:text-text-main hover:border-primary/40"
             }`}
             title="Test all API Key connections"
             aria-label="Test all API Key connections"
@@ -612,7 +613,7 @@ export default function ProvidersPage() {
               variant="secondary"
               icon="add"
               onClick={() => setShowAddCompatibleModal(true)}
-              className="!bg-white !text-black hover:!bg-gray-100"
+              className="!bg-[var(--color-surface)] !text-[var(--color-text-main)] hover:!bg-[var(--color-bg-alt)]"
             >
               Add OpenAI Compatible
             </Button>
@@ -620,7 +621,7 @@ export default function ProvidersPage() {
         </div>
         {compatibleProviders.length === 0 &&
         anthropicCompatibleProviders.length === 0 ? (
-          <div className="text-center py-8 border border-dashed border-border rounded-xl">
+          <div className="text-center py-8 border border-dashed border-border rounded">
             <span className="material-symbols-outlined text-[32px] text-text-muted mb-2">
               extension
             </span>
@@ -675,16 +676,16 @@ export default function ProvidersPage() {
           className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh]"
           onClick={() => setTestResults(null)}
         >
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+          <div className="absolute inset-0 bg-black/60" />
           <div
-            className="relative bg-surface border border-border rounded-xl w-full max-w-[600px] max-h-[80vh] overflow-y-auto shadow-2xl"
+            className="relative bg-surface border border-border rounded w-full max-w-[600px] max-h-[80vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-3 border-b border-border bg-surface/95 backdrop-blur-sm rounded-t-xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-3 border-b border-border bg-surface rounded-t">
               <h3 className="font-semibold">Test Results</h3>
               <button
                 onClick={() => setTestResults(null)}
-                className="p-1 rounded-lg hover:bg-bg text-text-muted hover:text-text-main transition-colors"
+                className="p-1 rounded hover:bg-[var(--color-bg-alt)] text-text-muted hover:text-text-main transition-colors"
                 aria-label="Close test results"
               >
                 <span className="material-symbols-outlined text-lg">close</span>
@@ -748,15 +749,15 @@ export default function ProvidersPage() {
           </div>
 
           <div
-            className={`rounded-xl border px-4 py-3 ${credentialImportStatus.type === "error"
-              ? "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300"
+            className={`${credentialImportStatus.type === "error"
+              ? feedbackClass.error
               : credentialImportStatus.type === "success"
-                ? "border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-300"
+                ? feedbackClass.success
                 : credentialImportStatus.type === "warning"
-                  ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                  ? feedbackClass.warning
                   : credentialImportStatus.type === "info"
-                    ? "border-primary/30 bg-primary/10 text-text-main"
-                    : "border-border bg-bg/60 text-text-muted"
+                    ? feedbackClass.info
+                    : feedbackClass.muted
               }`}
           >
             <div className="flex items-start gap-3">
@@ -787,7 +788,7 @@ export default function ProvidersPage() {
                       : "Load a backup file or paste JSON to begin.")}
                 </div>
                 {importingCredentials && (
-                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
+                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[var(--color-bg-alt)]">
                     <div className="h-full w-2/3 animate-pulse rounded-full bg-primary" />
                   </div>
                 )}
@@ -822,7 +823,7 @@ export default function ProvidersPage() {
           <textarea
             value={credentialImportText}
             onChange={(e) => setCredentialImportText(e.target.value)}
-            className="w-full min-h-[240px] rounded-lg border border-border bg-bg p-3 text-sm font-mono text-text-main focus:outline-none focus:ring-2 focus:ring-primary/30"
+            className="w-full min-h-[240px] rounded border border-border bg-[var(--color-surface)] p-3 text-sm font-mono text-text-main focus:outline-none focus:ring-2 focus:ring-primary/30"
             placeholder="Paste credentials backup JSON here"
           />
         </div>
@@ -836,10 +837,10 @@ function ProviderCard({ providerId, provider, stats, authType, onToggle }) {
   const isNoAuth = !!provider.noAuth;
 
   const dotColors = {
-    free: "bg-green-500",
-    oauth: "bg-blue-500",
-    apikey: "bg-amber-500",
-    compatible: "bg-orange-500",
+    free: "bg-[var(--color-success)]",
+    oauth: "bg-[var(--color-info)]",
+    apikey: "bg-[var(--color-warning)]",
+    compatible: "bg-[var(--color-primary)]",
   };
   const dotLabels = {
     free: "Free",
@@ -852,12 +853,12 @@ function ProviderCard({ providerId, provider, stats, authType, onToggle }) {
     <Link href={`/dashboard/providers/${providerId}`} className="group">
       <Card
         padding="xs"
-        className={`h-full hover:bg-black/[0.01] dark:hover:bg-white/[0.01] transition-colors cursor-pointer ${allDisabled ? "opacity-50" : ""}`}
+        className={`h-full hover:bg-[var(--color-bg-alt)]/30 transition-colors cursor-pointer ${allDisabled ? "opacity-50" : ""}`}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div
-              className="size-8 rounded-lg flex items-center justify-center"
+              className="size-8 rounded flex items-center justify-center"
               style={{
                 backgroundColor: `${provider.color?.length > 7 ? provider.color : provider.color + "15"}`,
               }}
@@ -866,7 +867,7 @@ function ProviderCard({ providerId, provider, stats, authType, onToggle }) {
                 src={`/providers/${provider.id}.png`}
                 alt={provider.name}
                 size={30}
-                className="object-contain rounded-lg max-w-[32px] max-h-[32px]"
+                className="object-contain rounded max-w-[32px] max-h-[32px]"
                 fallbackText={
                   provider.textIcon || provider.id.slice(0, 2).toUpperCase()
                 }
@@ -959,10 +960,10 @@ function ApiKeyProviderCard({
   );
 
   const dotColors = {
-    free: "bg-green-500",
-    oauth: "bg-blue-500",
-    apikey: "bg-amber-500",
-    compatible: "bg-orange-500",
+    free: "bg-[var(--color-success)]",
+    oauth: "bg-[var(--color-info)]",
+    apikey: "bg-[var(--color-warning)]",
+    compatible: "bg-[var(--color-primary)]",
   };
   const dotLabels = {
     free: "Free",
@@ -984,12 +985,12 @@ function ApiKeyProviderCard({
     <Link href={`/dashboard/providers/${providerId}`} className="group">
       <Card
         padding="xs"
-        className={`h-full hover:bg-black/[0.01] dark:hover:bg-white/[0.01] transition-colors cursor-pointer ${allDisabled ? "opacity-50" : ""}`}
+        className={`h-full hover:bg-[var(--color-bg-alt)]/30 transition-colors cursor-pointer ${allDisabled ? "opacity-50" : ""}`}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div
-              className="size-8 rounded-lg flex items-center justify-center"
+              className="size-8 rounded flex items-center justify-center"
               style={{
                 backgroundColor: `${provider.color?.length > 7 ? provider.color : provider.color + "15"}`,
               }}
@@ -998,7 +999,7 @@ function ApiKeyProviderCard({
                 src={getIconPath()}
                 alt={provider.name}
                 size={30}
-                className="object-contain rounded-lg max-w-[30px] max-h-[30px]"
+                className="object-contain rounded max-w-[30px] max-h-[30px]"
                 fallbackText={
                   provider.textIcon || provider.id.slice(0, 2).toUpperCase()
                 }
@@ -1192,7 +1193,7 @@ function AddOpenAICompatibleModal({ isOpen, onClose, onCreated }) {
     return (
       <div className="flex flex-col gap-1">
         <Badge variant="error">Invalid</Badge>
-        {error && <span className="text-sm text-red-500">{error}</span>}
+        {error && <span className="text-sm text-[var(--color-danger)]">{error}</span>}
       </div>
     );
   };
@@ -1381,7 +1382,7 @@ function AddAnthropicCompatibleModal({ isOpen, onClose, onCreated }) {
     return (
       <div className="flex flex-col gap-1">
         <Badge variant="error">Invalid</Badge>
-        {error && <span className="text-sm text-red-500">{error}</span>}
+        {error && <span className="text-sm text-[var(--color-danger)]">{error}</span>}
       </div>
     );
   };
@@ -1467,10 +1468,10 @@ function ProviderTestResultsView({ results }) {
   if (results.error && !results.results) {
     return (
       <div className="text-center py-6">
-        <span className="material-symbols-outlined text-red-500 text-[32px] mb-2 block">
+        <span className="material-symbols-outlined text-[var(--color-danger)] text-[32px] mb-2 block">
           error
         </span>
-        <p className="text-sm text-red-400">{results.error}</p>
+        <p className="text-sm text-[var(--color-danger)]">{results.error}</p>
       </div>
     );
   }
@@ -1491,11 +1492,11 @@ function ProviderTestResultsView({ results }) {
       {summary && (
         <div className="flex items-center gap-3 text-xs mb-1">
           <span className="text-text-muted">{modeLabel} Test</span>
-          <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">
+          <span className="px-2 py-0.5 rounded border border-[var(--color-success)]/20 bg-[color:color-mix(in_srgb,var(--color-success)_10%,transparent)] text-[var(--color-success)] font-medium">
             {summary.passed} passed
           </span>
           {summary.failed > 0 && (
-            <span className="px-2 py-0.5 rounded bg-red-500/15 text-red-400 font-medium">
+            <span className="px-2 py-0.5 rounded border border-[var(--color-danger)]/20 bg-[color:color-mix(in_srgb,var(--color-danger)_10%,transparent)] text-[var(--color-danger)] font-medium">
               {summary.failed} failed
             </span>
           )}
@@ -1507,10 +1508,10 @@ function ProviderTestResultsView({ results }) {
       {items.map((r, i) => (
         <div
           key={r.connectionId || i}
-          className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg bg-black/[0.03] dark:bg-white/[0.03]"
+          className="flex items-center gap-2 text-xs px-3 py-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)]"
         >
           <span
-            className={`material-symbols-outlined text-[16px] ${r.valid ? "text-emerald-500" : "text-red-500"}`}
+            className={`material-symbols-outlined text-[16px] ${r.valid ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}`}
           >
             {r.valid ? "check_circle" : "error"}
           </span>
@@ -1526,8 +1527,8 @@ function ProviderTestResultsView({ results }) {
           <span
             className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
               r.valid
-                ? "bg-emerald-500/15 text-emerald-400"
-                : "bg-red-500/15 text-red-400"
+                ? "border border-[var(--color-success)]/20 bg-[color:color-mix(in_srgb,var(--color-success)_10%,transparent)] text-[var(--color-success)]"
+                : "border border-[var(--color-danger)]/20 bg-[color:color-mix(in_srgb,var(--color-danger)_10%,transparent)] text-[var(--color-danger)]"
             }`}
           >
             {r.valid ? "OK" : r.diagnosis?.type || "ERROR"}

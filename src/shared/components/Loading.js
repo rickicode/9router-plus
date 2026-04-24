@@ -14,7 +14,7 @@ export function Spinner({ size = "md", className }) {
   return (
     <span
       className={cn(
-        "material-symbols-outlined animate-spin text-primary",
+        "material-symbols-outlined animate-spin text-[var(--color-primary)]",
         sizes[size],
         className
       )}
@@ -27,9 +27,9 @@ export function Spinner({ size = "md", className }) {
 // Full page loading
 export function PageLoading({ message = "Loading..." }) {
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-bg">
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[var(--color-bg)]">
       <Spinner size="xl" />
-      <p className="mt-4 text-text-muted">{message}</p>
+      <p className="mt-4 text-[var(--color-text-muted)]">{message}</p>
     </div>
   );
 }
@@ -39,7 +39,7 @@ export function Skeleton({ className, ...props }) {
   return (
     <div
       className={cn(
-        "animate-pulse rounded-lg bg-border",
+        "animate-pulse rounded bg-[var(--color-border)]",
         className
       )}
       {...props}
@@ -50,10 +50,10 @@ export function Skeleton({ className, ...props }) {
 // Card skeleton
 export function CardSkeleton() {
   return (
-    <div className="p-6 rounded-xl border border-border bg-surface">
+    <div className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
       <div className="flex items-center justify-between mb-4">
         <Skeleton className="h-4 w-24" />
-        <Skeleton className="size-10 rounded-lg" />
+        <Skeleton className="size-10 rounded" />
       </div>
       <Skeleton className="h-8 w-16 mb-2" />
       <Skeleton className="h-3 w-20" />
@@ -74,4 +74,3 @@ export default function Loading({ type = "spinner", ...props }) {
       return <Spinner {...props} />;
   }
 }
-

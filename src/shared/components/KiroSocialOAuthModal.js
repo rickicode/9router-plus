@@ -102,14 +102,14 @@ export default function KiroSocialOAuthModal({ isOpen, provider, onSuccess, onCl
       <div className="flex flex-col gap-4">
         {/* Loading */}
         {step === "loading" && (
-          <div className="text-center py-6">
-            <div className="size-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
-              <span className="material-symbols-outlined text-3xl text-primary animate-spin">
+          <div className="py-6 text-center">
+            <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full [background-color:color-mix(in_srgb,var(--color-primary)_12%,transparent)]">
+              <span className="material-symbols-outlined text-3xl text-[var(--color-primary)] animate-spin">
                 progress_activity
               </span>
             </div>
-            <h3 className="text-lg font-semibold mb-2">Initializing...</h3>
-            <p className="text-sm text-text-muted">
+            <h3 className="mb-2 text-lg font-semibold text-[var(--color-text-main)]">Initializing...</h3>
+            <p className="text-sm text-[var(--color-text-muted)]">
               Setting up {providerName} authentication
             </p>
           </div>
@@ -120,7 +120,7 @@ export default function KiroSocialOAuthModal({ isOpen, provider, onSuccess, onCl
           <>
             <div className="space-y-4">
               <div>
-                <p className="text-sm font-medium mb-2">Step 1: Open this URL in your browser</p>
+                <p className="mb-2 text-sm font-medium text-[var(--color-text-main)]">Step 1: Open this URL in your browser</p>
                 <div className="flex gap-2">
                   <Input value={authUrl} readOnly className="flex-1 font-mono text-xs" />
                   <Button 
@@ -134,8 +134,8 @@ export default function KiroSocialOAuthModal({ isOpen, provider, onSuccess, onCl
               </div>
 
               <div>
-                <p className="text-sm font-medium mb-2">Step 2: Paste the callback URL here</p>
-                <p className="text-xs text-text-muted mb-2">
+                <p className="mb-2 text-sm font-medium text-[var(--color-text-main)]">Step 2: Paste the callback URL here</p>
+                <p className="mb-2 text-xs text-[var(--color-text-muted)]">
                   After authorization, copy the full URL from your browser address bar.
                 </p>
                 <Input
@@ -160,12 +160,12 @@ export default function KiroSocialOAuthModal({ isOpen, provider, onSuccess, onCl
 
         {/* Success */}
         {step === "success" && (
-          <div className="text-center py-6">
-            <div className="size-16 mx-auto mb-4 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-              <span className="material-symbols-outlined text-3xl text-green-600">check_circle</span>
+          <div className="py-6 text-center">
+            <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full [background-color:color-mix(in_srgb,var(--color-success,#16a34a)_12%,transparent)]">
+              <span className="material-symbols-outlined text-3xl [color:var(--color-success,#16a34a)]">check_circle</span>
             </div>
-            <h3 className="text-lg font-semibold mb-2">Connected Successfully!</h3>
-            <p className="text-sm text-text-muted mb-4">
+            <h3 className="mb-2 text-lg font-semibold text-[var(--color-text-main)]">Connected Successfully!</h3>
+            <p className="mb-4 text-sm text-[var(--color-text-muted)]">
               Your Kiro account via {providerName} has been connected.
             </p>
             <Button onClick={onClose} fullWidth>
@@ -176,12 +176,12 @@ export default function KiroSocialOAuthModal({ isOpen, provider, onSuccess, onCl
 
         {/* Error */}
         {step === "error" && (
-          <div className="text-center py-6">
-            <div className="size-16 mx-auto mb-4 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-              <span className="material-symbols-outlined text-3xl text-red-600">error</span>
+          <div className="py-6 text-center">
+            <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full [background-color:color-mix(in_srgb,var(--color-danger)_12%,transparent)]">
+              <span className="material-symbols-outlined text-3xl text-[var(--color-danger)]">error</span>
             </div>
-            <h3 className="text-lg font-semibold mb-2">Connection Failed</h3>
-            <p className="text-sm text-red-600 mb-4">{error}</p>
+            <h3 className="mb-2 text-lg font-semibold text-[var(--color-text-main)]">Connection Failed</h3>
+            <p className="mb-4 text-sm text-[var(--color-danger)]">{error}</p>
             <div className="flex gap-2">
               <Button onClick={() => setStep("input")} variant="secondary" fullWidth>
                 Try Again

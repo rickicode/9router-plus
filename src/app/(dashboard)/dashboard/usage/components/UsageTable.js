@@ -55,7 +55,7 @@ function ValueCells({ item, viewMode, isSummary = false }) {
       <td className="px-6 py-3 text-right text-text-muted">
         {isSummary && item.outputCost === undefined ? "—" : fmtCost(item.outputCost)}
       </td>
-      <td className="px-6 py-3 text-right font-medium text-warning">
+      <td className="px-6 py-3 text-right font-medium text-[var(--color-warning)]">
         {fmtCost(item.totalCost || item.cost)}
       </td>
     </>
@@ -190,7 +190,7 @@ export default function UsageTable({
                       <span className={`material-symbols-outlined text-[18px] text-text-muted transition-transform ${expanded.has(group.groupKey) ? "rotate-90" : ""}`}>
                         chevron_right
                       </span>
-                      <span className={`font-medium transition-colors ${group.summary.pending > 0 ? "text-primary" : ""}`}>
+                      <span className={`font-medium transition-colors ${group.summary.pending > 0 ? "text-[var(--color-primary)]" : ""}`}>
                         {group.groupKey}
                       </span>
                     </div>

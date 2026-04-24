@@ -1,10 +1,11 @@
 import PropTypes from "prop-types";
+import { rowHoverClass, subtleCodeClass, toneClasses } from "../designSystem";
 
 export default function ModelRow({ model, fullModel, alias, copied, onCopy, testStatus, isCustom, isFree, onDeleteAlias, onTest, isTesting }) {
   const borderColor = testStatus === "ok"
-    ? "border-green-500/40"
+    ? toneClasses.success.border
     : testStatus === "error"
-    ? "border-red-500/40"
+    ? toneClasses.danger.border
     : "border-border";
 
   const iconColor = testStatus === "ok"
@@ -14,7 +15,7 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
     : undefined;
 
   return (
-    <div className={`group px-3 py-2 rounded-lg border ${borderColor} hover:bg-sidebar/50`}>
+    <div className={`group rounded border px-3 py-2 ${borderColor} ${rowHoverClass}`}>
       <div className="flex items-center gap-2">
         <span
           className="material-symbols-outlined text-base"
@@ -23,7 +24,7 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
           {testStatus === "ok" ? "check_circle" : testStatus === "error" ? "cancel" : "smart_toy"}
         </span>
         <div className="flex flex-col gap-1">
-          <code className="text-xs text-text-muted font-mono bg-sidebar px-1.5 py-0.5 rounded">{fullModel}</code>
+          <code className={subtleCodeClass}>{fullModel}</code>
           {model.name && <span className="text-[9px] text-text-muted/70 italic pl-1">{model.name}</span>}
         </div>
         {onTest && (
@@ -31,7 +32,7 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
             <button
               onClick={onTest}
               disabled={isTesting}
-              className={`p-0.5 hover:bg-sidebar rounded text-text-muted hover:text-primary transition-opacity ${isTesting ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+              className={`rounded p-0.5 text-text-muted transition-opacity hover:bg-[var(--color-bg-alt)] hover:text-primary ${isTesting ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
             >
               <span className="material-symbols-outlined text-sm" style={isTesting ? { animation: "spin 1s linear infinite" } : undefined}>
                 {isTesting ? "progress_activity" : "science"}
@@ -45,7 +46,7 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
         <div className="relative group/btn">
           <button
             onClick={() => onCopy(fullModel, `model-${model.id}`)}
-            className="p-0.5 hover:bg-sidebar rounded text-text-muted hover:text-primary"
+            className="rounded p-0.5 text-text-muted hover:bg-[var(--color-bg-alt)] hover:text-primary"
           >
             <span className="material-symbols-outlined text-sm">
               {copied === `model-${model.id}` ? "check" : "content_copy"}
@@ -58,7 +59,7 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
         {isCustom && (
           <button
             onClick={onDeleteAlias}
-            className="p-0.5 hover:bg-red-500/10 rounded text-text-muted hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity ml-auto"
+            className="ml-auto rounded p-0.5 text-text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[color:color-mix(in_srgb,var(--color-danger)_10%,transparent)] hover:text-[var(--color-danger)]"
             title="Remove custom model"
           >
             <span className="material-symbols-outlined text-sm">close</span>

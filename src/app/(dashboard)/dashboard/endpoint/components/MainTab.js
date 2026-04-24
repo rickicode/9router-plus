@@ -131,7 +131,7 @@ export default function MainTab({ machineId }) {
   };
 
   if (loading) {
-    return <div className="text-text-muted">Loading...</div>;
+    return <div className="text-[var(--color-text-muted)]">Loading...</div>;
   }
 
   return (
@@ -144,16 +144,16 @@ export default function MainTab({ machineId }) {
         />
         <div className="space-y-3 mt-4">
           {keys.map((key) => (
-            <div key={key.id} className="flex flex-col sm:flex-row items-start sm:items-center gap-3 p-3 rounded-lg bg-black/10 dark:bg-white/5">
+            <div key={key.id} className="flex flex-col items-start gap-3 rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-3 sm:flex-row sm:items-center">
               <div className="flex-1">
-                <div className="text-sm font-medium text-text">{key.name}</div>
-                <div className="text-xs font-mono text-text-muted mt-1">
+                <div className="text-sm font-medium text-[var(--color-text-main)]">{key.name}</div>
+                <div className="mt-1 text-xs font-mono text-[var(--color-text-muted)]">
                   {visibleKeys.has(key.id) ? key.key : "••••••••••••••••"}
                 </div>
               </div>
               <button
                 onClick={() => toggleKeyVisibility(key.id)}
-                className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded"
+                className="rounded p-2 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface)] hover:text-[var(--color-text-main)]"
               >
                 <span className="material-symbols-outlined text-[18px]">
                   {visibleKeys.has(key.id) ? "visibility_off" : "visibility"}
@@ -161,7 +161,7 @@ export default function MainTab({ machineId }) {
               </button>
               <button
                 onClick={() => copy(key.key, `key-${key.id}`)}
-                className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded"
+                className="rounded p-2 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface)] hover:text-[var(--color-text-main)]"
               >
                 <span className="material-symbols-outlined text-[18px]">
                   {copied === `key-${key.id}` ? "check" : "content_copy"}
@@ -169,7 +169,7 @@ export default function MainTab({ machineId }) {
               </button>
               <button
                 onClick={() => handleDeleteKey(key.id)}
-                className="p-2 hover:bg-red-500/10 rounded text-red-600"
+                className="rounded p-2 text-[var(--color-danger)] transition-colors hover:bg-[var(--color-danger)]/10"
               >
                 <span className="material-symbols-outlined text-[18px]">delete</span>
               </button>
@@ -189,14 +189,14 @@ export default function MainTab({ machineId }) {
             <Input value="http://localhost:20128/v1" readOnly className="flex-1 font-mono text-sm" />
             <button
               onClick={() => copy("http://localhost:20128/v1", "local-url")}
-              className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded"
+              className="rounded p-2 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface)] hover:text-[var(--color-text-main)]"
             >
               <span className="material-symbols-outlined text-[18px]">
                 {copied === "local-url" ? "check" : "content_copy"}
               </span>
             </button>
           </div>
-          <div className="text-xs text-text-muted">
+          <div className="text-xs text-[var(--color-text-muted)]">
             Machine ID: <span className="font-mono">{machineId}</span>
           </div>
         </div>
@@ -206,27 +206,27 @@ export default function MainTab({ machineId }) {
       <GlassCard>
         <SectionHeader title="Remote Access" subtitle="Enable remote access to your local instance" />
         <div className="space-y-4 mt-4">
-          <div className="flex items-center justify-between p-3 rounded-lg bg-black/10 dark:bg-white/5">
+          <div className="flex items-center justify-between rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-3">
             <div className="flex-1">
-              <div className="text-sm font-medium text-text">Cloudflare Tunnel</div>
+              <div className="text-sm font-medium text-[var(--color-text-main)]">Cloudflare Tunnel</div>
               {tunnelEnabled && tunnelUrl && (
-                <div className="text-xs font-mono text-text-muted mt-1">{tunnelUrl}</div>
+                <div className="mt-1 text-xs font-mono text-[var(--color-text-muted)]">{tunnelUrl}</div>
               )}
             </div>
             <StatusBadge status={tunnelEnabled ? "Enabled" : "Disabled"} />
-            <Button size="sm" className="ml-3">
+            <Button size="sm" variant="secondary" className="ml-3">
               {tunnelEnabled ? "Disable" : "Enable"}
             </Button>
           </div>
-          <div className="flex items-center justify-between p-3 rounded-lg bg-black/10 dark:bg-white/5">
+          <div className="flex items-center justify-between rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-3">
             <div className="flex-1">
-              <div className="text-sm font-medium text-text">Tailscale Funnel</div>
+              <div className="text-sm font-medium text-[var(--color-text-main)]">Tailscale Funnel</div>
               {tsEnabled && tsUrl && (
-                <div className="text-xs font-mono text-text-muted mt-1">{tsUrl}</div>
+                <div className="mt-1 text-xs font-mono text-[var(--color-text-muted)]">{tsUrl}</div>
               )}
             </div>
             <StatusBadge status={tsEnabled ? "Enabled" : "Disabled"} />
-            <Button size="sm" className="ml-3">
+            <Button size="sm" variant="secondary" className="ml-3">
               {tsEnabled ? "Disable" : "Enable"}
             </Button>
           </div>
@@ -277,11 +277,11 @@ export default function MainTab({ machineId }) {
             placeholder="My API Key"
           />
           {createdKey && (
-            <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
-              <div className="text-sm font-medium text-green-600 dark:text-green-400 mb-2">
+            <div className="rounded border border-[var(--color-success)]/20 bg-[var(--color-success)]/10 p-3">
+              <div className="mb-2 text-sm font-medium text-[var(--color-success)]">
                 Key created successfully!
               </div>
-              <div className="text-xs font-mono text-text break-all">{createdKey}</div>
+              <div className="break-all text-xs font-mono text-[var(--color-text-main)]">{createdKey}</div>
             </div>
           )}
           <div className="flex gap-2">

@@ -20,10 +20,10 @@ export default function PluginsCard({ preferences, saving = false, error = "", o
       title="Plugins"
       subtitle="Optional: add or remove plugin packages if you want to customize beyond the default generated setup."
       icon="extension"
-      className="rounded-[24px] border-black/5 shadow-[0_16px_40px_rgba(0,0,0,0.04)] dark:border-white/5"
+      className="rounded border-border"
     >
       <div className="space-y-6">
-        <div className="rounded-[24px] border border-primary/10 bg-gradient-to-br from-primary/[0.04] via-transparent to-transparent px-5 py-[1.125rem]">
+        <div className="rounded border border-primary/10 bg-[var(--color-primary-soft)] px-5 py-[1.125rem]">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-semibold text-text-main">Plugin packages</p>
@@ -33,7 +33,7 @@ export default function PluginsCard({ preferences, saving = false, error = "", o
           </div>
         </div>
 
-        <Card.Section className="rounded-[24px] border border-black/5 bg-white/[0.78] px-5 py-5 dark:border-white/5 dark:bg-white/[0.02]">
+        <Card.Section className="rounded border border-border bg-[var(--color-surface)] px-5 py-5">
           <div className="mb-4 space-y-1">
             <p className="text-sm font-semibold text-text-main">Add a package</p>
             <p className="text-xs leading-5 text-text-muted">Keep plugin additions sparse so the generated setup stays readable.</p>
@@ -54,9 +54,9 @@ export default function PluginsCard({ preferences, saving = false, error = "", o
           </div>
         </Card.Section>
 
-        {error ? <p className="text-sm text-red-600 dark:text-red-400">{error}</p> : null}
+        {error ? <p className="text-sm text-[var(--color-danger)]">{error}</p> : null}
 
-        <div className="rounded-[22px] border border-dashed border-black/8 bg-black/[0.015] p-4 dark:border-white/10 dark:bg-white/[0.015]">
+        <div className="rounded border border-dashed border-border bg-[var(--color-bg-alt)] p-4">
           <div className="mb-3.5 flex items-center justify-between gap-3">
             <p className="text-sm font-semibold text-text-main">Current plugin list</p>
             {plugins.length > 0 ? <Badge size="sm">Editable</Badge> : null}
@@ -66,11 +66,11 @@ export default function PluginsCard({ preferences, saving = false, error = "", o
               <p className="text-sm text-text-muted">No custom plugins added.</p>
             ) : (
               plugins.map((item) => (
-                <Badge key={item} className="gap-2 pr-1 shadow-sm">
+                <Badge key={item} className="gap-2 pr-1">
                   <span>{item}</span>
                   <button
                     type="button"
-                    className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10"
+                    className="rounded-full p-0.5 hover:bg-[var(--color-bg-alt)]"
                     onClick={() => onSave?.({ customPlugins: plugins.filter((pluginId) => pluginId !== item) })}
                     aria-label={`Remove ${item}`}
                   >

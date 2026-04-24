@@ -99,7 +99,7 @@ function getProviderModelCount(opencodeConfig = {}) {
 
 function StatTile({ label, value, note, icon }) {
   return (
-    <div className="rounded-[24px] border border-black/5 bg-white/[0.78] px-[1.125rem] py-4 shadow-[0_10px_30px_rgba(0,0,0,0.03)] dark:border-white/5 dark:bg-white/[0.02]">
+    <div className="rounded border border-border bg-[var(--color-surface)] px-[1.125rem] py-4">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">{label}</p>
@@ -133,8 +133,8 @@ function ConfigViewTabs({ views, activeView, onChange }) {
             className={cn(
               "rounded-full border px-3 py-1.5 text-xs font-semibold transition-all",
               activeView === view.id
-                ? "border-primary bg-primary/10 text-primary shadow-sm"
-                : "border-black/8 bg-transparent text-text-muted hover:border-primary/30 hover:text-text-main dark:border-white/10"
+                ? "border-primary bg-[var(--color-primary-soft)] text-primary"
+                : "border-border bg-transparent text-text-muted hover:border-primary/30 hover:text-text-main"
             )}
           >
             {view.label}
@@ -191,7 +191,7 @@ export default function BundlePreviewCard({ preview, selectedVariant = "custom",
       title="Generated config files"
       subtitle={hasMainArtifact ? "Quick Start starts with the server-provided opencode.json artifact." : PUBLIC_ARTIFACTS_COPY}
       icon="data_object"
-      className="rounded-[26px] border-primary/10 bg-gradient-to-br from-white/[0.82] via-surface to-surface shadow-[0_22px_60px_rgba(0,0,0,0.06)] dark:from-white/[0.02]"
+      className="rounded border-primary/10 bg-[var(--color-surface)]"
       action={
         <div className="flex flex-wrap items-center gap-2">
           {hasMainArtifact ? (
@@ -207,7 +207,7 @@ export default function BundlePreviewCard({ preview, selectedVariant = "custom",
     >
       <div className="space-y-7">
         {error ? (
-          <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-600 dark:text-red-400">
+          <div className="rounded border border-[var(--color-danger)]/20 bg-[var(--color-danger-soft)] px-4 py-3 text-sm text-[var(--color-danger)]">
             {error}
           </div>
         ) : null}
@@ -239,7 +239,7 @@ export default function BundlePreviewCard({ preview, selectedVariant = "custom",
           />
         </div>
 
-        <Card.Section className="space-y-6 rounded-[26px] border border-primary/10 bg-gradient-to-br from-primary/[0.08] via-transparent to-transparent px-5 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
+        <Card.Section className="space-y-6 rounded border border-primary/10 bg-[var(--color-primary-soft)] px-5 py-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="space-y-2">
               <div className="flex flex-wrap gap-2">
@@ -258,13 +258,13 @@ export default function BundlePreviewCard({ preview, selectedVariant = "custom",
           {hasMainArtifact ? (
             <ConfigViewTabs views={primaryViews} activeView={resolvedActiveView} onChange={setActiveView} />
           ) : (
-            <div className="rounded-[24px] border border-dashed border-black/8 bg-black/[0.015] p-[1.125rem] text-sm text-text-muted dark:border-white/10 dark:bg-white/[0.015]">
+            <div className="rounded border border-dashed border-border bg-[var(--color-bg-alt)] p-[1.125rem] text-sm text-text-muted">
               {getMissingMainArtifactCopy()}
             </div>
           )}
 
           {secondaryViews.length > 0 ? (
-            <div className="space-y-3 rounded-[24px] border border-dashed border-black/8 bg-black/[0.015] p-[1.125rem] dark:border-white/10 dark:bg-white/[0.015]">
+            <div className="space-y-3 rounded border border-dashed border-border bg-[var(--color-bg-alt)] p-[1.125rem]">
               <button
                 type="button"
                 onClick={() => {
@@ -325,7 +325,7 @@ export default function BundlePreviewCard({ preview, selectedVariant = "custom",
 
           {isExpanded && currentView && resolvedActiveView ? (
             <div className="grid gap-5 2xl:grid-cols-[minmax(320px,0.82fr)_minmax(0,1.18fr)]">
-              <div className="space-y-5 rounded-[24px] border border-black/5 bg-surface px-5 py-5 shadow-[0_12px_34px_rgba(0,0,0,0.04)] dark:border-white/5">
+              <div className="space-y-5 rounded border border-border bg-surface px-5 py-5">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">Current view</p>
                   <h4 className="mt-1 text-base font-semibold text-text-main">{currentView?.title}</h4>
@@ -333,11 +333,11 @@ export default function BundlePreviewCard({ preview, selectedVariant = "custom",
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-xl border border-black/5 bg-black/[0.02] px-3 py-3 dark:border-white/5 dark:bg-white/[0.02]">
+                  <div className="rounded border border-border bg-[var(--color-bg-alt)] px-3 py-3">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-text-muted">Filename</p>
                     <p className="mt-1 text-sm font-medium text-text-main break-all">{currentView?.filename}</p>
                   </div>
-                  <div className="rounded-xl border border-black/5 bg-black/[0.02] px-3 py-3 dark:border-white/5 dark:bg-white/[0.02]">
+                  <div className="rounded border border-border bg-[var(--color-bg-alt)] px-3 py-3">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-text-muted">Contains</p>
                     <p className="mt-1 text-sm font-medium text-text-main">
                       {Array.isArray(currentView?.content)
@@ -357,18 +357,18 @@ export default function BundlePreviewCard({ preview, selectedVariant = "custom",
                 </div>
               </div>
 
-              <div className="overflow-hidden rounded-[24px] border border-black/5 bg-[#0b1020] shadow-[0_24px_70px_rgba(8,15,35,0.2)] dark:border-white/5">
-                <div className="flex items-center justify-between border-b border-white/10 px-5 py-3.5">
+              <div className="overflow-hidden rounded border border-border bg-[var(--color-editor-bg)]">
+                <div className="flex items-center justify-between border-b border-[var(--color-border)] px-5 py-3.5">
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Preview</p>
-                    <p className="text-sm font-semibold text-slate-100">{currentView?.filename}</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--color-text-subtle)]">Preview</p>
+                    <p className="text-sm font-semibold text-[var(--color-text-inverse)]">{currentView?.filename}</p>
                   </div>
-                  <Badge className="bg-white/8 text-slate-200" size="sm">
+                  <Badge className="bg-[var(--color-bg-alt)] text-[var(--color-text-inverse)]" size="sm">
                     sanitized
                   </Badge>
                 </div>
 
-                <pre className="max-h-[42rem] overflow-auto px-5 py-5 text-xs leading-6 text-slate-100">
+                <pre className="max-h-[42rem] overflow-auto px-5 py-5 text-xs leading-6 text-[var(--color-text-inverse)]">
                   <code>{currentContent}</code>
                 </pre>
               </div>

@@ -8,20 +8,16 @@ export default function ThemeToggle({ className, variant = "default" }) {
 
   const variants = {
     default: cn(
-      "flex items-center justify-center size-10 rounded-full",
-      "text-text-muted",
-      "hover:bg-black/5",
-      "hover:text-text-main",
+      "flex size-10 items-center justify-center rounded-full",
+      "text-[var(--color-text-muted)]",
+      "hover:bg-[var(--color-bg-alt)]",
+      "hover:text-[var(--color-text-main)]",
       "transition-colors"
     ),
     card: cn(
-      "flex items-center justify-center size-11 rounded-full",
-      "bg-surface/60",
-      "hover:bg-surface",
-      "border border-border",
-      "backdrop-blur-md shadow-sm hover:shadow-md",
-      "text-text-muted-light hover:text-primary",
-      "hover:text-primary",
+      "flex size-11 items-center justify-center rounded-full",
+      "border border-[var(--color-border)] bg-[var(--color-surface)]",
+      "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-primary)]",
       "transition-all group"
     ),
   };
@@ -44,4 +40,3 @@ export default function ThemeToggle({ className, variant = "default" }) {
     </button>
   );
 }
-

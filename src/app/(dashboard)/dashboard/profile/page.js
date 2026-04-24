@@ -417,13 +417,13 @@ export default function ProfilePage() {
   const observabilityEnabled = settings.enableObservability === true;
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="container mx-auto px-4 py-8">
       <div className="flex flex-col gap-6">
         {/* Local Mode Info */}
         <Card>
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-4">
-              <div className="size-12 rounded-lg bg-green-500/10 text-green-500 flex items-center justify-center">
+              <div className="size-12 rounded bg-[var(--color-success-soft)] text-[var(--color-success)] flex items-center justify-center">
                 <span className="material-symbols-outlined text-2xl">computer</span>
               </div>
               <div>
@@ -431,7 +431,7 @@ export default function ProfilePage() {
                 <p className="text-text-muted">Running on your machine</p>
               </div>
             </div>
-            <div className="inline-flex p-1 rounded-lg bg-black/5 dark:bg-white/5">
+            <div className="inline-flex p-1 rounded bg-[var(--color-bg-alt)]">
               {["light", "dark", "system"].map((option) => (
                 <button
                   key={option}
@@ -440,7 +440,7 @@ export default function ProfilePage() {
                   className={cn(
                     "flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-all",
                     theme === option
-                      ? "bg-white dark:bg-white/10 text-text-main shadow-sm"
+                      ? "bg-[var(--color-surface)] text-text-main"
                       : "text-text-muted hover:text-text-main"
                   )}
                 >
@@ -453,7 +453,7 @@ export default function ProfilePage() {
             </div>
           </div>
           <div className="flex flex-col gap-3 pt-4 border-t border-border">
-            <div className="flex items-center justify-between p-3 rounded-lg bg-bg border border-border">
+            <div className="flex items-center justify-between p-3 rounded bg-[var(--color-bg)] border border-border">
               <div>
                 <p className="font-medium">Database Location</p>
                 <p className="text-sm text-text-muted font-mono">~/.9router/db.json</p>
@@ -485,7 +485,7 @@ export default function ProfilePage() {
               />
             </div>
             {dbStatus.message && (
-              <p className={`text-sm ${dbStatus.type === "error" ? "text-red-500" : "text-green-600 dark:text-green-400"}`}>
+              <p className={`text-sm ${dbStatus.type === "error" ? "text-[var(--color-danger)]" : "text-[var(--color-success)]"}`}>
                 {dbStatus.message}
               </p>
             )}
@@ -495,7 +495,7 @@ export default function ProfilePage() {
         {/* Security */}
         <Card>
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-primary/10 text-primary">
+            <div className="p-2 rounded bg-primary/10 text-primary">
               <span className="material-symbols-outlined text-[20px]">shield</span>
             </div>
             <h3 className="text-lg font-semibold">Security</h3>
@@ -529,9 +529,9 @@ export default function ProfilePage() {
                   </div>
                 )}
                 {/* {!settings.hasPassword && (
-                  <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
-                    <p className="text-sm text-blue-600 dark:text-blue-400">
-                      Setting password for the first time. Leave current password empty or use default: <code className="bg-blue-500/20 px-1 rounded">123456</code>
+                  <div className="p-3 rounded bg-[var(--color-info-soft)] border border-[var(--color-info)]/20">
+                    <p className="text-sm text-[var(--color-info)]">
+                      Setting password for the first time. Leave current password empty or use default: <code className="bg-[var(--color-info-soft)] px-1 rounded">123456</code>
                     </p>
                   </div>
                 )} */}
@@ -559,7 +559,7 @@ export default function ProfilePage() {
                 </div>
 
                 {passStatus.message && (
-                  <p className={`text-sm ${passStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
+                  <p className={`text-sm ${passStatus.type === "error" ? "text-[var(--color-danger)]" : "text-[var(--color-success)]"}`}>
                     {passStatus.message}
                   </p>
                 )}
@@ -577,7 +577,7 @@ export default function ProfilePage() {
         {/* Routing Preferences */}
         <Card>
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500">
+            <div className="p-2 rounded bg-[var(--color-info-soft)] text-[var(--color-info)]">
               <span className="material-symbols-outlined text-[20px]">route</span>
             </div>
             <h3 className="text-lg font-semibold">Routing Strategy</h3>
@@ -644,7 +644,7 @@ export default function ProfilePage() {
         {/* Network */}
         <Card>
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-purple-500/10 text-purple-500">
+            <div className="p-2 rounded bg-[var(--color-purple-soft)] text-[var(--color-purple)]">
               <span className="material-symbols-outlined text-[20px]">wifi</span>
             </div>
             <h3 className="text-lg font-semibold">Network</h3>
@@ -705,7 +705,7 @@ export default function ProfilePage() {
             )}
 
             {proxyStatus.message && (
-              <p className={`text-sm ${proxyStatus.type === "error" ? "text-red-500" : "text-green-500"} pt-2 border-t border-border/50`}>
+              <p className={`text-sm ${proxyStatus.type === "error" ? "text-[var(--color-danger)]" : "text-[var(--color-success)]"} pt-2 border-t border-border/50`}>
                 {proxyStatus.message}
               </p>
             )}
@@ -715,7 +715,7 @@ export default function ProfilePage() {
         {/* Observability Settings */}
         <Card>
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-orange-500/10 text-orange-500">
+            <div className="p-2 rounded bg-[var(--color-warning-soft)] text-[var(--color-warning)]">
               <span className="material-symbols-outlined text-[20px]">monitoring</span>
             </div>
             <h3 className="text-lg font-semibold">Observability</h3>
@@ -737,7 +737,7 @@ export default function ProfilePage() {
 
         <Card>
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500">
+            <div className="p-2 rounded bg-[var(--color-success-soft)] text-[var(--color-success)]">
               <span className="material-symbols-outlined text-[20px]">schedule</span>
             </div>
             <div>
@@ -799,13 +799,13 @@ export default function ProfilePage() {
                 </Button>
               </div>
 
-              <div className="rounded-lg border border-border/60 bg-bg px-3 py-2 text-sm text-text-muted">
+              <div className="rounded border border-border/60 bg-[var(--color-bg)] px-3 py-2 text-sm text-text-muted">
                 Current cadence: every {Math.max(15, Math.round((settings?.quotaScheduler?.cadenceMs || 900000) / 60000))} minutes
               </div>
             </form>
 
             {quotaStatus.message && (
-              <p className={`text-sm ${quotaStatus.type === "error" ? "text-red-500" : "text-green-500"} pt-2 border-t border-border/50`}>
+              <p className={`text-sm ${quotaStatus.type === "error" ? "text-[var(--color-danger)]" : "text-[var(--color-success)]"} pt-2 border-t border-border/50`}>
                 {quotaStatus.message}
               </p>
             )}

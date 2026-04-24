@@ -84,23 +84,23 @@ export default function Sidebar({ onClose }) {
       return {
         label: "Redis Active",
         detail: serverName,
-        className: "border-emerald-500/30 text-emerald-600 dark:text-emerald-400",
-        dotClassName: "bg-emerald-500",
+        className: "border-[var(--color-success)]/30 text-[var(--color-success)]",
+        dotClassName: "bg-[var(--color-success)]",
       };
     }
     if (configured) {
       return {
         label: "Redis Offline",
         detail: serverName,
-        className: "border-amber-500/30 text-amber-600 dark:text-amber-400",
-        dotClassName: "bg-amber-500",
+        className: "border-[var(--color-warning)]/30 text-[var(--color-warning)]",
+        dotClassName: "bg-[var(--color-warning)]",
       };
     }
     return {
       label: "Local DB Mode",
       detail: "Fallback storage",
-      className: "border-slate-500/30 text-slate-500 dark:text-slate-400",
-      dotClassName: "bg-slate-400",
+      className: "border-[var(--color-text-muted)]/30 text-[var(--color-text-muted)]",
+      dotClassName: "bg-[var(--color-text-muted)]",
     };
   })();
 
@@ -137,36 +137,29 @@ export default function Sidebar({ onClose }) {
 
   return (
     <>
-      <aside className="flex w-72 flex-col border-r border-black/5 dark:border-white/5 bg-vibrancy backdrop-blur-xl transition-colors duration-300 min-h-full">
-        {/* Traffic lights */}
-        <div className="flex items-center gap-2 px-6 pt-5 pb-2">
-          <div className="w-3 h-3 rounded-full bg-[#FF5F56]" />
-          <div className="w-3 h-3 rounded-full bg-[#FFBD2E]" />
-          <div className="w-3 h-3 rounded-full bg-[#27C93F]" />
-        </div>
-
+      <aside className="flex min-h-full w-72 flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)] transition-colors duration-300">
         {/* Logo */}
         <div className="px-6 py-4 flex flex-col gap-2">
           <Link href="/dashboard" className="flex items-center gap-3">
-            <div className="flex items-center justify-center size-9 rounded bg-linear-to-br from-[#f97815] to-[#c2590a]">
-              <span className="material-symbols-outlined text-white text-[20px]">hub</span>
+            <div className="flex items-center justify-center size-9 rounded bg-[var(--color-primary)]">
+              <span className="material-symbols-outlined text-[var(--color-text-inverse)] text-[20px]">hub</span>
             </div>
             <div className="flex flex-col">
-              <h1 className="text-lg font-semibold tracking-tight text-text-main">
+              <h1 className="text-lg font-semibold tracking-tight text-[var(--color-text-main)]">
                 {APP_CONFIG.name}
               </h1>
-              <span className="text-xs text-text-muted">v{APP_CONFIG.version}</span>
+              <span className="text-xs text-[var(--color-text-muted)]">v{APP_CONFIG.version}</span>
             </div>
           </Link>
           {updateInfo && (
             <div className="flex flex-col gap-1.5 rounded p-1 -m-1">
-              <span className="text-xs font-semibold text-green-600 dark:text-amber-500">
+              <span className="text-xs font-semibold text-[var(--color-success)]">
                 ↑ New version available: v{updateInfo.latestVersion}
               </span>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setShowUpdateModal(true)}
-                  className="px-2 py-1 rounded bg-green-600 hover:bg-green-700 dark:bg-amber-500 dark:hover:bg-amber-600 text-white text-[11px] font-semibold transition-colors cursor-pointer"
+                  className="cursor-pointer rounded bg-[var(--color-success)] px-2 py-1 text-[11px] font-semibold text-[var(--color-text-inverse)] transition-colors hover:bg-[var(--color-success)]/90"
                 >
                   Update now
                 </button>
@@ -175,7 +168,7 @@ export default function Sidebar({ onClose }) {
                   title="Copy install command"
                   className="flex-1 text-left hover:opacity-80 transition-opacity cursor-pointer min-w-0"
                 >
-                  <code className="block text-[10px] text-green-600/80 dark:text-amber-400/70 font-mono truncate">
+                  <code className="block truncate font-mono text-[10px] text-[var(--color-success)]/80">
                     {copied ? "✓ copied!" : INSTALL_CMD}
                   </code>
                 </button>
@@ -192,16 +185,16 @@ export default function Sidebar({ onClose }) {
               href={item.href}
               onClick={onClose}
               className={cn(
-                "flex items-center gap-3 px-4 py-2 rounded-lg transition-all group",
+                "group flex items-center gap-3 rounded px-4 py-2 transition-all",
                 isActive(item.href)
-                  ? "bg-primary/10 text-primary"
-                  : "text-text-muted hover:bg-surface/50 hover:text-text-main"
+                  ? "bg-[var(--color-primary)]/10 text-[var(--color-accent)]"
+                  : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-text-main)]"
               )}
             >
               <span
                 className={cn(
                   "material-symbols-outlined text-[18px]",
-                  isActive(item.href) ? "fill-1" : "group-hover:text-primary transition-colors"
+                  isActive(item.href) ? "fill-1" : "transition-colors group-hover:text-[var(--color-accent)]"
                 )}
               >
                 {item.icon}
@@ -212,7 +205,7 @@ export default function Sidebar({ onClose }) {
 
           {/* System section */}
           <div className="pt-4 mt-2">
-            <p className="px-4 text-xs font-semibold text-text-muted/60 uppercase tracking-wider mb-2">
+            <p className="mb-2 px-4 text-xs font-semibold uppercase tracking-wider text-[var(--color-text-muted)]/60">
               System
             </p>
 
@@ -220,10 +213,10 @@ export default function Sidebar({ onClose }) {
             <button
               onClick={() => setMediaOpen((v) => !v)}
               className={cn(
-                "w-full flex items-center gap-3 px-4 py-2 rounded-lg transition-all group",
+                "group flex w-full items-center gap-3 rounded px-4 py-2 transition-all",
                 pathname.startsWith("/dashboard/media-providers")
-                  ? "bg-primary/10 text-primary"
-                  : "text-text-muted hover:bg-surface/50 hover:text-text-main"
+                  ? "bg-[var(--color-primary)]/10 text-[var(--color-accent)]"
+                  : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-text-main)]"
               )}
             >
               <span className="material-symbols-outlined text-[18px]">perm_media</span>
@@ -240,10 +233,10 @@ export default function Sidebar({ onClose }) {
                     href={`/dashboard/media-providers/${kind.id}`}
                     onClick={onClose}
                     className={cn(
-                      "flex items-center gap-3 px-4 py-1.5 rounded-lg transition-all group",
+                      "group flex items-center gap-3 rounded px-4 py-1.5 transition-all",
                       pathname.startsWith(`/dashboard/media-providers/${kind.id}`)
-                        ? "bg-primary/10 text-primary"
-                        : "text-text-muted hover:bg-surface/50 hover:text-text-main"
+                        ? "bg-[var(--color-primary)]/10 text-[var(--color-accent)]"
+                        : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-text-main)]"
                     )}
                   >
                     <span className="material-symbols-outlined text-[16px]">{kind.icon}</span>
@@ -259,16 +252,16 @@ export default function Sidebar({ onClose }) {
                 href={item.href}
                 onClick={onClose}
                 className={cn(
-                  "flex items-center gap-3 px-4 py-2 rounded-lg transition-all group",
+                  "group flex items-center gap-3 rounded px-4 py-2 transition-all",
                   isActive(item.href)
-                    ? "bg-primary/10 text-primary"
-                    : "text-text-muted hover:bg-surface/50 hover:text-text-main"
+                    ? "bg-[var(--color-primary)]/10 text-[var(--color-accent)]"
+                    : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-text-main)]"
                 )}
               >
                 <span
                   className={cn(
                     "material-symbols-outlined text-[18px]",
-                    isActive(item.href) ? "fill-1" : "group-hover:text-primary transition-colors"
+                    isActive(item.href) ? "fill-1" : "transition-colors group-hover:text-[var(--color-accent)]"
                   )}
                 >
                   {item.icon}
@@ -286,16 +279,16 @@ export default function Sidebar({ onClose }) {
                   href={item.href}
                   onClick={onClose}
                   className={cn(
-                    "flex items-center gap-3 px-4 py-2 rounded-lg transition-all group",
+                    "group flex items-center gap-3 rounded px-4 py-2 transition-all",
                     isActive(item.href)
-                      ? "bg-primary/10 text-primary"
-                      : "text-text-muted hover:bg-surface/50 hover:text-text-main"
+                      ? "bg-[var(--color-primary)]/10 text-[var(--color-accent)]"
+                      : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-text-main)]"
                   )}
                 >
                   <span
                     className={cn(
                       "material-symbols-outlined text-[18px]",
-                      isActive(item.href) ? "fill-1" : "group-hover:text-primary transition-colors"
+                      isActive(item.href) ? "fill-1" : "transition-colors group-hover:text-[var(--color-accent)]"
                     )}
                   >
                     {item.icon}
@@ -310,16 +303,16 @@ export default function Sidebar({ onClose }) {
               href="/dashboard/profile"
               onClick={onClose}
               className={cn(
-                "flex items-center gap-3 px-4 py-2 rounded-lg transition-all group",
+                "group flex items-center gap-3 rounded px-4 py-2 transition-all",
                 isActive("/dashboard/profile")
-                  ? "bg-primary/10 text-primary"
-                  : "text-text-muted hover:bg-surface/50 hover:text-text-main"
+                  ? "bg-[var(--color-primary)]/10 text-[var(--color-accent)]"
+                  : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-text-main)]"
               )}
             >
               <span
                 className={cn(
                   "material-symbols-outlined text-[18px]",
-                  isActive("/dashboard/profile") ? "fill-1" : "group-hover:text-primary transition-colors"
+                  isActive("/dashboard/profile") ? "fill-1" : "transition-colors group-hover:text-[var(--color-accent)]"
                 )}
               >
                 settings
@@ -330,11 +323,11 @@ export default function Sidebar({ onClose }) {
         </nav>
 
         {/* Footer section */}
-        <div className="p-4 border-t border-black/5 dark:border-white/5 flex flex-col gap-3">
+        <div className="flex flex-col gap-3 border-t border-[var(--color-border)] p-4">
           {redisStatus && (
             <div className={cn(
-              "flex items-center justify-between rounded-xl border px-3 py-2.5 text-xs shadow-sm transition-all duration-300",
-              "bg-surface/50 backdrop-blur-md hover:bg-surface/80 dark:bg-black/20 dark:hover:bg-black/30",
+              "flex items-center justify-between rounded border px-3 py-2.5 text-xs transition-all duration-300",
+              "bg-[var(--color-bg-alt)]",
               redisStatus.className
             )}>
               <div className="flex items-center gap-2.5">
@@ -342,7 +335,7 @@ export default function Sidebar({ onClose }) {
                   <span className={cn("absolute inline-flex h-full w-full animate-ping rounded-full opacity-30", redisStatus.dotClassName)} />
                   <span className={cn("relative inline-flex size-2 rounded-full", redisStatus.dotClassName)} />
                 </div>
-                <span className="font-medium tracking-tight text-text-main">{redisStatus.label}</span>
+                <span className="font-medium tracking-tight text-[var(--color-text-main)]">{redisStatus.label}</span>
               </div>
               <span className="max-w-[100px] truncate text-[10px] font-medium opacity-60 mix-blend-luminosity">
                 {redisStatus.detail}
@@ -355,7 +348,7 @@ export default function Sidebar({ onClose }) {
             fullWidth
             icon="power_settings_new"
             onClick={() => setShowShutdownModal(true)}
-            className="text-red-500 border-red-200 hover:bg-red-50 hover:border-red-300"
+            className="border-[var(--color-danger)]/30 text-[var(--color-danger)] hover:border-[var(--color-danger)]/40 hover:bg-[var(--color-danger)]/10"
           >
             Shutdown
           </Button>
@@ -390,25 +383,25 @@ export default function Sidebar({ onClose }) {
 
       {/* Disconnected Overlay */}
       {isDisconnected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[color-mix(in_srgb,var(--color-sidebar)_80%,transparent)]">
           <div className="text-center p-8">
             {isUpdating ? (
               <>
-                <div className="flex items-center justify-center size-16 rounded-full bg-green-500/20 text-green-500 mx-auto mb-4">
+                <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-[var(--color-success)]/20 text-[var(--color-success)]">
                   <span className="material-symbols-outlined text-[32px]">download</span>
                 </div>
-                <h2 className="text-xl font-semibold text-white mb-2">Updating 9Router</h2>
-                <p className="text-text-muted mb-6">
-                  A new terminal window is installing the update. Once finished, run <code className="text-green-400">9router</code> again.
+                <h2 className="mb-2 text-xl font-semibold text-[var(--color-text-inverse)]">Updating 9Router</h2>
+                <p className="mb-6 text-[var(--color-text-muted)]">
+                  A new terminal window is installing the update. Once finished, run <code className="text-[var(--color-success)]">9router</code> again.
                 </p>
               </>
             ) : (
               <>
-                <div className="flex items-center justify-center size-16 rounded-full bg-red-500/20 text-red-500 mx-auto mb-4">
+                <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-[var(--color-danger)]/20 text-[var(--color-danger)]">
                   <span className="material-symbols-outlined text-[32px]">power_off</span>
                 </div>
-                <h2 className="text-xl font-semibold text-white mb-2">Server Disconnected</h2>
-                <p className="text-text-muted mb-6">The proxy server has been stopped.</p>
+                <h2 className="mb-2 text-xl font-semibold text-[var(--color-text-inverse)]">Server Disconnected</h2>
+                <p className="mb-6 text-[var(--color-text-muted)]">The proxy server has been stopped.</p>
                 <Button variant="secondary" onClick={() => globalThis.location.reload()}>
                   Reload Page
                 </Button>

@@ -226,7 +226,7 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
                       {modelList.map((id) => (
                         <div key={id} className="flex items-center gap-2 px-3 py-1.5 bg-bg-secondary rounded-lg border border-border">
                           <span className="flex-1 text-sm font-mono truncate">{id}</span>
-                          <button onClick={() => removeModel(id)} className="text-text-muted hover:text-red-500 transition-colors" title="Remove">
+                          <button onClick={() => removeModel(id)} className="text-text-muted hover:text-red-500 transition-colors cursor-pointer" title="Remove">
                             <span className="material-symbols-outlined text-[14px]">close</span>
                           </button>
                         </div>
@@ -244,7 +244,7 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
                       className="flex-1 px-3 py-2 bg-bg-secondary rounded-lg text-sm border border-border focus:outline-none focus:ring-1 focus:ring-primary/50"
                     />
                     <button onClick={() => setModalOpen(true)} disabled={!activeProviders?.length} className={`px-3 py-2 rounded-lg border text-sm transition-colors shrink-0 ${activeProviders?.length ? "bg-bg-secondary border-border hover:border-primary cursor-pointer" : "opacity-50 cursor-not-allowed border-border"}`}>Select</button>
-                    <button onClick={addModel} disabled={!modelInput.trim()} className="px-3 py-2 rounded-lg border text-sm bg-bg-secondary border-border hover:border-primary transition-colors shrink-0 disabled:opacity-50" title="Add model">
+                    <button onClick={addModel} disabled={!modelInput.trim()} className="px-3 py-2 rounded-lg border text-sm bg-bg-secondary border-border hover:border-primary transition-colors shrink-0 disabled:opacity-50 cursor-pointer" title="Add model">
                       <span className="material-symbols-outlined text-[16px]">add</span>
                     </button>
                   </div>

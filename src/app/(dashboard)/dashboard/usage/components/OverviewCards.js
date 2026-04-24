@@ -15,15 +15,15 @@ export default function OverviewCards({ stats }) {
       </Card>
       <Card className="px-4 py-3 flex flex-col gap-1">
         <span className="text-text-muted text-sm uppercase font-semibold">Total Input Tokens</span>
-        <span className="text-2xl font-bold text-primary">{fmt(stats.totalPromptTokens)}</span>
+        <span className="text-2xl font-bold text-[var(--color-primary)]">{fmt(stats.totalPromptTokens)}</span>
       </Card>
       <Card className="px-4 py-3 flex flex-col gap-1">
         <span className="text-text-muted text-sm uppercase font-semibold">Output Tokens</span>
-        <span className="text-2xl font-bold text-success">{fmt(stats.totalCompletionTokens)}</span>
+        <span className="text-2xl font-bold text-[var(--color-success)]">{fmt(stats.totalCompletionTokens)}</span>
       </Card>
       <Card className="px-4 py-3 flex flex-col gap-1">
         <span className="text-text-muted text-sm uppercase font-semibold">Est. Cost</span>
-        <span className="text-2xl font-bold text-warning">~{fmtCost(stats.totalCost)}</span>
+        <span className="text-2xl font-bold text-[var(--color-warning)]">~{fmtCost(stats.totalCost)}</span>
         <span className="text-[10px] text-text-muted">Estimated, not actual billing</span>
       </Card>
     </div>

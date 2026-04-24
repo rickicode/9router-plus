@@ -3,13 +3,13 @@ export default function SectionHeader({ label, title, subtitle, badge }) {
     <div className="flex items-start justify-between mb-4">
       <div>
         {label && (
-          <div className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-1">
+          <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
             {label}
           </div>
         )}
-        <h3 className="text-lg font-semibold text-text">{title}</h3>
+        <h3 className="text-lg font-semibold text-[var(--color-text-main)]">{title}</h3>
         {subtitle && (
-          <p className="text-sm text-text-muted mt-1">{subtitle}</p>
+          <p className="mt-1 text-sm text-[var(--color-text-muted)]">{subtitle}</p>
         )}
       </div>
       {badge}

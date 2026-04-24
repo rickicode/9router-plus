@@ -39,18 +39,18 @@ function MediaProviderCard({ provider, kind, connections }) {
     <Link href={`/dashboard/media-providers/${kind}/${provider.id}`} className="group">
       <Card
         padding="xs"
-        className={`h-full hover:bg-black/[0.01] dark:hover:bg-white/[0.01] transition-colors cursor-pointer ${allDisabled ? "opacity-50" : ""}`}
+        className={`h-full hover:bg-[var(--color-bg-alt)] transition-colors cursor-pointer ${allDisabled ? "opacity-50" : ""}`}
       >
         <div className="flex items-center gap-3">
           <div
-            className="size-8 rounded-lg flex items-center justify-center shrink-0"
+            className="size-8 rounded flex items-center justify-center shrink-0"
             style={{ backgroundColor: `${provider.color?.length > 7 ? provider.color : (provider.color ?? "#888") + "15"}` }}
           >
             <ProviderIcon
               src={`/providers/${provider.id}.png`}
               alt={provider.name}
               size={30}
-              className="object-contain rounded-lg max-w-[30px] max-h-[30px]"
+              className="object-contain rounded max-w-[30px] max-h-[30px]"
               fallbackText={provider.textIcon || provider.id.slice(0, 2).toUpperCase()}
               fallbackColor={provider.color}
             />

@@ -39,7 +39,7 @@ const SLIM_CATEGORY_ROLES = {
 
 function ModelAssignmentRow({ name, label, currentModel, availableModels, isOverride, onModelChange, onClear }) {
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-border bg-surface p-2.5 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-2 rounded border border-border bg-surface p-2.5 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <p className="truncate text-xs font-semibold font-mono text-text-main">{name}</p>
@@ -63,7 +63,7 @@ function ModelAssignmentRow({ name, label, currentModel, availableModels, isOver
           <button
             type="button"
             onClick={onClear}
-            className="rounded p-1 text-text-muted hover:text-red-500 transition-colors"
+            className="rounded p-1 text-text-muted hover:text-[var(--color-danger)] transition-colors"
             title="Clear override"
           >
             <span className="material-symbols-outlined text-[16px]">close</span>
@@ -158,7 +158,7 @@ export default function AdvancedConfigEditor({ variant, preferences, availableMo
 
       {/* Agent Assignments */}
       {activeTab === "agents" && (
-        <div className="space-y-3 rounded-lg border border-border bg-surface/50 p-4">
+        <div className="space-y-3 rounded border border-border bg-surface/50 p-4">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-semibold text-text-main">Agent Model Assignments</p>
@@ -187,14 +187,14 @@ export default function AdvancedConfigEditor({ variant, preferences, availableMo
           </div>
 
           {saving && (
-            <p className="text-xs text-amber-600 dark:text-amber-400">Saving...</p>
+            <p className="text-xs text-[var(--color-warning)]">Saving...</p>
           )}
         </div>
       )}
 
       {/* Category Assignments */}
       {activeTab === "categories" && (
-        <div className="space-y-3 rounded-lg border border-border bg-surface/50 p-4">
+        <div className="space-y-3 rounded border border-border bg-surface/50 p-4">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-semibold text-text-main">Category Model Assignments</p>
@@ -223,13 +223,13 @@ export default function AdvancedConfigEditor({ variant, preferences, availableMo
           </div>
 
           {saving && (
-            <p className="text-xs text-amber-600 dark:text-amber-400">Saving...</p>
+            <p className="text-xs text-[var(--color-warning)]">Saving...</p>
           )}
         </div>
       )}
 
       {/* Help Text */}
-      <div className="rounded-lg border border-border bg-surface/50 px-3 py-2 text-xs text-text-muted space-y-1">
+      <div className="rounded border border-border bg-surface/50 px-3 py-2 text-xs text-text-muted space-y-1">
         <p className="font-semibold">💡 Tips:</p>
         <ul className="list-disc list-inside space-y-0.5 ml-2">
           <li>Use "Auto" to let the system choose the best model from the chain</li>

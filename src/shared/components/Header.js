@@ -181,13 +181,13 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
   };
 
   return (
-    <header className="flex items-center justify-between px-8 py-5 border-b border-black/5 dark:border-white/5 bg-bg/80 backdrop-blur-xl z-10 sticky top-0">
+    <header className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--color-border)] bg-[color:color-mix(in_srgb,var(--color-bg)_80%,transparent)] px-8 py-5">
       {/* Mobile menu button */}
       <div className="flex items-center gap-3 lg:hidden">
         {showMenuButton && (
           <button
             onClick={onMenuClick}
-            className="text-text-main hover:text-primary transition-colors"
+            className="text-[var(--color-text-main)] transition-colors hover:text-[var(--color-primary)]"
           >
             <span className="material-symbols-outlined">menu</span>
           </button>
@@ -204,14 +204,14 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
                 className="flex items-center gap-2"
               >
                 {index > 0 && (
-                  <span className="material-symbols-outlined text-text-muted text-base">
+                  <span className="material-symbols-outlined text-base text-[var(--color-text-muted)]">
                     chevron_right
                   </span>
                 )}
                 {crumb.href ? (
                   <Link
                     href={crumb.href}
-                    className="text-text-muted hover:text-primary transition-colors"
+                    className="text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-primary)]"
                   >
                     {crumb.label}
                   </Link>
@@ -226,7 +226,7 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
                         fallbackText={crumb.label.slice(0, 2).toUpperCase()}
                       />
                     )}
-                    <h1 className="text-2xl font-semibold text-text-main tracking-tight">
+                    <h1 className="text-2xl font-semibold tracking-tight text-[var(--color-text-main)]">
                       {translate(crumb.label)}
                     </h1>
                   </div>
@@ -238,7 +238,7 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
           <div>
             <div className="flex items-center gap-2">
               {icon && (
-                <span className="material-symbols-outlined text-primary text-2xl">
+                <span className="material-symbols-outlined text-2xl text-[var(--color-primary)]">
                   {icon}
                 </span>
               )}
@@ -247,7 +247,7 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
               </h1>
             </div>
             {description && (
-              <p className="text-sm text-text-muted">
+              <p className="text-sm text-[var(--color-text-muted)]">
                 {translate(description)}
               </p>
             )}

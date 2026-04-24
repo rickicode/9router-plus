@@ -18,8 +18,7 @@ export default function SegmentedControl({
   return (
     <div
       className={cn(
-        "inline-flex items-center p-1 rounded-lg",
-        "bg-black/5 dark:bg-white/5",
+        "inline-flex items-center rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-1",
         className
       )}
     >
@@ -28,11 +27,11 @@ export default function SegmentedControl({
           key={option.value}
           onClick={() => onChange(option.value)}
           className={cn(
-            "px-4 rounded-md font-medium transition-all",
+            "px-4 rounded font-medium transition-all",
             sizes[size],
             value === option.value
-              ? "bg-white dark:bg-white/10 text-text-main shadow-sm"
-              : "text-text-muted hover:text-text-main"
+              ? "border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-main)]"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text-main)]"
           )}
         >
           {option.icon && (

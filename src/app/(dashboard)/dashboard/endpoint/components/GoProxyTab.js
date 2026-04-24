@@ -27,6 +27,13 @@ export default function GoProxyTab() {
   }, []);
 
   useEffect(() => {
+    // Auto-expand logs if there's an error
+    if (status?.lastError && !logsExpanded) {
+      setLogsExpanded(true);
+    }
+  }, [status?.lastError]);
+
+  useEffect(() => {
     if (logsExpanded) {
       fetchLogs();
       const interval = setInterval(fetchLogs, 2000);
@@ -342,20 +349,34 @@ export default function GoProxyTab() {
           <div>
             <button
               onClick={() => setLogsExpanded(!logsExpanded)}
-              className="flex items-center gap-2 text-sm font-medium text-[var(--color-text-main)] transition-colors hover:text-[var(--color-accent)]"
+              className={`flex items-center gap-2 text-sm font-medium transition-colors ${
+                status?.lastError 
+                  ? "text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300" 
+                  : "text-text hover:text-primary"
+              }`}
             >
               <span className="material-symbols-outlined text-[18px]">
                 {logsExpanded ? "expand_more" : "chevron_right"}
               </span>
               Logs
+              {status?.lastError && (
+                <span className="ml-2 px-2 py-0.5 text-xs bg-red-500/20 text-red-600 dark:text-red-400 rounded">
+                  Error detected
+                </span>
+              )}
             </button>
             {logsExpanded && (
-              <div className="mt-3 max-h-[300px] overflow-y-auto rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-3 font-mono text-xs text-[var(--color-text-muted)]">
+              <div className="mt-3 bg-black/20 dark:bg-white/5 rounded-lg p-3 max-h-[300px] overflow-y-auto font-mono text-xs text-text-muted">
                 {logs.length === 0 ? (
                   <div className="text-center py-4">No logs available</div>
                 ) : (
                   logs.map((log, i) => (
-                    <div key={i} className="whitespace-pre-wrap break-all">
+                    <div 
+                      key={i} 
+                      className={`whitespace-pre-wrap break-all ${
+                        log.includes("[ERROR]") ? "text-red-600 dark:text-red-400" : ""
+                      }`}
+                    >
                       {log}
                     </div>
                   ))

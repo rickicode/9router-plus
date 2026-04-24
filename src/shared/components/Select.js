@@ -19,9 +19,9 @@ export default function Select({
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
       {label && (
-        <label className="text-sm font-medium text-text-main">
+        <label className="text-sm font-medium text-[var(--color-text-main)]">
           {label}
-          {required && <span className="text-red-500 ml-1">*</span>}
+          {required && <span className="ml-1 text-[var(--color-danger)]">*</span>}
         </label>
       )}
       <div className="relative">
@@ -30,13 +30,13 @@ export default function Select({
           onChange={onChange}
           disabled={disabled}
           className={cn(
-            "w-full py-2 px-3 pr-10 text-sm text-text-main",
-            "bg-white dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-md appearance-none",
-            "focus:ring-1 focus:ring-primary/30 focus:border-primary/50 focus:outline-none",
+            "w-full py-2 px-3 pr-10 text-sm text-[var(--color-text-main)]",
+            "appearance-none rounded border border-[var(--color-border)] bg-[var(--color-surface)]",
+            "focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]/30 focus:border-[var(--color-primary)]/50",
             "transition-all disabled:opacity-50 disabled:cursor-not-allowed",
             "text-[16px] sm:text-sm",
             error
-              ? "border-red-500 focus:border-red-500 focus:ring-red-500/20"
+              ? "border-[var(--color-danger)] focus:border-[var(--color-danger)] focus:ring-[var(--color-danger)]/20"
               : "",
             selectClassName
           )}
@@ -51,20 +51,19 @@ export default function Select({
             </option>
           ))}
         </select>
-        <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-text-muted">
+        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-[var(--color-text-muted)]">
           <span className="material-symbols-outlined text-[20px]">expand_more</span>
         </div>
       </div>
       {error && (
-        <p className="text-xs text-red-500 flex items-center gap-1">
+        <p className="flex items-center gap-1 text-xs text-[var(--color-danger)]">
           <span className="material-symbols-outlined text-[14px]">error</span>
           {error}
         </p>
       )}
       {hint && !error && (
-        <p className="text-xs text-text-muted">{hint}</p>
+        <p className="text-xs text-[var(--color-text-muted)]">{hint}</p>
       )}
     </div>
   );
 }
-

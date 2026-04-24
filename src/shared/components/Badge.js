@@ -3,12 +3,12 @@
 import { cn } from "@/shared/utils/cn";
 
 const variants = {
-  default: "bg-black/5 dark:bg-white/10 text-text-muted",
-  primary: "bg-primary/10 text-primary",
-  success: "bg-green-500/10 text-green-600 dark:text-green-400",
-  warning: "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400",
-  error: "bg-red-500/10 text-red-600 dark:text-red-400",
-  info: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+  default: "bg-[var(--color-bg-alt)] text-[var(--color-text-muted)]",
+  primary: "bg-[var(--color-primary)]/10 text-[var(--color-accent)]",
+  success: "bg-[var(--color-success)]/10 text-[var(--color-success)]",
+  warning: "bg-[var(--color-warning)]/10 text-[var(--color-warning)]",
+  error: "bg-[var(--color-danger)]/10 text-[var(--color-danger)]",
+  info: "bg-[var(--color-info-soft)] text-[var(--color-info)]",
 };
 
 const sizes = {
@@ -28,7 +28,7 @@ export default function Badge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full font-semibold",
+        "inline-flex items-center gap-1.5 rounded font-semibold",
         variants[variant],
         sizes[size],
         className
@@ -37,13 +37,13 @@ export default function Badge({
       {dot && (
         <span
           className={cn(
-            "size-1.5 rounded-full",
-            variant === "success" && "bg-green-500",
-            variant === "warning" && "bg-yellow-500",
-            variant === "error" && "bg-red-500",
-            variant === "info" && "bg-blue-500",
-            variant === "primary" && "bg-primary",
-            variant === "default" && "bg-gray-500"
+            "size-1.5 rounded",
+            variant === "success" && "bg-[var(--color-success)]",
+            variant === "warning" && "bg-[var(--color-warning)]",
+            variant === "error" && "bg-[var(--color-danger)]",
+            variant === "info" && "bg-[var(--color-info)]",
+            variant === "primary" && "bg-[var(--color-primary)]",
+            variant === "default" && "bg-[var(--color-text-subtle)]"
           )}
         />
       )}
@@ -52,4 +52,3 @@ export default function Badge({
     </span>
   );
 }
-

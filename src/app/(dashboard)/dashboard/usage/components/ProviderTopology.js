@@ -11,7 +11,7 @@ import "@xyflow/react/dist/style.css";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
 
 function getProviderConfig(providerId) {
-  return AI_PROVIDERS[providerId] || { color: "#6b7280", name: providerId };
+  return AI_PROVIDERS[providerId] || { color: "var(--color-text-muted)", name: providerId };
 }
 
 // Use local provider images from /public/providers/
@@ -25,10 +25,9 @@ function ProviderNode({ data }) {
   const [imgError, setImgError] = useState(false);
   return (
     <div
-      className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg border-2 transition-all duration-300 bg-bg"
+      className="flex items-center gap-2.5 px-4 py-2.5 rounded border-2 transition-colors duration-300 bg-bg"
       style={{
         borderColor: active ? color : "var(--color-border)",
-        boxShadow: active ? `0 0 16px ${color}40` : "none",
         minWidth: "150px",
       }}
     >
@@ -39,7 +38,7 @@ function ProviderNode({ data }) {
 
       {/* Provider icon */}
       <div
-        className="w-8 h-8 rounded-md flex items-center justify-center shrink-0"
+        className="w-8 h-8 rounded flex items-center justify-center shrink-0"
         style={{ backgroundColor: `${color}15` }}
       >
         {!imgError ? (
@@ -75,16 +74,16 @@ ProviderNode.propTypes = {
 // Center 9Router node
 function RouterNode({ data }) {
   return (
-    <div className="flex items-center justify-center px-5 py-3 rounded-xl border-2 border-primary bg-primary/5 shadow-md min-w-[130px]">
+    <div className="flex items-center justify-center px-5 py-3 rounded border-2 border-[var(--color-primary)] bg-[var(--color-primary-soft)] min-w-[130px]">
       <Handle type="source" position={Position.Top} id="top" className="!bg-transparent !border-0 !w-0 !h-0" />
       <Handle type="source" position={Position.Bottom} id="bottom" className="!bg-transparent !border-0 !w-0 !h-0" />
       <Handle type="source" position={Position.Left} id="left" className="!bg-transparent !border-0 !w-0 !h-0" />
       <Handle type="source" position={Position.Right} id="right" className="!bg-transparent !border-0 !w-0 !h-0" />
 
       <img src="/favicon.svg" alt="9Router" className="w-6 h-6 mr-2" />
-      <span className="text-sm font-bold text-primary">9Router</span>
+      <span className="text-sm font-bold text-[var(--color-primary)]">9Router</span>
       {data.activeCount > 0 && (
-        <span className="ml-2 px-1.5 py-0.5 rounded-full bg-primary text-white text-xs font-bold">
+        <span className="ml-2 px-1.5 py-0.5 rounded-full bg-[var(--color-primary)] text-[var(--color-btn-primary-text)] text-xs font-bold">
           {data.activeCount}
         </span>
       )}
@@ -131,9 +130,9 @@ function buildLayout(providers, activeSet, lastSet, errorSet) {
   });
 
   const edgeStyle = (active, last, error, color) => {
-    if (error) return { stroke: "#ef4444", strokeWidth: 2.5, opacity: 0.9 };
-    if (active) return { stroke: "#22c55e", strokeWidth: 2.5, opacity: 0.9 };
-    if (last) return { stroke: "#f59e0b", strokeWidth: 2, opacity: 0.7 };
+    if (error) return { stroke: "var(--color-danger)", strokeWidth: 2.5, opacity: 0.9 };
+    if (active) return { stroke: "var(--color-success)", strokeWidth: 2.5, opacity: 0.9 };
+    if (last) return { stroke: "var(--color-warning)", strokeWidth: 2, opacity: 0.7 };
     return { stroke: "var(--color-border)", strokeWidth: 1, opacity: 0.3 };
   };
 
@@ -145,7 +144,7 @@ function buildLayout(providers, activeSet, lastSet, errorSet) {
     const nodeId = `provider-${p.provider}`;
     const data = {
       label: (config.name !== p.provider ? config.name : null) || p.name || p.provider,
-      color: config.color || "#6b7280",
+      color: config.color || "var(--color-text-muted)",
       imageUrl: getProviderImageUrl(p.provider),
       textIcon: config.textIcon || (p.provider || "?").slice(0, 2).toUpperCase(),
       active,
@@ -221,7 +220,7 @@ export default function ProviderTopology({ providers = [], activeRequests = [], 
   }, []);
 
   return (
-    <div className="w-full rounded-lg border border-border bg-bg-subtle/30" style={{ height: 480 }}>
+    <div className="w-full rounded border border-border bg-bg-subtle/30" style={{ height: 480 }}>
       {providers.length === 0 ? (
         <div className="h-full flex items-center justify-center text-text-muted text-sm">
           No providers connected

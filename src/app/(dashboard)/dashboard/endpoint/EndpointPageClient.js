@@ -14,18 +14,20 @@ export default function EndpointPageClient({ machineId }) {
   return (
     <div className="container mx-auto px-4 py-8">
       {/* Tab Navigation */}
-      <div className="flex gap-1 border-b border-white/10 mb-6 overflow-x-auto">
+      <div className="mb-6 flex gap-1 overflow-x-auto border-b border-[var(--color-border)]">
         {tabs.map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 relative whitespace-nowrap transition-colors ${
-              activeTab === tab ? "text-primary" : "text-text-muted hover:text-text"
+            className={`relative whitespace-nowrap rounded-t px-4 py-2 text-sm transition-colors ${
+              activeTab === tab
+                ? "bg-[var(--color-surface)] text-[var(--color-text-main)]"
+                : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-text-main)]"
             }`}
           >
             {tab}
             {activeTab === tab && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 to-violet-500" />
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--color-primary)]" />
             )}
           </button>
         ))}

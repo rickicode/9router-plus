@@ -63,7 +63,7 @@ export default function EnvVarsCard({ preferences, saving = false, error = "", o
       title="Environment variables"
       subtitle="Optional: store environment variables that should be reflected in the generated config. Secret values stay masked here and should be re-entered when you edit them."
       icon="key"
-      className="rounded-[24px] border-black/5 shadow-[0_16px_42px_rgba(0,0,0,0.04)] dark:border-white/5"
+      className="rounded border-border"
       action={
         <Button variant="secondary" size="sm" onClick={handleSave} loading={saving}>
           Save env vars
@@ -71,27 +71,27 @@ export default function EnvVarsCard({ preferences, saving = false, error = "", o
       }
     >
       <div className="space-y-6">
-        <div className="rounded-[24px] border border-primary/10 bg-gradient-to-br from-primary/[0.05] via-transparent to-transparent px-5 py-[1.125rem]">
+        <div className="rounded border border-primary/10 bg-[var(--color-primary-soft)] px-5 py-[1.125rem]">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-semibold text-text-main">Config-backed variables</p>
               <p className="text-xs leading-5 text-text-muted">Secrets remain masked in the UI and should be re-entered before saving changes.</p>
             </div>
-            <div className="rounded-full border border-primary/15 bg-primary/8 px-3 py-1 text-xs font-medium text-primary">
+            <div className="rounded-full border border-primary/15 bg-[var(--color-primary-soft)] px-3 py-1 text-xs font-medium text-primary">
               {draftVars.length} row{draftVars.length === 1 ? "" : "s"}
             </div>
           </div>
         </div>
 
-        {error ? <p className="text-sm text-red-600 dark:text-red-400">{error}</p> : null}
-        {localError ? <p className="text-sm text-red-600 dark:text-red-400">{localError}</p> : null}
+        {error ? <p className="text-sm text-[var(--color-danger)]">{error}</p> : null}
+        {localError ? <p className="text-sm text-[var(--color-danger)]">{localError}</p> : null}
 
         <div className="space-y-4">
           {draftVars.length === 0 ? (
-            <div className="rounded-[22px] border border-dashed border-black/8 bg-black/[0.015] px-5 py-6 text-sm text-text-muted dark:border-white/10 dark:bg-white/[0.015]">No environment variables configured yet.</div>
+            <div className="rounded border border-dashed border-border bg-[var(--color-bg-alt)] px-5 py-6 text-sm text-text-muted">No environment variables configured yet.</div>
           ) : (
             draftVars.map((item, index) => (
-              <Card.Section key={`${item.key || "env"}-${index}`} className="space-y-5 rounded-[24px] border border-black/5 bg-white/[0.75] px-5 py-5 dark:border-white/5 dark:bg-white/[0.02]">
+              <Card.Section key={`${item.key || "env"}-${index}`} className="space-y-5 rounded border border-border bg-[var(--color-surface)] px-5 py-5">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-text-main">Variable {index + 1}</p>

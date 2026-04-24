@@ -141,12 +141,12 @@ export default function CloudTab() {
         />
         <div className="space-y-3 mt-4">
           {tunnelEnabled && tunnelUrl && (
-            <div className="p-3 rounded-lg bg-black/10 dark:bg-white/5">
-              <div className="text-xs text-text-muted mb-1">Public URL</div>
-              <div className="text-sm font-mono text-text">{tunnelUrl}</div>
+            <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-3">
+              <div className="mb-1 text-xs text-[var(--color-text-muted)]">Public URL</div>
+              <div className="text-sm font-mono text-[var(--color-text-main)]">{tunnelUrl}</div>
             </div>
           )}
-          <div className="text-xs text-text-muted">
+          <div className="text-xs text-[var(--color-text-muted)]">
             Manage tunnel settings in the Main tab
           </div>
         </div>
@@ -161,12 +161,12 @@ export default function CloudTab() {
         />
         <div className="space-y-3 mt-4">
           {tsEnabled && tsUrl && (
-            <div className="p-3 rounded-lg bg-black/10 dark:bg-white/5">
-              <div className="text-xs text-text-muted mb-1">Tailscale URL</div>
-              <div className="text-sm font-mono text-text">{tsUrl}</div>
+            <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-3">
+              <div className="mb-1 text-xs text-[var(--color-text-muted)]">Tailscale URL</div>
+              <div className="text-sm font-mono text-[var(--color-text-main)]">{tsUrl}</div>
             </div>
           )}
-          <div className="text-xs text-text-muted">
+          <div className="text-xs text-[var(--color-text-muted)]">
             Manage Tailscale settings in the Main tab
           </div>
         </div>
@@ -206,21 +206,21 @@ export default function CloudTab() {
                 min={60}
                 max={3600}
               />
-              <div className="text-xs text-text-muted mt-2">
+              <div className="mt-2 text-xs text-[var(--color-text-muted)]">
                 Defines how long a client stays pinned to the same credential
               </div>
             </div>
           )}
 
-          <div className="border-t border-white/10 pt-4">
-            <h4 className="text-sm font-medium text-text mb-3">Cloud URLs</h4>
+          <div className="border-t border-[var(--color-border)] pt-4">
+            <h4 className="mb-3 text-sm font-medium text-[var(--color-text-main)]">Cloud URLs</h4>
             <div className="space-y-2 mb-3">
               {cloudUrls.map((item, index) => (
-                <div key={index} className="flex items-center gap-2 p-2 rounded-lg bg-black/10 dark:bg-white/5">
-                  <div className="flex-1 text-sm font-mono text-text">{item.url}</div>
+                <div key={index} className="flex items-center gap-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-2">
+                  <div className="flex-1 text-sm font-mono text-[var(--color-text-main)]">{item.url}</div>
                   <button
                     onClick={() => handleDeleteCloudUrl(item.url)}
-                    className="p-1 hover:bg-red-500/10 rounded text-red-600"
+                    className="rounded p-1 text-[var(--color-danger)] transition-colors hover:bg-[var(--color-danger)]/10"
                   >
                     <span className="material-symbols-outlined text-[16px]">delete</span>
                   </button>
@@ -234,23 +234,23 @@ export default function CloudTab() {
                 placeholder="https://worker.example.com"
                 className="flex-1"
               />
-              <Button onClick={handleAddCloudUrl}>Add</Button>
+              <Button variant="secondary" onClick={handleAddCloudUrl}>Add</Button>
             </div>
           </div>
 
           {cloudUrls.length > 0 && (
-            <div className="border-t border-white/10 pt-4">
+            <div className="border-t border-[var(--color-border)] pt-4">
               <div className="flex items-center justify-between mb-2">
-                <h4 className="text-sm font-medium text-text">Cloud Health</h4>
-                <Button size="sm" onClick={checkCloudHealth}>
+                <h4 className="text-sm font-medium text-[var(--color-text-main)]">Cloud Health</h4>
+                <Button size="sm" variant="secondary" onClick={checkCloudHealth}>
                   Refresh
                 </Button>
               </div>
               {cloudHealth && (
-                <div className="p-3 rounded-lg bg-black/10 dark:bg-white/5">
-                  <div className="text-xs text-text-muted">Status: {cloudHealth.status || "unknown"}</div>
+                <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-3">
+                  <div className="text-xs text-[var(--color-text-muted)]">Status: {cloudHealth.status || "unknown"}</div>
                   {cloudHealth.lastSync && (
-                    <div className="text-xs text-text-muted mt-1">
+                    <div className="mt-1 text-xs text-[var(--color-text-muted)]">
                       Last sync: {new Date(cloudHealth.lastSync).toLocaleString()}
                     </div>
                   )}
@@ -263,7 +263,7 @@ export default function CloudTab() {
             <Button
               onClick={saveWorkerSettings}
               disabled={saving}
-              className="bg-gradient-to-r from-primary via-blue-500 to-violet-500 hover:scale-[1.01] text-white"
+              className="bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)]"
             >
               {saving ? "Saving..." : "Save Settings"}
             </Button>

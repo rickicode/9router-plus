@@ -3,17 +3,17 @@
 import { cn } from "@/shared/utils/cn";
 
 const variants = {
-  primary: "bg-gradient-to-b from-primary to-primary-hover text-white shadow-sm",
-  secondary: "bg-white dark:bg-white/10 border border-black/10 dark:border-white/10 text-text-main hover:bg-black/5 dark:hover:bg-white/5",
-  outline: "border border-black/15 dark:border-white/15 text-text-main hover:bg-black/5",
-  ghost: "text-text-muted hover:bg-black/5 dark:hover:bg-white/5 hover:text-text-main",
-  danger: "bg-red-500 text-white hover:bg-red-600 shadow-sm",
+  primary: "bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] text-white",
+  secondary: "bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)]",
+  outline: "border border-[var(--color-border)] text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)]",
+  ghost: "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-text-main)]",
+  danger: "bg-[var(--color-danger)] text-white hover:bg-[var(--color-danger)]/90",
 };
 
 const sizes = {
-  sm: "h-7 px-3 text-xs rounded-md",
-  md: "h-9 px-4 text-sm rounded-lg",
-  lg: "h-11 px-6 text-sm rounded-lg",
+  sm: "h-7 px-3 text-xs rounded",
+  md: "h-9 px-4 text-sm rounded",
+  lg: "h-11 px-6 text-sm rounded",
 };
 
 export default function Button({
@@ -53,4 +53,3 @@ export default function Button({
     </button>
   );
 }
-

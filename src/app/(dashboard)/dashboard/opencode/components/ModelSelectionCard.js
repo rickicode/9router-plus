@@ -11,10 +11,10 @@ function SelectionModeButton({ active, title, description, onClick }) {
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-[24px] border px-5 py-[1.125rem] text-left transition-all duration-200",
+        "rounded border px-5 py-[1.125rem] text-left transition-colors duration-200",
         active
-          ? "border-primary/35 bg-gradient-to-br from-primary/[0.08] via-primary/[0.03] to-transparent shadow-[0_14px_32px_rgba(0,0,0,0.05)]"
-          : "border-black/5 bg-white/[0.72] hover:-translate-y-0.5 hover:border-primary/30 hover:bg-black/[0.01] dark:border-white/5 dark:bg-white/[0.02] dark:hover:bg-white/[0.03]"
+          ? "border-primary/35 bg-[var(--color-primary-soft)]"
+          : "border-border bg-[var(--color-surface)] hover:border-primary/30 hover:bg-[var(--color-bg-alt)]"
       )}
     >
       <div className="flex items-start justify-between gap-4">
@@ -75,10 +75,10 @@ export default function ModelSelectionCard({
       title="Choose models"
       subtitle="Choose which models you want included in the generated config."
       icon="model_training"
-      className="rounded-[24px] border-black/5 bg-black/[0.015] shadow-[0_18px_40px_rgba(0,0,0,0.04)] dark:border-white/5 dark:bg-white/[0.015]"
+      className="rounded border-border bg-[var(--color-bg-alt)]"
     >
       <div className="space-y-7">
-        <div className="rounded-[24px] border border-primary/10 bg-gradient-to-br from-primary/[0.05] via-transparent to-transparent px-5 py-[1.125rem] dark:border-primary/15">
+        <div className="rounded border border-primary/10 bg-[var(--color-primary-soft)] px-5 py-[1.125rem]">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">Model visibility</p>
@@ -112,7 +112,7 @@ export default function ModelSelectionCard({
           />
         </div>
 
-        <Card.Section className="rounded-[24px] border border-black/5 bg-white/[0.78] px-5 py-5 dark:border-white/5 dark:bg-white/[0.02]">
+        <Card.Section className="rounded border border-border bg-[var(--color-surface)] px-5 py-5">
           <div className="mb-4 space-y-1">
             <p className="text-sm font-semibold text-text-main">Add a model rule</p>
             <p className="text-xs leading-5 text-text-muted">Pick from the models currently available so the generated config stays valid and easy to review.</p>
@@ -129,7 +129,7 @@ export default function ModelSelectionCard({
           </div>
         </Card.Section>
 
-        {error ? <p className="text-sm text-red-600 dark:text-red-400">{error}</p> : null}
+        {error ? <p className="text-sm text-[var(--color-danger)]">{error}</p> : null}
 
         <div className="space-y-3.5">
           <div className="flex items-center justify-between gap-3">
@@ -140,7 +140,7 @@ export default function ModelSelectionCard({
             {selectedModels.length > 0 ? <Badge size="sm">{selectedModels.length} selected</Badge> : null}
           </div>
 
-          <div className="flex min-h-[64px] flex-wrap gap-2.5 rounded-[22px] border border-dashed border-black/8 bg-black/[0.015] p-4 dark:border-white/10 dark:bg-white/[0.015]">
+          <div className="flex min-h-[64px] flex-wrap gap-2.5 rounded border border-dashed border-border bg-[var(--color-bg-alt)] p-4">
             {selectedModels.length === 0 ? (
               <p className="text-sm text-text-muted">
                 {mode === "include"
@@ -149,11 +149,11 @@ export default function ModelSelectionCard({
               </p>
             ) : (
               selectedModels.map((modelId) => (
-                <Badge key={modelId} className="gap-2 pr-1 shadow-sm">
+                <Badge key={modelId} className="gap-2 pr-1">
                   <span className="max-w-[240px] truncate">{modelId}</span>
                   <button
                     type="button"
-                    className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10"
+                    className="rounded-full p-0.5 hover:bg-[var(--color-bg-alt)]"
                     onClick={() => removeModel(modelId)}
                     aria-label={`Remove ${modelId}`}
                   >

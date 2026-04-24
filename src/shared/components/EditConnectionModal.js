@@ -161,9 +161,9 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
           placeholder={isOAuth ? "Account name" : "Production Key"}
         />
         {isOAuth && connection.email && (
-          <div className="bg-sidebar/50 p-3 rounded-lg">
-            <p className="text-sm text-text-muted mb-1">Email</p>
-            <p className="font-medium">{connection.email}</p>
+          <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-3">
+            <p className="mb-1 text-sm text-[var(--color-text-muted)]">Email</p>
+            <p className="font-medium text-[var(--color-text-main)]">{connection.email}</p>
           </div>
         )}
         <Input
@@ -200,8 +200,8 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
         )}
 
         {isAzure && (
-          <div className="bg-sidebar/50 p-4 rounded-lg border border-accent/20">
-            <h3 className="font-semibold mb-3 text-sm">Azure OpenAI Configuration</h3>
+          <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4">
+            <h3 className="mb-3 text-sm font-semibold text-[var(--color-text-main)]">Azure OpenAI Configuration</h3>
             <div className="flex flex-col gap-3">
               <Input
                 label="Azure Endpoint"

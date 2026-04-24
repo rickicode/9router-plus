@@ -47,19 +47,26 @@ export default function UsageChart({ period = "7d" }) {
   }, [fetchData]);
 
   const hasData = data.some((d) => d.tokens > 0 || d.cost > 0);
+  const chartColors = {
+    primary: "var(--color-primary)",
+    info: "var(--color-info)",
+    textMuted: "var(--color-text-muted)",
+    border: "var(--color-border)",
+    bg: "var(--color-bg)",
+  };
 
   return (
     <Card className="p-4 flex flex-col gap-3">
-      <div className="flex items-center gap-1 bg-bg-subtle rounded-lg p-1 border border-border self-start">
+      <div className="flex items-center gap-1 bg-bg-subtle rounded p-1 border border-border self-start">
         <button
           onClick={() => setViewMode("tokens")}
-          className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${viewMode === "tokens" ? "bg-primary text-white shadow-sm" : "text-text-muted hover:text-text hover:bg-bg-hover"}`}
+          className={`px-3 py-1 rounded text-sm font-medium transition-colors ${viewMode === "tokens" ? "bg-[var(--color-primary)] text-[var(--color-btn-primary-text)]" : "text-text-muted hover:text-text hover:bg-bg-hover"}`}
         >
           Tokens
         </button>
         <button
           onClick={() => setViewMode("cost")}
-          className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${viewMode === "cost" ? "bg-primary text-white shadow-sm" : "text-text-muted hover:text-text hover:bg-bg-hover"}`}
+          className={`px-3 py-1 rounded text-sm font-medium transition-colors ${viewMode === "cost" ? "bg-[var(--color-primary)] text-[var(--color-btn-primary-text)]" : "text-text-muted hover:text-text hover:bg-bg-hover"}`}
         >
           Cost
         </button>
@@ -74,24 +81,24 @@ export default function UsageChart({ period = "7d" }) {
           <AreaChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="gradTokens" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
-                <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                <stop offset="5%" stopColor={chartColors.primary} stopOpacity={0.22} />
+                <stop offset="95%" stopColor={chartColors.primary} stopOpacity={0} />
               </linearGradient>
               <linearGradient id="gradCost" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.25} />
-                <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+                <stop offset="5%" stopColor={chartColors.info} stopOpacity={0.22} />
+                <stop offset="95%" stopColor={chartColors.info} stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.1} />
+            <CartesianGrid strokeDasharray="3 3" stroke={chartColors.border} strokeOpacity={0.35} />
             <XAxis
               dataKey="label"
-              tick={{ fontSize: 10, fill: "currentColor", fillOpacity: 0.5 }}
+              tick={{ fontSize: 10, fill: chartColors.textMuted }}
               tickLine={false}
               axisLine={false}
               interval="preserveStartEnd"
             />
             <YAxis
-              tick={{ fontSize: 10, fill: "currentColor", fillOpacity: 0.5 }}
+              tick={{ fontSize: 10, fill: chartColors.textMuted }}
               tickLine={false}
               axisLine={false}
               tickFormatter={viewMode === "tokens" ? fmtTokens : fmtCost}
@@ -103,6 +110,7 @@ export default function UsageChart({ period = "7d" }) {
                 border: "1px solid var(--color-border)",
                 borderRadius: "8px",
                 fontSize: "12px",
+                color: chartColors.textMuted,
               }}
               formatter={(value, name) =>
                 name === "tokens" ? [fmtTokens(value), "Tokens"] : [fmtCost(value), "Cost"]
@@ -112,21 +120,21 @@ export default function UsageChart({ period = "7d" }) {
               <Area
                 type="monotone"
                 dataKey="tokens"
-                stroke="#6366f1"
+                stroke={chartColors.primary}
                 strokeWidth={2}
                 fill="url(#gradTokens)"
                 dot={false}
-                activeDot={{ r: 4 }}
+                activeDot={{ r: 4, stroke: chartColors.bg, fill: chartColors.primary }}
               />
             ) : (
               <Area
                 type="monotone"
                 dataKey="cost"
-                stroke="#f59e0b"
+                stroke={chartColors.info}
                 strokeWidth={2}
                 fill="url(#gradCost)"
                 dot={false}
-                activeDot={{ r: 4 }}
+                activeDot={{ r: 4, stroke: chartColors.bg, fill: chartColors.info }}
               />
             )}
           </AreaChart>

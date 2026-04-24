@@ -40,18 +40,16 @@ export default function ProviderLimitCard({
   // Get provider info from config
   const getProviderColor = () => {
     const colors = {
-      github: "#000000",
-      antigravity: "#4285F4",
-      codex: "#10A37F",
-      kiro: "#FF9900",
-      claude: "#D97757",
+      github: "var(--color-text-main)",
+      antigravity: "var(--color-info)",
+      codex: "var(--color-success)",
+      kiro: "var(--color-warning)",
+      claude: "var(--color-primary)",
     };
-    return colors[provider?.toLowerCase()] || "#6B7280";
+    return colors[provider?.toLowerCase()] || "var(--color-text-muted)";
   };
 
   const providerColor = getProviderColor();
-  const planVariant = planVariants[plan?.toLowerCase()] || "default";
-
   return (
     <Card padding="md" className="flex flex-col gap-4">
       {/* Header */}
@@ -59,21 +57,21 @@ export default function ProviderLimitCard({
         <div className="flex items-center gap-3">
           {/* Provider Logo */}
           <div
-            className="size-10 rounded-lg flex items-center justify-center p-1.5"
+            className="size-10 rounded flex items-center justify-center p-1.5"
             style={{ backgroundColor: `${providerColor}15` }}
           >
             <ProviderIcon
               src={`/providers/${provider}.png`}
               alt={provider || "Provider"}
               size={40}
-              className="object-contain rounded-lg"
+              className="object-contain rounded"
               fallbackText={provider?.slice(0, 2).toUpperCase() || "PR"}
               fallbackColor={providerColor}
             />
           </div>
 
           <div>
-            <h3 className="font-semibold text-text-primary">
+            <h3 className="font-semibold text-text-main">
               {name || provider}
             </h3>
             {plan && (
@@ -91,7 +89,7 @@ export default function ProviderLimitCard({
         <button
           onClick={handleRefresh}
           disabled={refreshing || loading}
-          className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="p-2 rounded hover:bg-bg-subtle transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           title="Refresh quota"
         >
           <span
@@ -108,36 +106,36 @@ export default function ProviderLimitCard({
       {loading && (
         <div className="space-y-4">
           <div className="space-y-2">
-            <div className="h-4 bg-black/5 dark:bg-white/5 rounded animate-pulse" />
-            <div className="h-2 bg-black/5 dark:bg-white/5 rounded animate-pulse" />
+            <div className="h-4 bg-bg-subtle rounded animate-pulse" />
+            <div className="h-2 bg-bg-subtle rounded animate-pulse" />
           </div>
           <div className="space-y-2">
-            <div className="h-4 bg-black/5 dark:bg-white/5 rounded animate-pulse" />
-            <div className="h-2 bg-black/5 dark:bg-white/5 rounded animate-pulse" />
+            <div className="h-4 bg-bg-subtle rounded animate-pulse" />
+            <div className="h-2 bg-bg-subtle rounded animate-pulse" />
           </div>
         </div>
       )}
 
       {/* Error State */}
       {!loading && error && (
-        <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20">
+        <div className="p-4 rounded bg-[var(--color-danger-soft)] border border-[var(--color-danger-border)]">
           <div className="flex items-start gap-2">
-            <span className="material-symbols-outlined text-red-500 text-[20px]">
+            <span className="material-symbols-outlined text-[var(--color-danger)] text-[20px]">
               error
             </span>
-            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            <p className="text-sm text-[var(--color-danger)]">{error}</p>
           </div>
         </div>
       )}
 
       {/* Info Message (for providers without API) */}
       {!loading && !error && message && (
-        <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
+        <div className="p-4 rounded bg-[var(--color-info-soft)] border border-[var(--color-info-border)]">
           <div className="flex items-start gap-2">
-            <span className="material-symbols-outlined text-blue-500 text-[20px]">
+            <span className="material-symbols-outlined text-[var(--color-info)] text-[20px]">
               info
             </span>
-            <p className="text-sm text-blue-600 dark:text-blue-400">
+            <p className="text-sm text-[var(--color-info)]">
               {message}
             </p>
           </div>

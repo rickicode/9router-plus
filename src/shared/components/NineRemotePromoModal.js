@@ -30,20 +30,20 @@ export default function NineRemotePromoModal({ isOpen, onClose }) {
 
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 [background-color:var(--color-overlay,rgba(0,0,0,0.56))]" onClick={onClose} />
 
-      <div className="relative w-full max-w-sm rounded-xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200 flex flex-col bg-surface border border-black/10 dark:border-white/10">
+      <div className="relative flex w-full max-w-sm flex-col overflow-hidden rounded border border-[var(--color-border)] bg-[var(--color-surface)] animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-black/5 dark:border-white/5">
+        <div className="flex items-center justify-between border-b border-[var(--color-border)] px-5 py-4">
           <div className="flex items-center gap-3">
-            <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: "#FF570A" }}>
+            <div className="flex h-7 w-7 items-center justify-center rounded [background-color:var(--color-primary)]">
               <span className="material-symbols-outlined text-white text-base">terminal</span>
             </div>
-            <span className="text-xs font-bold uppercase tracking-wider" style={{ fontFamily: "monospace", color: "#FF570A" }}>9Remote</span>
+            <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-primary)]" style={{ fontFamily: "monospace" }}>9Remote</span>
           </div>
           <button
             onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center rounded-lg bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10 text-text-muted hover:text-text-main transition-colors"
+            className="flex h-7 w-7 items-center justify-center rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-main)]"
           >
             <span className="material-symbols-outlined text-base">close</span>
           </button>
@@ -54,13 +54,12 @@ export default function NineRemotePromoModal({ isOpen, onClose }) {
           {/* Hero */}
           <div className="flex flex-col items-center gap-2 text-center mt-2">
             <div
-              className="w-14 h-14 rounded-2xl flex items-center justify-center mb-1"
-              style={{ background: "#FF570A", boxShadow: "rgba(255,87,10,0.35) 0px 8px 32px" }}
+              className="mb-1 flex h-14 w-14 items-center justify-center rounded [background-color:var(--color-primary)]"
             >
               <span className="material-symbols-outlined text-white" style={{ fontSize: 30 }}>terminal</span>
             </div>
-            <h1 className="text-lg font-bold text-text-main tracking-tight">9Remote</h1>
-            <p className="text-xs text-text-muted leading-5 max-w-[220px]">
+            <h1 className="text-lg font-bold tracking-tight text-[var(--color-text-main)]">9Remote</h1>
+            <p className="max-w-[220px] text-xs leading-5 text-[var(--color-text-muted)]">
               Access your terminal, desktop &amp; files from anywhere
             </p>
           </div>
@@ -68,10 +67,10 @@ export default function NineRemotePromoModal({ isOpen, onClose }) {
           {/* Feature cards */}
           <div className="flex gap-2 w-full">
             {FEATURES.map(({ icon, label, desc }) => (
-              <div key={label} className="flex-1 flex flex-col items-center gap-1.5 py-4 px-1 rounded-xl border border-black/10 dark:border-white/10 bg-bg-alt">
-                <span className="material-symbols-outlined" style={{ fontSize: 22, color: "#ff6e33" }}>{icon}</span>
-                <p className="text-xs font-semibold text-text-main">{label}</p>
-                <p className="text-[10px] text-text-muted text-center leading-4">{desc}</p>
+              <div key={label} className="flex flex-1 flex-col items-center gap-1.5 rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-1 py-4">
+                <span className="material-symbols-outlined text-[var(--color-primary)]" style={{ fontSize: 22 }}>{icon}</span>
+                <p className="text-xs font-semibold text-[var(--color-text-main)]">{label}</p>
+                <p className="text-center text-[10px] leading-4 text-[var(--color-text-muted)]">{desc}</p>
               </div>
             ))}
           </div>
@@ -80,8 +79,8 @@ export default function NineRemotePromoModal({ isOpen, onClose }) {
           <div className="flex flex-col gap-3 w-full">
             {BULLETS.map(({ icon, text }) => (
               <div key={icon} className="flex items-center gap-2.5">
-                <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 16, color: "#ff6e33" }}>{icon}</span>
-                <span className="text-xs text-text-muted">{text}</span>
+                <span className="material-symbols-outlined shrink-0 text-[var(--color-primary)]" style={{ fontSize: 16 }}>{icon}</span>
+                <span className="text-xs text-[var(--color-text-muted)]">{text}</span>
               </div>
             ))}
           </div>
@@ -89,8 +88,7 @@ export default function NineRemotePromoModal({ isOpen, onClose }) {
           {/* CTA */}
           <button
             onClick={() => window.open(NINE_REMOTE_URL, "_blank")}
-            className="w-full py-3.5 flex items-center justify-center gap-2 text-sm font-semibold text-white rounded-xl hover:opacity-90 active:scale-[0.98] transition-all"
-            style={{ background: "#FF570A", boxShadow: "0 4px 16px rgba(255,87,10,0.35)" }}
+            className="flex w-full items-center justify-center gap-2 rounded bg-[var(--color-primary)] py-3.5 text-sm font-semibold text-white transition-all hover:bg-[var(--color-primary-hover)] active:scale-[0.98]"
           >
             <span className="material-symbols-outlined text-base">open_in_new</span>
             Get 9Remote

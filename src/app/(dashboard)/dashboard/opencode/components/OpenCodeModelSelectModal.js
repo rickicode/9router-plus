@@ -201,7 +201,7 @@ export default function OpenCodeModelSelectModal({
                     className={[
                       "rounded-xl border px-2 py-1 text-xs font-medium transition-all hover:cursor-pointer",
                       isDisabled
-                        ? "cursor-not-allowed border-border bg-black/[0.03] text-text-muted opacity-50 dark:bg-white/[0.04]"
+                        ? "cursor-not-allowed border-border bg-[var(--color-bg-alt)] text-text-muted opacity-50"
                         : isSelected
                         ? "border-primary bg-primary text-white"
                         : "border-border bg-surface text-text-main hover:border-primary/50 hover:bg-primary/5",
@@ -239,7 +239,7 @@ export default function OpenCodeModelSelectModal({
                     className={[
                       "rounded-xl border px-2 py-1 text-xs font-medium transition-all hover:cursor-pointer",
                       isDisabled
-                        ? "cursor-not-allowed border-border bg-black/[0.03] text-text-muted opacity-50 dark:bg-white/[0.04]"
+                        ? "cursor-not-allowed border-border bg-[var(--color-bg-alt)] text-text-muted opacity-50"
                         : isPlaceholder
                         ? "border-border bg-surface italic text-text-muted hover:border-primary/50 hover:text-primary border-dashed"
                         : isSelected

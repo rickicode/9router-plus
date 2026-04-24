@@ -83,7 +83,7 @@ function ModelSelector({ preferences, modelCatalog, saving, onSave, activeProvid
             type="button"
             onClick={() => onSave?.({ modelSelectionMode: "exclude" })}
             className={cn(
-              "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+              "rounded border px-3 py-1.5 text-xs font-medium transition-colors",
               mode === "exclude"
                 ? "border-primary/30 bg-primary/10 text-primary"
                 : "border-border bg-surface text-text-muted hover:text-text-main"
@@ -95,7 +95,7 @@ function ModelSelector({ preferences, modelCatalog, saving, onSave, activeProvid
             type="button"
             onClick={() => onSave?.({ modelSelectionMode: "include" })}
             className={cn(
-              "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+              "rounded border px-3 py-1.5 text-xs font-medium transition-colors",
               mode === "include"
                 ? "border-primary/30 bg-primary/10 text-primary"
                 : "border-border bg-surface text-text-muted hover:text-text-main"
@@ -115,11 +115,11 @@ function ModelSelector({ preferences, modelCatalog, saving, onSave, activeProvid
           </p>
         ) : (
           selectedModels.map((modelId) => (
-            <Badge key={modelId} className="gap-1.5 pr-1 shadow-sm">
+            <Badge key={modelId} className="gap-1.5 pr-1">
               <span className="max-w-[200px] truncate text-xs">{modelId}</span>
               <button
                 type="button"
-                className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10"
+                className="rounded-full p-0.5 hover:bg-[var(--color-bg-alt)]"
                 onClick={() => removeModel(modelId)}
               >
                 <span className="material-symbols-outlined text-[12px]">close</span>
@@ -162,7 +162,7 @@ function VariantToggle({ variant, onVariantChange }) {
           type="button"
           onClick={() => onVariantChange("openagent")}
           className={cn(
-            "flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors cursor-pointer",
+            "flex-1 rounded border px-3 py-2 text-xs font-medium transition-colors cursor-pointer",
             variant === "openagent"
               ? "border-primary/30 bg-primary/10 text-text-main"
               : "border-border bg-surface text-text-muted hover:text-text-main hover:border-primary/20"
@@ -175,7 +175,7 @@ function VariantToggle({ variant, onVariantChange }) {
           type="button"
           onClick={() => onVariantChange("slim")}
           className={cn(
-            "flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors cursor-pointer",
+            "flex-1 rounded border px-3 py-2 text-xs font-medium transition-colors cursor-pointer",
             variant === "slim"
               ? "border-primary/30 bg-primary/10 text-text-main"
               : "border-border bg-surface text-text-muted hover:text-text-main hover:border-primary/20"
@@ -188,7 +188,7 @@ function VariantToggle({ variant, onVariantChange }) {
           type="button"
           onClick={() => onVariantChange("custom")}
           className={cn(
-            "flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors cursor-pointer",
+            "flex-1 rounded border px-3 py-2 text-xs font-medium transition-colors cursor-pointer",
             variant === "custom"
               ? "border-primary/30 bg-primary/10 text-text-main"
               : "border-border bg-surface text-text-muted hover:text-text-main hover:border-primary/20"
@@ -212,14 +212,14 @@ function PluginSection({ plugins, pluginInput, onPluginInputChange, onAddPlugin,
         {plugins.map((plugin) => (
           <span
             key={plugin}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1 text-xs text-text-main"
+            className="inline-flex items-center gap-1.5 rounded border border-border bg-surface px-2.5 py-1 text-xs text-text-main"
           >
             <span className="material-symbols-outlined text-[12px] text-primary">extension</span>
             {plugin}
             <button
               type="button"
               onClick={() => onRemovePlugin(plugin)}
-              className="ml-0.5 rounded-full p-0.5 text-text-muted hover:bg-black/10 hover:text-text-main dark:hover:bg-white/10"
+              className="ml-0.5 rounded-full p-0.5 text-text-muted hover:bg-[var(--color-bg-alt)] hover:text-text-main"
             >
               <span className="material-symbols-outlined text-[12px]">close</span>
             </button>
@@ -233,7 +233,7 @@ function PluginSection({ plugins, pluginInput, onPluginInputChange, onAddPlugin,
           onChange={(e) => onPluginInputChange(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && onAddPlugin()}
           placeholder="my-plugin@latest"
-          className="flex-1 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-text-main placeholder:text-text-muted focus:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary/20"
+          className="flex-1 rounded border border-border bg-surface px-3 py-1.5 text-xs text-text-main placeholder:text-text-muted focus:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary/20"
         />
         <Button variant="ghost" size="sm" onClick={onAddPlugin} disabled={!pluginInput.trim()}>
           Add
@@ -276,7 +276,7 @@ function McpSection({ mcps, onAddMcp, onRemoveMcp, onToggleMcpEnabled }) {
           {mcps.map((mcp) => (
             <div
               key={mcp.name}
-              className="flex items-center justify-between gap-2 rounded-lg border border-border bg-surface px-3 py-2"
+              className="flex items-center justify-between gap-2 rounded border border-border bg-surface px-3 py-2"
             >
               <div className="flex items-center gap-2 text-xs">
                 <span className="material-symbols-outlined text-[14px] text-primary">dns</span>
@@ -298,7 +298,7 @@ function McpSection({ mcps, onAddMcp, onRemoveMcp, onToggleMcpEnabled }) {
                 <button
                   type="button"
                   onClick={() => onRemoveMcp(mcp.name)}
-                  className="rounded p-1 text-text-muted hover:text-red-500"
+                  className="rounded p-1 text-text-muted hover:text-[var(--color-danger)]"
                 >
                   <span className="material-symbols-outlined text-[14px]">close</span>
                 </button>
@@ -313,12 +313,12 @@ function McpSection({ mcps, onAddMcp, onRemoveMcp, onToggleMcpEnabled }) {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Server name"
-          className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-text-main placeholder:text-text-muted focus:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary/20"
+          className="rounded border border-border bg-surface px-3 py-1.5 text-xs text-text-main placeholder:text-text-muted focus:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary/20"
         />
         <select
           value={type}
           onChange={(e) => setType(e.target.value)}
-          className="rounded-lg border border-border bg-surface px-2 py-1.5 text-xs text-text-main focus:border-primary/30 focus:outline-none"
+          className="rounded border border-border bg-surface px-2 py-1.5 text-xs text-text-main focus:border-primary/30 focus:outline-none"
         >
           <option value="local">Local</option>
           <option value="remote">Remote</option>
@@ -329,7 +329,7 @@ function McpSection({ mcps, onAddMcp, onRemoveMcp, onToggleMcpEnabled }) {
           onChange={(e) => (type === "remote" ? setUrl(e.target.value) : setCommand(e.target.value))}
           onKeyDown={(e) => e.key === "Enter" && handleAdd()}
           placeholder={type === "remote" ? "https://example.com/mcp" : "npx @modelcontextprotocol/server-filesystem /workspace"}
-          className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-text-main placeholder:text-text-muted focus:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary/20"
+          className="rounded border border-border bg-surface px-3 py-1.5 text-xs text-text-main placeholder:text-text-muted focus:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary/20"
         />
         <Button variant="ghost" size="sm" onClick={handleAdd} disabled={!name.trim()}>
           Add
@@ -362,7 +362,7 @@ function EnvVarsSection({ envVars, onAddEnvVar, onRemoveEnvVar }) {
           {envVars.map((env, idx) => (
             <div
               key={`${env.key}-${idx}`}
-              className="flex items-center justify-between gap-2 rounded-lg border border-border bg-surface px-3 py-2"
+              className="flex items-center justify-between gap-2 rounded border border-border bg-surface px-3 py-2"
             >
               <div className="flex items-center gap-2 text-xs">
                 <span className="material-symbols-outlined text-[14px] text-primary">key</span>
@@ -372,7 +372,7 @@ function EnvVarsSection({ envVars, onAddEnvVar, onRemoveEnvVar }) {
               <button
                 type="button"
                 onClick={() => onRemoveEnvVar(idx)}
-                className="rounded p-1 text-text-muted hover:text-red-500"
+                className="rounded p-1 text-text-muted hover:text-[var(--color-danger)]"
               >
                 <span className="material-symbols-outlined text-[14px]">close</span>
               </button>
@@ -386,7 +386,7 @@ function EnvVarsSection({ envVars, onAddEnvVar, onRemoveEnvVar }) {
           value={key}
           onChange={(e) => setKey(e.target.value)}
           placeholder="OPENAI_API_KEY"
-          className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-text-main placeholder:text-text-muted focus:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary/20"
+          className="rounded border border-border bg-surface px-3 py-1.5 text-xs text-text-main placeholder:text-text-muted focus:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary/20"
         />
         <input
           type={secret ? "password" : "text"}
@@ -394,7 +394,7 @@ function EnvVarsSection({ envVars, onAddEnvVar, onRemoveEnvVar }) {
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleAdd()}
           placeholder="value"
-          className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-text-main placeholder:text-text-muted focus:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary/20"
+          className="rounded border border-border bg-surface px-3 py-1.5 text-xs text-text-main placeholder:text-text-muted focus:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary/20"
         />
         <label className="flex items-center gap-1.5 text-xs text-text-muted">
           <input
@@ -481,7 +481,7 @@ function ConfigPreview({ preview, variant, loading, error, onRefresh, selectedAp
 
   if (error) {
     return (
-      <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-600 dark:text-red-400">
+      <div className="rounded border border-[var(--color-danger)]/20 bg-[var(--color-danger-soft)] px-4 py-3 text-sm text-[var(--color-danger)]">
         {error}
         <Button variant="ghost" size="sm" onClick={onRefresh} className="ml-2">
           Retry
@@ -515,16 +515,16 @@ function ConfigPreview({ preview, variant, loading, error, onRefresh, selectedAp
 
       {/* Slim first-time setup banner */}
       {variant === "slim" && (
-        <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 space-y-1">
+        <div className="rounded border border-[var(--color-danger)]/20 bg-[var(--color-danger-soft)] px-3 py-2 space-y-1">
           <div className="flex items-center gap-2">
-            <span className="text-[11px] font-semibold text-red-600 shrink-0">First-time setup:</span>
-            <code className="text-xs font-mono select-all truncate text-red-600">
+            <span className="text-[11px] font-semibold text-[var(--color-danger)] shrink-0">First-time setup:</span>
+            <code className="text-xs font-mono select-all truncate text-[var(--color-danger)]">
               bunx oh-my-opencode-slim@latest install --no-tui --skills=no
             </code>
-            <span className="text-[10px] text-red-600/70 shrink-0">(run once)</span>
+            <span className="text-[10px] text-[var(--color-danger)]/70 shrink-0">(run once)</span>
           </div>
-          <p className="text-[10px] text-red-600/50">
-            Registers agents and hooks. Use <code className="text-red-600/60">--skills=yes</code> to also install community skills.
+          <p className="text-[10px] text-[var(--color-danger)]/60">
+            Registers agents and hooks. Use <code className="text-[var(--color-danger)]/70">--skills=yes</code> to also install community skills.
           </p>
         </div>
       )}
@@ -605,13 +605,13 @@ function ConfigPreview({ preview, variant, loading, error, onRefresh, selectedAp
         <p className="flex items-start gap-2">
           <span>•</span>
           <span>
-            Set default model: <code className="rounded bg-surface px-1.5 py-0.5 font-mono text-xs text-amber-700 dark:text-amber-400">9router/cx/model-name</code>
+            Set default model: <code className="rounded bg-surface px-1.5 py-0.5 font-mono text-xs text-[var(--color-warning)]">9router/cx/model-name</code>
           </span>
         </p>
         <p className="flex items-start gap-2">
           <span>•</span>
           <span>
-            Place at <code className="break-all rounded bg-surface px-1.5 py-0.5 font-mono text-xs text-amber-700 dark:text-amber-400">~/.config/opencode/opencode.json</code>
+            Place at <code className="break-all rounded bg-surface px-1.5 py-0.5 font-mono text-xs text-[var(--color-warning)]">~/.config/opencode/opencode.json</code>
           </span>
         </p>
       </div>
@@ -916,7 +916,7 @@ export default function OpenCodePageClient() {
   return (
     <div className="flex flex-col gap-6">
         {/* Header */}
-        <section className="rounded-lg border border-border bg-surface p-4">
+        <section className="rounded border border-border bg-surface p-4">
           <h1 className="text-xl font-semibold tracking-tight text-text-main">
             OpenCode Quick Start
           </h1>
@@ -927,7 +927,7 @@ export default function OpenCodePageClient() {
 
         {/* Global error */}
         {error && (
-          <div className="rounded-lg border border-red-500/20 bg-red-500/8 px-4 py-3 text-sm text-red-600 dark:text-red-300">
+          <div className="rounded border border-[var(--color-danger)]/20 bg-[var(--color-danger-soft)] px-4 py-3 text-sm text-[var(--color-danger)]">
             {error}
           </div>
         )}
@@ -1019,7 +1019,7 @@ export default function OpenCodePageClient() {
                   />
                 </div>
               ) : (
-                <div className="rounded-lg border border-border bg-surface/50 px-3 py-2">
+                <div className="rounded border border-border bg-surface/50 px-3 py-2">
                   <div className="flex items-center gap-2 text-xs">
                     <span className="material-symbols-outlined text-[14px] text-primary">info</span>
                     <span className="text-text-muted">
@@ -1221,7 +1221,7 @@ function AdvancedOverridesCollapsible({ preferences, preview, modelCatalog, savi
         )}
 
         {/* Raw JSON Editor (Advanced) */}
-        <details className="rounded-lg border border-border bg-surface/50">
+        <details className="rounded border border-border bg-surface/50">
           <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-text-muted hover:text-text-main transition-colors">
             Advanced: Edit Raw JSON
           </summary>
@@ -1231,11 +1231,11 @@ function AdvancedOverridesCollapsible({ preferences, preview, modelCatalog, savi
                 <textarea
                   value={draftJson}
                   onChange={(e) => setDraftJson(e.target.value)}
-                  className="w-full h-64 px-3 py-2 font-mono text-xs rounded-lg border border-border bg-surface text-text-main focus:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary/20"
+                  className="w-full h-64 px-3 py-2 font-mono text-xs rounded border border-border bg-surface text-text-main focus:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary/20"
                   placeholder='{\n  "agentAssignments": {\n    "explorer": "cx/gpt-5.3-codex"\n  }\n}'
                 />
                 {jsonError && (
-                  <p className="text-sm text-red-600 dark:text-red-400">{jsonError}</p>
+                  <p className="text-sm text-[var(--color-danger)]">{jsonError}</p>
                 )}
                 <div className="flex gap-2">
                   <Button variant="ghost" size="sm" onClick={handleCancelEdit}>
