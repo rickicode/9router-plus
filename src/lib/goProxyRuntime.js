@@ -60,15 +60,15 @@ export function buildGoProxyCommand(runtime = {}) {
   assertGoProxyRuntimeCommandReady(normalizedRuntime);
 
   const args = [
-    "--listen-host",
+    "--host",
     String(normalizedRuntime.host),
-    "--listen-port",
+    "--port",
     String(normalizedRuntime.port),
     "--base-url",
     String(normalizedRuntime.ninerouterBaseUrl),
-    "--internal-resolve-token",
+    "--resolve-token",
     String(normalizedRuntime.internalResolveToken),
-    "--internal-report-token",
+    "--report-token",
     String(normalizedRuntime.internalReportToken),
     "--credentials-file",
     String(normalizedRuntime.credentialsFile),

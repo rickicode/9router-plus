@@ -14,7 +14,9 @@ export async function GET() {
     // Fetch request count from usage API
     let requestCount = 0;
     try {
-      const usageRes = await fetch("http://localhost:20128/api/usage");
+      const usageRes = await fetch("http://localhost:20128/api/usage", {
+        signal: AbortSignal.timeout(2000)
+      });
       if (usageRes.ok) {
         const usageData = await usageRes.json();
         requestCount = usageData.totalRequests || 0;
@@ -25,14 +27,19 @@ export async function GET() {
 
     // Check health connection to NineRouter
     let health = { connected: false, ninerouterUrl: "http://localhost:20128" };
-    try {
-      const healthRes = await fetch("http://localhost:20138/health", { timeout: 2000 });
-      if (healthRes.ok) {
-        health.connected = true;
-        health.lastCheck = new Date().toISOString();
+    if (managerStatus.running) {
+      try {
+        const healthRes = await fetch("http://localhost:20138/health", {
+          signal: AbortSignal.timeout(2000)
+        });
+        if (healthRes.ok) {
+          health.connected = true;
+          health.lastCheck = new Date().toISOString();
+        }
+      } catch (error) {
+        // Go Proxy not responding
+        health.error = error.message;
       }
-    } catch (error) {
-      // Go Proxy not responding
     }
 
     return NextResponse.json({
