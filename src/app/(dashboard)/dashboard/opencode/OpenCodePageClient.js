@@ -145,7 +145,6 @@ function ModelSelector({ preferences, modelCatalog, saving, onSave, activeProvid
         activeProviders={activeProviders}
         modelAliases={modelAliases}
         title={mode === "include" ? "Add allowed models" : "Add excluded models"}
-        multiSelect
       />
     </div>
   );
