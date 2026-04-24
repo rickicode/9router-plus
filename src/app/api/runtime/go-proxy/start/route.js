@@ -49,7 +49,7 @@ export async function POST(request) {
       binaryPath,
     };
 
-    const processInfo = goProxyManager.start(config);
+    const processInfo = await goProxyManager.start(config);
     const runtime = await startGoProxyRuntime({
       ...config,
       pid: processInfo.pid,

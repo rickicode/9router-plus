@@ -1,5 +1,17 @@
 import { spawn } from "node:child_process";
+import net from "node:net";
 import { buildGoProxyCommand } from "./goProxyRuntime.js";
+
+function isPortAvailable(port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.unref();
+    server.on("error", () => resolve(false));
+    server.listen({ port: Number(port), host: "127.0.0.1" }, () => {
+      server.close(() => resolve(true));
+    });
+  });
+}
 
 class GoProxyManager {
   constructor() {
@@ -11,9 +23,17 @@ class GoProxyManager {
     this.retryTimeouts = [1000, 2000, 4000]; // exponential backoff
   }
 
-  start(config) {
+  async start(config) {
     if (this.process) {
       throw new Error("Go Proxy is already running");
+    }
+
+    // Check port availability
+    const portAvailable = await isPortAvailable(config.port);
+    if (!portAvailable) {
+      const error = `Port ${config.port} is already in use. Stop the process using it first.`;
+      this.addLog(`[ERROR] ${error}`);
+      throw new Error(error);
     }
 
     const { file, args } = buildGoProxyCommand(config);
@@ -72,11 +92,13 @@ class GoProxyManager {
     this.retryCount = 0;
   }
 
-  restart(config) {
+  async restart(config) {
     if (this.process) {
       this.stop();
+      // Wait for port to be released
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
-    return this.start(config);
+    return await this.start(config);
   }
 
   handleExit(code, signal, config) {
@@ -84,19 +106,22 @@ class GoProxyManager {
     this.addLog(`[INFO] Process exited: ${exitReason}`);
     this.process = null;
     
-    if (code !== 0 && !signal && this.retryCount < this.maxRetries) {
+    // Don't retry if port is in use or killed by signal
+    const shouldRetry = code !== 0 && !signal && this.retryCount < this.maxRetries;
+    
+    if (shouldRetry) {
       const timeout = this.retryTimeouts[this.retryCount];
       this.addLog(`[WARN] Process exited with code ${code}, retrying in ${timeout}ms (attempt ${this.retryCount + 1}/${this.maxRetries})`);
       
-      setTimeout(() => {
+      setTimeout(async () => {
         this.retryCount++;
         try {
-          this.start(config);
+          await this.start(config);
         } catch (error) {
           this.addLog(`[ERROR] Retry failed: ${error.message}`);
         }
       }, timeout);
-    } else if (code !== 0) {
+    } else if (code !== 0 && !signal) {
       this.addLog(`[ERROR] Process stopped after ${this.maxRetries} retry attempts (exit code: ${code})`);
       this.retryCount = 0;
     } else {

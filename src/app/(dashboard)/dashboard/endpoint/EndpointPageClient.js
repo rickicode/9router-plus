@@ -19,7 +19,7 @@ export default function EndpointPageClient({ machineId }) {
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`relative whitespace-nowrap rounded-t px-4 py-2 text-sm transition-colors ${
+            className={`relative whitespace-nowrap rounded-t px-4 py-2 text-sm transition-colors cursor-pointer ${
               activeTab === tab
                 ? "bg-[var(--color-surface)] text-[var(--color-text-main)]"
                 : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-text-main)]"

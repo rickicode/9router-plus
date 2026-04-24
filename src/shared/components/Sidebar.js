@@ -37,6 +37,7 @@ const systemItems = [
 
 export default function Sidebar({ onClose }) {
   const pathname = usePathname();
+  const [mounted, setMounted] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
   const [showShutdownModal, setShowShutdownModal] = useState(false);
   const [isShuttingDown, setIsShuttingDown] = useState(false);
@@ -47,6 +48,10 @@ export default function Sidebar({ onClose }) {
   const [enableTranslator, setEnableTranslator] = useState(false);
   const [redisInfo, setRedisInfo] = useState(null);
   const { copied, copy } = useCopyToClipboard(2000);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const INSTALL_CMD = UPDATER_CONFIG.installCmd;
 
@@ -69,6 +74,7 @@ export default function Sidebar({ onClose }) {
   }, []);
 
   const isActive = (href) => {
+    if (!mounted) return false; // Prevent hydration mismatch
     if (href === "/dashboard/endpoint") {
       return pathname === "/dashboard" || pathname.startsWith("/dashboard/endpoint");
     }
@@ -214,7 +220,7 @@ export default function Sidebar({ onClose }) {
               onClick={() => setMediaOpen((v) => !v)}
               className={cn(
                 "group flex w-full items-center gap-3 rounded px-4 py-2 transition-all",
-                pathname.startsWith("/dashboard/media-providers")
+                mounted && pathname.startsWith("/dashboard/media-providers")
                   ? "bg-[var(--color-primary)]/10 text-[var(--color-accent)]"
                   : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-text-main)]"
               )}
@@ -234,7 +240,7 @@ export default function Sidebar({ onClose }) {
                     onClick={onClose}
                     className={cn(
                       "group flex items-center gap-3 rounded px-4 py-1.5 transition-all",
-                      pathname.startsWith(`/dashboard/media-providers/${kind.id}`)
+                      mounted && pathname.startsWith(`/dashboard/media-providers/${kind.id}`)
                         ? "bg-[var(--color-primary)]/10 text-[var(--color-accent)]"
                         : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-text-main)]"
                     )}
