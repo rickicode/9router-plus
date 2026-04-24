@@ -44,57 +44,56 @@ function findLegacyStatusFields(record = {}) {
   return Object.keys(record).filter((key) => LEGACY_STATUS_FIELDS.has(key));
 }
 
-function assertNoLegacyStatusFields(record = {}) {
+function stripLegacyStatusFields(record = {}) {
   const legacyFields = findLegacyStatusFields(record);
-  if (legacyFields.length === 0) return;
+  if (legacyFields.length === 0) return record;
 
-  const error = new Error(
-    `Legacy status fields are not supported: ${legacyFields.join(", ")}`,
-  );
-  error.code = "INVALID_LEGACY_STATUS_FIELDS";
-  error.legacyFields = legacyFields;
-  throw error;
+  const cleaned = { ...record };
+  for (const field of legacyFields) {
+    delete cleaned[field];
+  }
+  return cleaned;
 }
 
 export function normalizeInputRecord(raw) {
   const record = toNonArrayObject(raw);
   if (!record) return null;
 
-  assertNoLegacyStatusFields(record);
+  const cleanedRecord = stripLegacyStatusFields(record);
 
-  const credentials = toNonArrayObject(record.credentials);
-  const secrets = toNonArrayObject(record.secrets);
-  const token = toNonArrayObject(record.token);
-  const auth = toNonArrayObject(record.auth);
-  const identity = toNonArrayObject(record.identity);
-  const meta = toNonArrayObject(record.meta);
-  const metadata = toNonArrayObject(record.metadata);
+  const credentials = toNonArrayObject(cleanedRecord.credentials);
+  const secrets = toNonArrayObject(cleanedRecord.secrets);
+  const token = toNonArrayObject(cleanedRecord.token);
+  const auth = toNonArrayObject(cleanedRecord.auth);
+  const identity = toNonArrayObject(cleanedRecord.identity);
+  const meta = toNonArrayObject(cleanedRecord.meta);
+  const metadata = toNonArrayObject(cleanedRecord.metadata);
 
   const providerSpecificData = {
-    ...compactObject(record.providerSpecificData),
-    ...compactObject(record.provider_specific_data),
+    ...compactObject(cleanedRecord.providerSpecificData),
+    ...compactObject(cleanedRecord.provider_specific_data),
   };
 
   const normalized = {
-    id: pickValue(record.id, record.connectionId, record.connection_id),
-    provider: pickValue(record.provider, record.providerId, record.provider_id),
+    id: pickValue(cleanedRecord.id, cleanedRecord.connectionId, cleanedRecord.connection_id),
+    provider: pickValue(cleanedRecord.provider, cleanedRecord.providerId, cleanedRecord.provider_id),
     authType: pickValue(
-      record.authType,
-      record.auth_type,
+      cleanedRecord.authType,
+      cleanedRecord.auth_type,
       auth?.type,
       auth?.authType,
       auth?.auth_type,
     ),
-    name: pickValue(record.name, identity?.name, identity?.label),
-    displayName: pickValue(record.displayName, record.display_name),
-    email: pickValue(record.email, identity?.email),
-    priority: pickValue(record.priority),
-    isActive: pickValue(record.isActive, record.is_active),
-    defaultModel: pickValue(record.defaultModel, record.default_model),
-    globalPriority: pickValue(record.globalPriority, record.global_priority),
+    name: pickValue(cleanedRecord.name, identity?.name, identity?.label),
+    displayName: pickValue(cleanedRecord.displayName, cleanedRecord.display_name),
+    email: pickValue(cleanedRecord.email, identity?.email),
+    priority: pickValue(cleanedRecord.priority),
+    isActive: pickValue(cleanedRecord.isActive, cleanedRecord.is_active),
+    defaultModel: pickValue(cleanedRecord.defaultModel, cleanedRecord.default_model),
+    globalPriority: pickValue(cleanedRecord.globalPriority, cleanedRecord.global_priority),
     accessToken: pickValue(
-      record.accessToken,
-      record.access_token,
+      cleanedRecord.accessToken,
+      cleanedRecord.access_token,
       credentials?.accessToken,
       credentials?.access_token,
       secrets?.accessToken,
@@ -103,8 +102,8 @@ export function normalizeInputRecord(raw) {
       token?.access_token,
     ),
     refreshToken: pickValue(
-      record.refreshToken,
-      record.refresh_token,
+      cleanedRecord.refreshToken,
+      cleanedRecord.refresh_token,
       credentials?.refreshToken,
       credentials?.refresh_token,
       secrets?.refreshToken,
@@ -113,8 +112,8 @@ export function normalizeInputRecord(raw) {
       token?.refresh_token,
     ),
     idToken: pickValue(
-      record.idToken,
-      record.id_token,
+      cleanedRecord.idToken,
+      cleanedRecord.id_token,
       credentials?.idToken,
       credentials?.id_token,
       secrets?.idToken,
@@ -123,8 +122,8 @@ export function normalizeInputRecord(raw) {
       token?.id_token,
     ),
     apiKey: pickValue(
-      record.apiKey,
-      record.api_key,
+      cleanedRecord.apiKey,
+      cleanedRecord.api_key,
       credentials?.apiKey,
       credentials?.api_key,
       secrets?.apiKey,
@@ -133,8 +132,8 @@ export function normalizeInputRecord(raw) {
       auth?.api_key,
     ),
     expiresAt: pickValue(
-      record.expiresAt,
-      record.expires_at,
+      cleanedRecord.expiresAt,
+      cleanedRecord.expires_at,
       credentials?.expiresAt,
       credentials?.expires_at,
       secrets?.expiresAt,
@@ -143,8 +142,8 @@ export function normalizeInputRecord(raw) {
       token?.expires_at,
     ),
     expiresIn: pickValue(
-      record.expiresIn,
-      record.expires_in,
+      cleanedRecord.expiresIn,
+      cleanedRecord.expires_in,
       credentials?.expiresIn,
       credentials?.expires_in,
       secrets?.expiresIn,
@@ -153,8 +152,8 @@ export function normalizeInputRecord(raw) {
       token?.expires_in,
     ),
     tokenType: pickValue(
-      record.tokenType,
-      record.token_type,
+      cleanedRecord.tokenType,
+      cleanedRecord.token_type,
       credentials?.tokenType,
       credentials?.token_type,
       secrets?.tokenType,
@@ -163,14 +162,14 @@ export function normalizeInputRecord(raw) {
       token?.token_type,
     ),
     scope: pickValue(
-      record.scope,
+      cleanedRecord.scope,
       credentials?.scope,
       secrets?.scope,
       token?.scope,
     ),
     projectId: pickValue(
-      record.projectId,
-      record.project_id,
+      cleanedRecord.projectId,
+      cleanedRecord.project_id,
       credentials?.projectId,
       credentials?.project_id,
       secrets?.projectId,
@@ -180,23 +179,23 @@ export function normalizeInputRecord(raw) {
       meta?.projectId,
       meta?.project_id,
     ),
-    routingStatus: pickValue(record.routingStatus, record.routing_status),
-    quotaState: pickValue(record.quotaState, record.quota_state),
-    healthStatus: pickValue(record.healthStatus, record.health_status),
-    authState: pickValue(record.authState, record.auth_state),
-    reasonCode: pickValue(record.reasonCode, record.reason_code),
-    reasonDetail: pickValue(record.reasonDetail, record.reason_detail),
-    nextRetryAt: pickValue(record.nextRetryAt, record.next_retry_at),
-    resetAt: pickValue(record.resetAt, record.reset_at),
-    lastCheckedAt: pickValue(record.lastCheckedAt, record.last_checked_at),
-    usageSnapshot: pickValue(record.usageSnapshot, record.usage_snapshot),
-    version: pickValue(record.version),
-    lastUsedAt: pickValue(record.lastUsedAt, record.last_used_at),
+    routingStatus: pickValue(cleanedRecord.routingStatus, cleanedRecord.routing_status),
+    quotaState: pickValue(cleanedRecord.quotaState, cleanedRecord.quota_state),
+    healthStatus: pickValue(cleanedRecord.healthStatus, cleanedRecord.health_status),
+    authState: pickValue(cleanedRecord.authState, cleanedRecord.auth_state),
+    reasonCode: pickValue(cleanedRecord.reasonCode, cleanedRecord.reason_code),
+    reasonDetail: pickValue(cleanedRecord.reasonDetail, cleanedRecord.reason_detail),
+    nextRetryAt: pickValue(cleanedRecord.nextRetryAt, cleanedRecord.next_retry_at),
+    resetAt: pickValue(cleanedRecord.resetAt, cleanedRecord.reset_at),
+    lastCheckedAt: pickValue(cleanedRecord.lastCheckedAt, cleanedRecord.last_checked_at),
+    usageSnapshot: pickValue(cleanedRecord.usageSnapshot, cleanedRecord.usage_snapshot),
+    version: pickValue(cleanedRecord.version),
+    lastUsedAt: pickValue(cleanedRecord.lastUsedAt, cleanedRecord.last_used_at),
     consecutiveUseCount: pickValue(
-      record.consecutiveUseCount,
-      record.consecutive_use_count,
+      cleanedRecord.consecutiveUseCount,
+      cleanedRecord.consecutive_use_count,
     ),
-    backoffLevel: pickValue(record.backoffLevel, record.backoff_level),
+    backoffLevel: pickValue(cleanedRecord.backoffLevel, cleanedRecord.backoff_level),
     providerSpecificData: {
       ...providerSpecificData,
       ...compactObject(metadata),

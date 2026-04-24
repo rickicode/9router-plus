@@ -82,7 +82,7 @@ describe("credentials import/export canonical transport", () => {
     }
   });
 
-  it("rejects import payloads that contain legacy status fields", async () => {
+  it("strips legacy status fields and imports successfully", async () => {
     getProviderConnections.mockResolvedValue([]);
 
     const { POST: importPOST } = await import("../../src/app/api/credentials/import/route.js");
@@ -101,12 +101,24 @@ describe("credentials import/export canonical transport", () => {
       }),
     }));
 
-    expect(response.status).toBe(400);
-    expect(response.body).toMatchObject({ errorCode: "INVALID_LEGACY_STATUS_FIELDS" });
-    expect(createProviderConnection).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      success: true,
+      created: 1,
+      updated: 0,
+      imported: 1,
+    });
+    expect(createProviderConnection).toHaveBeenCalledTimes(1);
+    const callArg = createProviderConnection.mock.calls[0][0];
+    expect(callArg).not.toHaveProperty("testStatus");
+    expect(callArg).toMatchObject({
+      provider: "codex",
+      authType: "oauth",
+      accessToken: "legacy-access",
+    });
   });
 
-  it("rejects import payloads that contain snake_case legacy status fields", async () => {
+  it("strips snake_case legacy status fields and imports successfully", async () => {
     getProviderConnections.mockResolvedValue([]);
 
     const { POST: importPOST } = await import("../../src/app/api/credentials/import/route.js");
@@ -126,15 +138,25 @@ describe("credentials import/export canonical transport", () => {
       }),
     }));
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
-      errorCode: "INVALID_LEGACY_STATUS_FIELDS",
-      legacyFields: ["test_status", "last_error_at"],
+      success: true,
+      created: 1,
+      updated: 0,
+      imported: 1,
     });
-    expect(createProviderConnection).not.toHaveBeenCalled();
+    expect(createProviderConnection).toHaveBeenCalledTimes(1);
+    const callArg = createProviderConnection.mock.calls[0][0];
+    expect(callArg).not.toHaveProperty("test_status");
+    expect(callArg).not.toHaveProperty("last_error_at");
+    expect(callArg).toMatchObject({
+      provider: "codex",
+      authType: "oauth",
+      accessToken: "legacy-access",
+    });
   });
 
-  it("rejects import payloads that contain lastErrorAt legacy status fields", async () => {
+  it("strips lastErrorAt legacy status field and imports successfully", async () => {
     getProviderConnections.mockResolvedValue([]);
 
     const { POST: importPOST } = await import("../../src/app/api/credentials/import/route.js");
@@ -153,15 +175,24 @@ describe("credentials import/export canonical transport", () => {
       }),
     }));
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
-      errorCode: "INVALID_LEGACY_STATUS_FIELDS",
-      legacyFields: ["lastErrorAt"],
+      success: true,
+      created: 1,
+      updated: 0,
+      imported: 1,
     });
-    expect(createProviderConnection).not.toHaveBeenCalled();
+    expect(createProviderConnection).toHaveBeenCalledTimes(1);
+    const callArg = createProviderConnection.mock.calls[0][0];
+    expect(callArg).not.toHaveProperty("lastErrorAt");
+    expect(callArg).toMatchObject({
+      provider: "codex",
+      authType: "oauth",
+      accessToken: "legacy-access",
+    });
   });
 
-  it("rejects mixed canonical and legacy status payloads", async () => {
+  it("strips legacy fields from mixed canonical and legacy status payloads", async () => {
     getProviderConnections.mockResolvedValue([]);
 
     const { POST: importPOST } = await import("../../src/app/api/credentials/import/route.js");
@@ -184,9 +215,25 @@ describe("credentials import/export canonical transport", () => {
       }),
     }));
 
-    expect(response.status).toBe(400);
-    expect(response.body).toMatchObject({ errorCode: "INVALID_LEGACY_STATUS_FIELDS" });
-    expect(createProviderConnection).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      success: true,
+      created: 1,
+      updated: 0,
+      imported: 1,
+    });
+    expect(createProviderConnection).toHaveBeenCalledTimes(1);
+    const callArg = createProviderConnection.mock.calls[0][0];
+    expect(callArg).not.toHaveProperty("testStatus");
+    expect(callArg).toMatchObject({
+      provider: "codex",
+      authType: "oauth",
+      accessToken: "access",
+      routingStatus: "eligible",
+      quotaState: "ok",
+      authState: "ok",
+      healthStatus: "healthy",
+    });
   });
 
   it("imports canonical-only payloads successfully", async () => {
