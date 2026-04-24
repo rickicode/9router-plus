@@ -15,6 +15,13 @@ const nextConfig = {
         path: false,
       };
     }
+    
+    // Externalize packages with dynamic requires (server-side only)
+    if (isServer) {
+      config.externals = config.externals || [];
+      config.externals.push('browserslist', 'caniuse-lite');
+    }
+    
     // Stop watching logs directory to prevent HMR during streaming
     config.watchOptions = { ...config.watchOptions, ignored: /[\\/](logs|\.next)[\\/]/ };
     return config;

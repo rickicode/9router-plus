@@ -56,7 +56,7 @@ export const GEMINI_CONFIG = {
 
 // Qwen OAuth Configuration (Device Code Flow with PKCE)
 export const QWEN_CONFIG = {
-  clientId: "YOUR_QWEN_CLIENT_ID",
+  clientId: "f0304373b74a44d2b584a3fb70ca9e56",
   deviceCodeUrl: "https://qwen.ai/api/v1/oauth2/device/code",
   tokenUrl: "https://qwen.ai/api/v1/oauth2/token",
   scope: "openid profile email model.completion",
