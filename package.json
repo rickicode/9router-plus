@@ -9,6 +9,7 @@
     "build:go-proxy": "sh -c 'mkdir -p bin && cd go-proxy && go build -o ../bin/9router-go-proxy .'",
     "verify:go-proxy-bin": "sh -c 'test -x bin/9router-go-proxy && (./bin/9router-go-proxy --help >/dev/null 2>&1 || ./bin/9router-go-proxy -h >/dev/null 2>&1 || true)'",
     "install:go-proxy": "sh -c 'mkdir -p \"$HOME/.9router/bin\" && cp bin/9router-go-proxy \"$HOME/.9router/bin/9router-go-proxy\" && chmod +x \"$HOME/.9router/bin/9router-go-proxy\"'",
+    "postinstall": "sh -c 'command -v go >/dev/null 2>&1 && npm run build:go-proxy && npm run install:go-proxy || echo \"[Go Proxy] Go not found, skipping binary build (will use go run at runtime)\"'",
     "build": "npm run build:go-proxy && npm run build:web",
     "start": "NODE_ENV=production node ./scripts/start.js",
     "start:with-go-wrapper": "GO_PROXY_WRAPPER_ENABLED=true NODE_ENV=production node ./scripts/start.js",

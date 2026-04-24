@@ -387,10 +387,6 @@ function spawnGoProxyWrapper(options, runtimeEnv) {
   const goProxyDir = path.join(process.cwd(), "go-proxy");
   const goProxyMain = path.join(goProxyDir, "main.go");
 
-  if (!fs.existsSync(goProxyMain)) {
-    throw new Error(`[Go Wrapper] Missing entrypoint: ${goProxyMain}`);
-  }
-
   const wrapperEnv = {
     ...runtimeEnv,
     GO_PROXY_HOST: options.host,
@@ -399,12 +395,40 @@ function spawnGoProxyWrapper(options, runtimeEnv) {
 
   console.log(`[Go Wrapper] Starting on ${options.host}:${options.port}`);
 
-  const child = spawn("go", ["run", "main.go"], {
-    cwd: goProxyDir,
-    stdio: "inherit",
-    env: wrapperEnv,
-    shell: false,
-  });
+  // Try precompiled binary first
+  const homeDir = require("node:os").homedir();
+  const installedBinary = path.join(homeDir, ".9router", "bin", "9router-go-proxy");
+  const localBinary = path.join(process.cwd(), "bin", "9router-go-proxy");
+
+  let child;
+
+  if (fs.existsSync(installedBinary)) {
+    console.log(`[Go Wrapper] Using installed binary: ${installedBinary}`);
+    child = spawn(installedBinary, [], {
+      stdio: "inherit",
+      env: wrapperEnv,
+      shell: false,
+    });
+  } else if (fs.existsSync(localBinary)) {
+    console.log(`[Go Wrapper] Using local binary: ${localBinary}`);
+    child = spawn(localBinary, [], {
+      stdio: "inherit",
+      env: wrapperEnv,
+      shell: false,
+    });
+  } else {
+    // Fallback to go run
+    if (!fs.existsSync(goProxyMain)) {
+      throw new Error(`[Go Wrapper] Missing entrypoint: ${goProxyMain}`);
+    }
+    console.log(`[Go Wrapper] No binary found, using 'go run' (slower startup)`);
+    child = spawn("go", ["run", "main.go"], {
+      cwd: goProxyDir,
+      stdio: "inherit",
+      env: wrapperEnv,
+      shell: false,
+    });
+  }
 
   child.on("exit", (code, signal) => {
     if (signal) {
