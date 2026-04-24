@@ -1,0 +1,47 @@
+{
+  "providerConnections": [],
+  "providerNodes": [
+    {
+      "id": "openai-compatible-local",
+      "type": "openai-compatible",
+      "prefix": "oaic",
+      "baseUrl": "https://oaic.example.com/v1",
+      "apiType": "chat"
+    },
+    {
+      "id": "openai-compatible-responses",
+      "type": "openai-compatible",
+      "prefix": "oair",
+      "baseUrl": "https://responses.example.com/v1",
+      "apiType": "responses"
+    },
+    {
+      "id": "anthropic-compatible-local",
+      "type": "anthropic-compatible",
+      "prefix": "acmp",
+      "baseUrl": "https://anthropic-proxy.example.com/v1"
+    }
+  ],
+  "proxyPools": [],
+  "modelAliases": {
+    "fast": "openai/gpt-4.1-mini",
+    "smart": {
+      "provider": "cc",
+      "model": "claude-sonnet-4-20250514"
+    }
+  },
+  "customModels": [],
+  "mitmAlias": {},
+  "combos": [
+    {
+      "name": "writer-pack",
+      "models": [
+        "openai/gpt-4.1",
+        "claude/claude-sonnet-4-20250514"
+      ]
+    }
+  ],
+  "apiKeys": [],
+  "settings": {},
+  "pricing": {}
+}

@@ -1,0 +1,236 @@
+{
+  "chunks": [
+    {
+      "type": "message_start",
+      "message": {
+        "id": "msg_claude_parity",
+        "model": "claude-sonnet-4"
+      }
+    },
+    {
+      "type": "content_block_start",
+      "index": 0,
+      "content_block": {
+        "type": "thinking"
+      }
+    },
+    {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "thinking_delta",
+        "thinking": "Need to compare the uploaded receipt against the order totals first."
+      }
+    },
+    {
+      "type": "content_block_stop",
+      "index": 0
+    },
+    {
+      "type": "content_block_delta",
+      "index": 1,
+      "delta": {
+        "type": "text_delta",
+        "text": "I found a mismatch in the tax line and will verify the invoice."
+      }
+    },
+    {
+      "type": "content_block_start",
+      "index": 2,
+      "content_block": {
+        "type": "tool_use",
+        "id": "toolu_01A9",
+        "name": "lookup_invoice"
+      }
+    },
+    {
+      "type": "content_block_delta",
+      "index": 2,
+      "delta": {
+        "type": "input_json_delta",
+        "partial_json": "{\"invoice_id\":\"inv_9001\","
+      }
+    },
+    {
+      "type": "content_block_delta",
+      "index": 2,
+      "delta": {
+        "type": "input_json_delta",
+        "partial_json": "\"include_adjustments\":true}"
+      }
+    },
+    {
+      "type": "message_delta",
+      "delta": {
+        "stop_reason": "tool_use"
+      },
+      "usage": {
+        "input_tokens": 312,
+        "output_tokens": 87,
+        "cache_read_input_tokens": 40,
+        "cache_creation_input_tokens": 12
+      }
+    }
+  ],
+  "expected": [
+    {
+      "id": "chatcmpl-msg_claude_parity",
+      "object": "chat.completion.chunk",
+      "model": "claude-sonnet-4",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "role": "assistant"
+          },
+          "finish_reason": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-msg_claude_parity",
+      "object": "chat.completion.chunk",
+      "model": "claude-sonnet-4",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "content": "<think>"
+          },
+          "finish_reason": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-msg_claude_parity",
+      "object": "chat.completion.chunk",
+      "model": "claude-sonnet-4",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "reasoning_content": "Need to compare the uploaded receipt against the order totals first."
+          },
+          "finish_reason": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-msg_claude_parity",
+      "object": "chat.completion.chunk",
+      "model": "claude-sonnet-4",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "content": "</think>"
+          },
+          "finish_reason": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-msg_claude_parity",
+      "object": "chat.completion.chunk",
+      "model": "claude-sonnet-4",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "content": "I found a mismatch in the tax line and will verify the invoice."
+          },
+          "finish_reason": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-msg_claude_parity",
+      "object": "chat.completion.chunk",
+      "model": "claude-sonnet-4",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "tool_calls": [
+              {
+                "index": 0,
+                "id": "toolu_01A9",
+                "type": "function",
+                "function": {
+                  "name": "lookup_invoice",
+                  "arguments": ""
+                }
+              }
+            ]
+          },
+          "finish_reason": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-msg_claude_parity",
+      "object": "chat.completion.chunk",
+      "model": "claude-sonnet-4",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "tool_calls": [
+              {
+                "index": 0,
+                "id": "toolu_01A9",
+                "function": {
+                  "arguments": "{\"invoice_id\":\"inv_9001\","
+                }
+              }
+            ]
+          },
+          "finish_reason": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-msg_claude_parity",
+      "object": "chat.completion.chunk",
+      "model": "claude-sonnet-4",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "tool_calls": [
+              {
+                "index": 0,
+                "id": "toolu_01A9",
+                "function": {
+                  "arguments": "\"include_adjustments\":true}"
+                }
+              }
+            ]
+          },
+          "finish_reason": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-msg_claude_parity",
+      "object": "chat.completion.chunk",
+      "model": "claude-sonnet-4",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {},
+          "finish_reason": "tool_calls"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 364,
+        "completion_tokens": 87,
+        "total_tokens": 451,
+        "prompt_tokens_details": {
+          "cached_tokens": 40,
+          "cache_creation_tokens": 12
+        }
+      }
+    }
+  ]
+}
