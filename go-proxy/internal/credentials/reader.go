@@ -25,7 +25,7 @@ type Credential struct {
 type Reader struct {
 	filePath string
 	mu       sync.RWMutex
-	cache    dbShape
+	cache    DBShape
 	modTime  time.Time
 }
 
@@ -33,11 +33,13 @@ func NewReader(filePath string) *Reader {
 	return &Reader{filePath: filePath}
 }
 
-type dbShape struct {
-	ProviderConnections []providerConnection `json:"providerConnections"`
+// DBShape represents the database structure (public for stats)
+type DBShape struct {
+	ProviderConnections []ProviderConnection `json:"providerConnections"`
 }
 
-type providerConnection struct {
+// ProviderConnection represents a single provider connection (public for stats)
+type ProviderConnection struct {
 	ID           string `json:"id"`
 	Provider     string `json:"provider"`
 	AuthType     string `json:"authType"`
@@ -47,7 +49,7 @@ type providerConnection struct {
 }
 
 func (r *Reader) ReadByConnectionID(connectionID string) (Credential, error) {
-	db, err := r.loadDB()
+	db, err := r.LoadDB()
 	if err != nil {
 		return Credential{}, err
 	}
@@ -69,10 +71,11 @@ func (r *Reader) ReadByConnectionID(connectionID string) (Credential, error) {
 	return Credential{}, fmt.Errorf("%w: %s", ErrConnectionNotFound, connectionID)
 }
 
-func (r *Reader) loadDB() (dbShape, error) {
+// LoadDB loads and returns the database shape (public for stats)
+func (r *Reader) LoadDB() (DBShape, error) {
 	info, err := os.Stat(r.filePath)
 	if err != nil {
-		return dbShape{}, fmt.Errorf("stat credentials file: %w", err)
+		return DBShape{}, fmt.Errorf("stat credentials file: %w", err)
 	}
 
 	r.mu.RLock()
@@ -91,12 +94,12 @@ func (r *Reader) loadDB() (dbShape, error) {
 
 	content, err := os.ReadFile(r.filePath)
 	if err != nil {
-		return dbShape{}, fmt.Errorf("read credentials file: %w", err)
+		return DBShape{}, fmt.Errorf("read credentials file: %w", err)
 	}
 
-	var db dbShape
+	var db DBShape
 	if err := json.Unmarshal(content, &db); err != nil {
-		return dbShape{}, fmt.Errorf("decode credentials file: %w", err)
+		return DBShape{}, fmt.Errorf("decode credentials file: %w", err)
 	}
 
 	r.cache = db

@@ -92,6 +92,224 @@ func NewRoutes(cfg config.Config) http.Handler {
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
 
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Count provider accounts
+		db, err := credReader.LoadDB()
+		totalAccounts := 0
+		providerCounts := make(map[string]int)
+		if err == nil {
+			totalAccounts = len(db.ProviderConnections)
+			for _, conn := range db.ProviderConnections {
+				providerCounts[conn.Provider]++
+			}
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		
+		html := fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>9Router Go Proxy</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 600px;
+            width: 100%%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+        h1 {
+            color: #667eea;
+            font-size: 32px;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .subtitle {
+            color: #666;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .stats {
+            background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        .stats-number {
+            font-size: 48px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .stats-label {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+        .providers {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .providers h2 {
+            font-size: 18px;
+            color: #333;
+            margin-bottom: 15px;
+        }
+        .provider-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .provider-item:last-child {
+            border-bottom: none;
+        }
+        .provider-name {
+            color: #555;
+            font-weight: 500;
+        }
+        .provider-count {
+            color: #667eea;
+            font-weight: bold;
+        }
+        .info {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .info-title {
+            font-weight: bold;
+            color: #1976d2;
+            margin-bottom: 5px;
+        }
+        .info-text {
+            color: #555;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .endpoints {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+        }
+        .endpoints h2 {
+            font-size: 18px;
+            color: #333;
+            margin-bottom: 15px;
+        }
+        .endpoint {
+            font-family: 'Courier New', monospace;
+            background: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            color: #667eea;
+            font-size: 14px;
+        }
+        .status {
+            display: inline-block;
+            background: #4caf50;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 9Router Go Proxy</h1>
+        <div class="subtitle">High-Performance Data Plane</div>
+        
+        <div class="stats">
+            <div class="stats-number">%d</div>
+            <div class="stats-label">Total Provider Accounts (Eligible)</div>
+        </div>
+
+        <div class="info">
+            <div class="info-title">✓ Synced with 9Router</div>
+            <div class="info-text">
+                This Go proxy is using the same provider accounts configured in your 9Router dashboard.
+                All %d accounts are eligible for routing.
+            </div>
+        </div>
+
+        <div class="providers">
+            <h2>Provider Distribution</h2>
+`, totalAccounts, totalAccounts)
+
+		// Sort providers by count
+		type providerStat struct {
+			name  string
+			count int
+		}
+		stats := make([]providerStat, 0, len(providerCounts))
+		for name, count := range providerCounts {
+			stats = append(stats, providerStat{name, count})
+		}
+		// Simple bubble sort
+		for i := 0; i < len(stats); i++ {
+			for j := i + 1; j < len(stats); j++ {
+				if stats[j].count > stats[i].count {
+					stats[i], stats[j] = stats[j], stats[i]
+				}
+			}
+		}
+
+		for _, stat := range stats {
+			html += fmt.Sprintf(`            <div class="provider-item">
+                <span class="provider-name">%s</span>
+                <span class="provider-count">%d account(s)</span>
+            </div>
+`, stat.name, stat.count)
+		}
+
+		html += `        </div>
+
+        <div class="endpoints">
+            <h2>API Endpoints</h2>
+            <div class="endpoint">POST /v1/chat/completions <span class="status">READY</span></div>
+            <div class="endpoint">POST /v1/messages <span class="status">READY</span></div>
+            <div class="endpoint">GET /health <span class="status">READY</span></div>
+        </div>
+    </div>
+</body>
+</html>`
+
+		_, _ = w.Write([]byte(html))
+	})
+
 	mux.HandleFunc(routeChatCompletions, h.handleOpenAI)
 	mux.HandleFunc(routeResponses, h.handleOpenAI)
 	mux.HandleFunc(routeMessages, h.handleAnthropic)
