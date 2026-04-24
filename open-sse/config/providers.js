@@ -55,14 +55,14 @@ export const PROVIDERS = {
   gemini: {
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/models",
     format: "gemini",
-    clientId: "YOUR_GOOGLE_CLIENT_ID",
-    clientSecret: "YOUR_GOOGLE_CLIENT_SECRET"
+    clientId: "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com",
+    clientSecret: "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"
   },
   "gemini-cli": {
     baseUrl: "https://cloudcode-pa.googleapis.com/v1internal",
     format: "gemini-cli",
-    clientId: "YOUR_GOOGLE_CLIENT_ID",
-    clientSecret: "YOUR_GOOGLE_CLIENT_SECRET"
+    clientId: "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com",
+    clientSecret: "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"
   },
   codex: {
     baseUrl: "https://chatgpt.com/backend-api/codex/responses",
@@ -106,7 +106,7 @@ export const PROVIDERS = {
     ],
     format: "antigravity",
     headers: { "User-Agent": `antigravity/1.107.0 ${platform()}/${arch()}` },
-    clientId: "YOUR_GOOGLE_CLIENT_ID_2",
+    clientId: "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com_2",
     clientSecret: "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"
   },
   openrouter: {
