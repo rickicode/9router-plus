@@ -6,7 +6,7 @@ OpenCode's website embodies a terminal-native, monospace-first aesthetic that re
 
 Berkeley Mono is the sole typeface, establishing an unapologetic monospace identity. Every element -- headings, body text, buttons, navigation -- shares this single font family, creating a unified "everything is code" philosophy. The heading at 38px bold with 1.50 line-height is generous and readable, while body text at 16px with weight 500 provides a slightly heavier-than-normal reading weight that enhances legibility on screen. The monospace grid naturally enforces alignment and rhythm across the layout.
 
-The color system is deliberately minimal. The primary palette consists of just three functional tones: the warm near-black (`#201d1d`), a medium warm gray (`#9a9898`), and a bright off-white (`#fdfcfc`). Semantic colors borrow from the Apple HIG palette -- blue accent (`#007aff`), red danger (`#ff3b30`), green success (`#30d158`), orange warning (`#ff9f0a`) -- giving the interface familiar, trustworthy signal colors without adding brand complexity. Borders use a subtle warm transparency (`rgba(15, 0, 0, 0.12)`) that ties into the warm undertone of the entire system.
+The color system is deliberately minimal. The primary palette consists of warm near-black (`#201d1d`), medium warm gray (`#9a9898`), bright off-white (`#fdfcfc`), and the 9Router pink primary accent (`#ec4899`). Semantic colors keep familiar Apple HIG signals -- blue info (`#007aff`), red danger (`#ff3b30`), green success (`#30d158`), orange warning (`#ff9f0a`) -- while pink owns primary actions, selected states, links, and focus. Borders use a subtle warm transparency (`rgba(15, 0, 0, 0.12)`) that ties into the warm undertone of the entire system.
 
 **Key Characteristics:**
 - Berkeley Mono as the sole typeface -- monospace everywhere, no sans-serif or serif voices
@@ -14,7 +14,7 @@ The color system is deliberately minimal. The primary palette consists of just t
 - Off-white text (`#fdfcfc`) with warm tint, not pure white
 - Minimal 4px border radius throughout -- sharp, utilitarian corners
 - 8px base spacing system scaling up to 96px
-- Apple HIG-inspired semantic colors (blue, red, green, orange)
+- 9Router pink primary accent plus Apple HIG-inspired semantic colors (blue info, red, green, orange)
 - Transparent warm borders using `rgba(15, 0, 0, 0.12)`
 - Email input with generous 20px padding and 6px radius -- the most generous component radius
 - Single button variant: dark background, light text, tight vertical padding (4px 20px)
@@ -33,9 +33,12 @@ The color system is deliberately minimal. The primary palette consists of just t
 - **Light Surface** (`#f1eeee`): Light mode surface, subtle background variation.
 
 ### Accent
-- **Accent Blue** (`#007aff`): Primary accent, links, interactive highlights. Apple system blue.
-- **Accent Blue Hover** (`#0056b3`): Darker blue for hover states.
-- **Accent Blue Active** (`#004085`): Deepest blue for pressed/active states.
+- **Primary Pink** (`#ec4899`): Primary accent, links, focus rings, selected states, interactive highlights. 9Router brand pink.
+- **Primary Pink Hover** (`#db2777`): Darker pink for hover states in light mode.
+- **Primary Pink Active** (`#be185d`): Deepest pink for pressed/active states in light mode.
+- **Primary Pink Dark Hover** (`#f472b6`): Lighter pink for hover states on dark surfaces.
+- **Primary Pink Dark Active** (`#db2777`): Pressed/active pink on dark surfaces.
+- **Info Blue** (`#007aff`): Informational states only, not primary actions.
 
 ### Semantic
 - **Danger Red** (`#ff3b30`): Error states, destructive actions. Apple system red.
@@ -205,16 +208,16 @@ The color system is deliberately minimal. The primary palette consists of just t
 ## 7. Interaction & Motion
 
 ### Hover States
-- Links: color shift from default to accent blue (`#007aff`) or underline style change
+- Links: color shift from default to primary pink (`#ec4899`) or underline style change
 - Buttons: subtle background lightening or border emphasis
-- Accent blue provides a three-stage hover sequence: `#007aff` → `#0056b3` → `#004085` (default → hover → active)
+- Primary pink provides a three-stage hover sequence: light mode `#ec4899` → `#db2777` → `#be185d`; dark mode `#ec4899` → `#f472b6` → `#db2777` (default → hover → active)
 - Danger red: `#ff3b30` → `#d70015` → `#a50011`
 - Warning orange: `#ff9f0a` → `#cc7f08` → `#995f06`
 
 ### Focus States
 - Border-based focus: increased border opacity or solid border color
 - No shadow-based focus rings -- consistent with the flat, no-shadow aesthetic
-- Keyboard focus likely uses outline or border color shift to accent blue
+- Keyboard focus uses outline or border color shift to primary pink
 
 ### Transitions
 - Minimal transitions expected -- terminal-inspired interfaces favor instant state changes
@@ -255,7 +258,8 @@ The color system is deliberately minimal. The primary palette consists of just t
 - Primary text: `#fdfcfc` (warm off-white)
 - Secondary text: `#9a9898` (warm gray)
 - Muted text: `#6e6e73`
-- Accent: `#007aff` (blue)
+- Primary accent: `#ec4899` (9Router pink)
+- Info: `#007aff` (blue)
 - Danger: `#ff3b30` (red)
 - Success: `#30d158` (green)
 - Warning: `#ff9f0a` (orange)
@@ -275,7 +279,7 @@ The color system is deliberately minimal. The primary palette consists of just t
 2. Keep surfaces flat: no shadows, no gradients, no blur effects. Use borders and background shifts only.
 3. The warm undertone matters: use `#201d1d` not `#000000`, use `#fdfcfc` not `#ffffff`. The reddish warmth is subtle but essential.
 4. Border radius is 4px everywhere except inputs (6px). Never use rounded pills or large radii.
-5. Semantic colors follow Apple HIG: `#007aff` blue, `#ff3b30` red, `#30d158` green, `#ff9f0a` orange. Each has hover and active darkened variants.
+5. Primary actions, links, focus rings, and selected states use 9Router pink: `#ec4899` → `#db2777` → `#be185d` in light mode and `#ec4899` → `#f472b6` → `#db2777` in dark mode. Semantic colors follow Apple HIG for non-primary signals: `#007aff` info blue, `#ff3b30` red, `#30d158` green, `#ff9f0a` orange.
 6. Three-stage interaction: default → hover (darkened) → active (deeply darkened) for all semantic colors.
 7. Borders use `rgba(15, 0, 0, 0.12)` -- a warm transparent dark, not neutral gray. This ties borders to the warm palette.
 8. Spacing follows an 8px grid: 8, 16, 24, 32, 40, 48, 64, 80, 96px. Use 4px for fine adjustments only.

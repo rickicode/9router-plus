@@ -12,7 +12,8 @@
 
 # testing
 /coverage
-
+/.logs
+/.ocx
 # next.js
 /.next/
 /out/

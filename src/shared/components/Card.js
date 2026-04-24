@@ -2,7 +2,15 @@
 
 import { cn } from "@/shared/utils/cn";
 
-export default function Card({
+function CardSection({ children, className, ...props }) {
+  return (
+    <div className={cn(className)} {...props}>
+      {children}
+    </div>
+  );
+}
+
+function Card({
   children,
   title,
   subtitle,
@@ -57,3 +65,7 @@ export default function Card({
     </div>
   );
 }
+
+Card.Section = CardSection;
+
+export default Card;
