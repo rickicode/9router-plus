@@ -77,4 +77,69 @@ describe("localDb opencode sync helpers", () => {
     });
     expect(await listOpenCodeTokens()).toEqual([{ id: "token-2", label: "Desktop" }]);
   });
+
+  it("loads local db state from SQLite after JSON migration without requiring lowdb", async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "9router-opencode-sqlite-"));
+    process.env.DATA_DIR = dataDir;
+
+    const dbPath = path.join(dataDir, "db.json");
+    fs.writeFileSync(
+      dbPath,
+      JSON.stringify(
+        {
+          providerConnections: [
+            {
+              id: "conn-1",
+              provider: "openai",
+              authType: "apikey",
+              name: "Primary",
+              isActive: true,
+            },
+          ],
+          providerNodes: [],
+          proxyPools: [],
+          modelAliases: { gpt4: "gpt-4.1" },
+          customModels: [],
+          mitmAlias: { current: "default" },
+          combos: [],
+          apiKeys: [],
+          settings: { cloudEnabled: false },
+          pricing: { openai: { "gpt-4.1": { prompt: 1 } } },
+          opencodeSync: {
+            preferences: { variant: "custom", customTemplate: "sqlite" },
+            tokens: [{ id: "token-sqlite", label: "SQLite token" }],
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const { closeSqliteDb, migrateFromJSON } = await import("../../src/lib/sqliteHelpers.js");
+
+    migrateFromJSON();
+    fs.unlinkSync(dbPath);
+    closeSqliteDb();
+
+    const { getDb, getOpenCodeSync } = await import("../../src/lib/localDb.js");
+    const db = await getDb();
+
+    expect(db.data.providerConnections).toEqual([
+      expect.objectContaining({
+        id: "conn-1",
+        provider: "openai",
+        authType: "apikey",
+        name: "Primary",
+      }),
+    ]);
+    expect(db.data.modelAliases).toEqual({ gpt4: "gpt-4.1" });
+    expect(db.data.opencodeSync).toEqual({
+      preferences: expect.objectContaining({ variant: "custom", customTemplate: "sqlite" }),
+      tokens: [{ id: "token-sqlite", label: "SQLite token" }],
+    });
+    expect(await getOpenCodeSync()).toEqual({
+      preferences: expect.objectContaining({ variant: "custom", customTemplate: "sqlite" }),
+      tokens: [{ id: "token-sqlite", label: "SQLite token" }],
+    });
+  });
 });
