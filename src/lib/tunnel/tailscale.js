@@ -64,7 +64,12 @@ export function isTailscaleRunning() {
   const bin = getTailscaleBin();
   if (!bin) return false;
   try {
-    const out = execSync(`"${bin}" ${SOCKET_FLAG.join(" ")} funnel status --json 2>/dev/null`, { encoding: "utf8", windowsHide: true });
+    const out = execSync(`"${bin}" ${SOCKET_FLAG.join(" ")} funnel status --json 2>/dev/null`, {
+      encoding: "utf8",
+      windowsHide: true,
+      env: { ...process.env, PATH: EXTENDED_PATH },
+      timeout: 5000,
+    });
     const json = JSON.parse(out);
     return Object.keys(json.AllowFunnel || {}).length > 0;
   } catch (e) {

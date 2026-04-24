@@ -314,6 +314,10 @@ function ensureDbShape(data) {
 }
 
 let dbInstance = null;
+let dbCache = null;
+let dbCacheExpiresAt = 0;
+
+const DB_CACHE_TTL_MS = 1000;
 
 const LOCK_OPTIONS = {
   retries: { retries: 15, minTimeout: 50, maxTimeout: 3000 },
@@ -373,8 +377,41 @@ async function safeRead(db) {
   await withFileLock(db, () => db.read());
 }
 
+function cloneDbData(data) {
+  if (typeof structuredClone === "function") {
+    return structuredClone(data);
+  }
+  return JSON.parse(JSON.stringify(data));
+}
+
+function hasFreshDbCache() {
+  return dbCache !== null && Date.now() < dbCacheExpiresAt;
+}
+
+function setDbCache(data) {
+  dbCache = cloneDbData(data);
+  dbCacheExpiresAt = Date.now() + DB_CACHE_TTL_MS;
+}
+
+function invalidateDbCache() {
+  dbCache = null;
+  dbCacheExpiresAt = 0;
+}
+
+function ensureDbShapeForWrite(db) {
+  const { data } = ensureDbShape(db.data);
+  db.data = data;
+}
+
+async function persistDbWrite(db) {
+  invalidateDbCache();
+  ensureDbShapeForWrite(db);
+  await db.write();
+  setDbCache(db.data);
+}
+
 async function safeWrite(db) {
-  await withFileLock(db, () => db.write());
+  await withFileLock(db, () => persistDbWrite(db));
 }
 
 export async function getDb() {
@@ -389,6 +426,11 @@ export async function getDb() {
 
   if (!dbInstance) {
     dbInstance = new Low(new JSONFile(DB_FILE), cloneDefaultData());
+  }
+
+  if (hasFreshDbCache()) {
+    dbInstance.data = cloneDbData(dbCache);
+    return dbInstance;
   }
 
   try {
@@ -406,13 +448,21 @@ export async function getDb() {
   if (!dbInstance.data) {
     dbInstance.data = cloneDefaultData();
     await safeWrite(dbInstance);
-  } else {
-    const { data, changed } = ensureDbShape(dbInstance.data);
-    dbInstance.data = data;
-    if (changed) await safeWrite(dbInstance);
   }
 
+  setDbCache(dbInstance.data);
+
   return dbInstance;
+}
+
+export async function migrateDbShape() {
+  const db = await getDb();
+  const { data, changed } = ensureDbShape(db.data);
+  db.data = data;
+  if (changed) {
+    await safeWrite(db);
+  }
+  return db.data;
 }
 
 export async function getProviderConnections(filter = {}) {
@@ -612,7 +662,7 @@ export async function createProviderConnection(data) {
         Object.assign(db.data.providerConnections[existingIndex], buildEligibilityRecoveryPatch());
       }
 
-      await db.write();
+      await persistDbWrite(db);
       result = db.data.providerConnections[existingIndex];
       return;
     }
@@ -699,7 +749,7 @@ export async function createProviderConnection(data) {
     }
 
     db.data.providerConnections.push(connection);
-    await db.write();
+    await persistDbWrite(db);
     result = connection;
   });
 
@@ -810,7 +860,7 @@ export async function atomicUpdateProviderConnection(id, mutator) {
         updatedAt: new Date().toISOString(),
       });
 
-      await db.write();
+      await persistDbWrite(db);
 
       if (patch.priority !== undefined) await reorderProviderConnections(providerId);
 
@@ -833,7 +883,7 @@ export async function atomicUpdateProviderConnection(id, mutator) {
     }
 
     if (!canUseRedisForHotState) {
-      await db.write();
+      await persistDbWrite(db);
     }
     if (patch.priority !== undefined) await reorderProviderConnections(providerId);
 
@@ -1118,7 +1168,7 @@ export async function atomicUpdateSettings(mutator) {
     }
 
     db.data.settings = mergeSettingsWithDefaults(updated);
-    await db.write();
+    await persistDbWrite(db);
     result = db.data.settings;
   });
 
@@ -1142,7 +1192,7 @@ export async function mutateOpenCodeTokens(mutator) {
     }
 
     db.data.opencodeSync.tokens = [...result.tokens];
-    await db.write();
+    await persistDbWrite(db);
   });
 
   db.data.opencodeSync = normalizeOpenCodeSyncDomain(db.data.opencodeSync);

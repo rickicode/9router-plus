@@ -8,13 +8,17 @@ import StatusBadge from "./shared/StatusBadge";
 import ToggleRow from "./shared/ToggleRow";
 import SectionHeader from "./shared/SectionHeader";
 
+const KEYS_PER_PAGE = 10;
+
 export default function MainTab({ machineId }) {
   const [keys, setKeys] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [settingsLoading, setSettingsLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
   const [createdKey, setCreatedKey] = useState(null);
   const [visibleKeys, setVisibleKeys] = useState(new Set());
+  const [currentPage, setCurrentPage] = useState(1);
   const [requireApiKey, setRequireApiKey] = useState(false);
   const [requireLogin, setRequireLogin] = useState(true);
   const [hasPassword, setHasPassword] = useState(true);
@@ -28,8 +32,22 @@ export default function MainTab({ machineId }) {
 
   useEffect(() => {
     fetchData();
-    loadSettings();
+
+    const scheduleLoadSettings = () => loadSettings();
+
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      const idleId = window.requestIdleCallback(scheduleLoadSettings);
+      return () => window.cancelIdleCallback(idleId);
+    }
+
+    const timeoutId = setTimeout(scheduleLoadSettings, 0);
+    return () => clearTimeout(timeoutId);
   }, []);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(keys.length / KEYS_PER_PAGE));
+    setCurrentPage((prev) => Math.min(prev, totalPages));
+  }, [keys.length]);
 
   const fetchData = async () => {
     try {
@@ -69,8 +87,16 @@ export default function MainTab({ machineId }) {
       }
     } catch (error) {
       console.error("Failed to load settings:", error);
+    } finally {
+      setSettingsLoading(false);
     }
   };
+
+  const totalPages = Math.max(1, Math.ceil(keys.length / KEYS_PER_PAGE));
+  const paginatedKeys = keys.slice(
+    (currentPage - 1) * KEYS_PER_PAGE,
+    currentPage * KEYS_PER_PAGE,
+  );
 
   const handleAddKey = async () => {
     if (!newKeyName.trim()) return;
@@ -143,7 +169,7 @@ export default function MainTab({ machineId }) {
           subtitle="Manage API keys for accessing your 9Router instance"
         />
         <div className="space-y-3 mt-4">
-          {keys.map((key) => (
+          {paginatedKeys.map((key) => (
             <div key={key.id} className="flex flex-col items-start gap-3 rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-3 sm:flex-row sm:items-center">
               <div className="flex-1">
                 <div className="text-sm font-medium text-[var(--color-text-main)]">{key.name}</div>
@@ -175,6 +201,34 @@ export default function MainTab({ machineId }) {
               </button>
             </div>
           ))}
+          {keys.length > KEYS_PER_PAGE && (
+            <div className="flex items-center justify-between gap-3 rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-3 py-2">
+              <div className="text-xs text-[var(--color-text-muted)]">
+                Showing {(currentPage - 1) * KEYS_PER_PAGE + 1}-{Math.min(currentPage * KEYS_PER_PAGE, keys.length)} of {keys.length} keys
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                >
+                  Prev
+                </Button>
+                <div className="min-w-[72px] text-center text-xs text-[var(--color-text-muted)]">
+                  Page {currentPage} / {totalPages}
+                </div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
           <Button onClick={() => setShowAddModal(true)} fullWidth>
             Add New Key
           </Button>
@@ -206,6 +260,9 @@ export default function MainTab({ machineId }) {
       <GlassCard>
         <SectionHeader title="Remote Access" subtitle="Enable remote access to your local instance" />
         <div className="space-y-4 mt-4">
+          {settingsLoading && (
+            <div className="text-xs text-[var(--color-text-muted)]">Loading tunnel status...</div>
+          )}
           <div className="flex items-center justify-between rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-3">
             <div className="flex-1">
               <div className="text-sm font-medium text-[var(--color-text-main)]">Cloudflare Tunnel</div>
@@ -237,6 +294,9 @@ export default function MainTab({ machineId }) {
       <GlassCard>
         <SectionHeader title="Security Settings" subtitle="Configure access control and authentication" />
         <div className="space-y-3 mt-4">
+          {settingsLoading && (
+            <div className="text-xs text-[var(--color-text-muted)]">Loading security settings...</div>
+          )}
           <ToggleRow
             label="Require API Key"
             description="Require API key for all requests"
