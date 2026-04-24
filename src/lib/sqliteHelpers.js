@@ -45,4 +45,92 @@ export function closeSqliteDb() {
   }
 }
 
-export { DB_SQLITE_FILE };
+const DB_JSON_FILE = path.join(DATA_DIR, 'db.json');
+
+export function migrateFromJSON() {
+  // Check if migration needed
+  const jsonExists = fs.existsSync(DB_JSON_FILE);
+  const sqliteExists = fs.existsSync(DB_SQLITE_FILE);
+  
+  if (!jsonExists || sqliteExists) {
+    return { migrated: false, reason: sqliteExists ? 'already_migrated' : 'no_json' };
+  }
+  
+  console.log('[DB] Starting migration from JSON to SQLite...');
+  
+  try {
+    // Read JSON data
+    const jsonData = JSON.parse(fs.readFileSync(DB_JSON_FILE, 'utf-8'));
+    
+    // Create SQLite with schema
+    const db = getSqliteDb();
+    ensureSchema(db);
+    
+    // Populate data in transaction
+    const transaction = db.transaction(() => {
+      // Migrate collections
+      const collections = ['providerConnections', 'providerNodes',
+                          'proxyPools', 'combos', 'apiKeys', 'customModels'];
+      
+      const entityStmt = db.prepare(
+        'INSERT INTO entities (collection, id, value, updated_at) VALUES (?, ?, ?, ?)'
+      );
+      
+      for (const collection of collections) {
+        const items = jsonData[collection] || [];
+        for (const item of items) {
+          if (item.id) {
+            entityStmt.run(collection, item.id, JSON.stringify(item), Date.now());
+          }
+        }
+      }
+      
+      // Migrate singletons
+      const singletonKeys = ['settings', 'modelAliases', 'pricing', 'mitmAlias', 'opencodeSync'];
+      const settingStmt = db.prepare(
+        'INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)'
+      );
+      
+      for (const key of singletonKeys) {
+        if (jsonData[key] !== undefined) {
+          settingStmt.run(key, JSON.stringify(jsonData[key]), Date.now());
+        }
+      }
+    });
+    
+    transaction();
+    
+    // Verify migration
+    const collections = ['providerConnections', 'apiKeys', 'combos'];
+    for (const col of collections) {
+      const originalCount = (jsonData[col] || []).length;
+      const migratedCount = db.prepare(
+        'SELECT COUNT(*) as count FROM entities WHERE collection = ?'
+      ).get(col).count;
+      
+      if (originalCount !== migratedCount) {
+        throw new Error(`Migration verification failed for ${col}: ${originalCount} → ${migratedCount}`);
+      }
+    }
+    
+    // Backup original JSON
+    fs.renameSync(DB_JSON_FILE, `${DB_JSON_FILE}.backup`);
+    
+    console.log('[DB] Migration completed successfully');
+    console.log(`[DB] Backup saved to ${DB_JSON_FILE}.backup`);
+    
+    return { migrated: true, backupPath: `${DB_JSON_FILE}.backup` };
+    
+  } catch (error) {
+    console.error('[DB] Migration failed:', error);
+    
+    // Cleanup failed SQLite file
+    if (fs.existsSync(DB_SQLITE_FILE)) {
+      fs.unlinkSync(DB_SQLITE_FILE);
+    }
+    
+    throw new Error(`Migration failed: ${error.message}`);
+  }
+}
+
+export { DB_SQLITE_FILE, DB_JSON_FILE };
