@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { loadSingletonFromSqlite, upsertSingleton } from "@/lib/sqliteHelpers.js";
+import { loadSingletonFromSqlite, upsertSingleton } from "./sqliteHelpers.js";
 
 const CONFIG_FILE = null;
 

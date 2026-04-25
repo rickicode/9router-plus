@@ -1,4 +1,4 @@
-import { loadSingletonFromSqlite, upsertSingleton } from "@/lib/sqliteHelpers.js";
+import { loadSingletonFromSqlite, upsertSingleton } from "../sqliteHelpers.js";
 
 function loadTunnelState() {
   return loadSingletonFromSqlite("tunnelState") || {};

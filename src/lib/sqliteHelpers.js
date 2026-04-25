@@ -1,8 +1,84 @@
-import Database from 'better-sqlite3';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { DATA_DIR } from '@/lib/dataDir.js';
+import { DATA_DIR } from './dataDir.js';
+
+let Database = null;
+
+function loadDatabaseDriver() {
+  if (Database) return Database;
+  if (typeof Bun !== 'undefined') {
+    Database = BunSQLiteDatabase;
+    return Database;
+  }
+  Database = NodeSQLiteDatabase;
+  return Database;
+}
+
+function NodeSQLiteDatabase(filePath) {
+  // eslint-disable-next-line global-require
+  const BetterSqliteDatabase = require('better-sqlite3');
+  return new BetterSqliteDatabase(filePath);
+}
+
+class BunSQLiteStatement {
+  constructor(statement) {
+    this.statement = statement;
+  }
+
+  run(...args) {
+    return this.statement.run(...args);
+  }
+
+  get(...args) {
+    return this.statement.get(...args);
+  }
+
+  all(...args) {
+    return this.statement.all(...args);
+  }
+}
+
+class BunSQLiteAdapter {
+  constructor(filePath) {
+    const bunSqlite = import.meta.require?.('bun:sqlite');
+    const BunBuiltinDatabase = bunSqlite?.Database;
+    if (!BunBuiltinDatabase) {
+      throw new Error('bun:sqlite is required when running SQLite storage under Bun');
+    }
+    this.db = new BunBuiltinDatabase(filePath);
+  }
+
+  pragma(sql, options = {}) {
+    const rows = this.db.query(`PRAGMA ${sql}`).all();
+    if (options?.simple) {
+      const first = rows?.[0];
+      if (!first) return undefined;
+      return Object.values(first)[0];
+    }
+    return rows;
+  }
+
+  exec(sql) {
+    return this.db.exec(sql);
+  }
+
+  prepare(sql) {
+    return new BunSQLiteStatement(this.db.query(sql));
+  }
+
+  transaction(callback) {
+    return (...args) => this.db.transaction(() => callback(...args))();
+  }
+
+  close() {
+    return this.db.close();
+  }
+}
+
+function BunSQLiteDatabase(filePath) {
+  return new BunSQLiteAdapter(filePath);
+}
 
 const DB_SQLITE_FILE = path.join(DATA_DIR, 'db.sqlite');
 const MIGRATIONS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'migrations');
@@ -12,7 +88,8 @@ let sqliteDb = null;
 export function getSqliteDb() {
   if (sqliteDb) return sqliteDb;
 
-  const db = new Database(DB_SQLITE_FILE);
+  const Driver = loadDatabaseDriver();
+  const db = new Driver(DB_SQLITE_FILE);
 
   // Enable WAL mode
   db.pragma('journal_mode = WAL');
