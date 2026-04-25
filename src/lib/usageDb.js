@@ -498,6 +498,119 @@ async function calculateCost(provider, model, tokens) {
 
 const PERIOD_MS = { "24h": 86400000, "7d": 604800000, "30d": 2592000000, "60d": 5184000000 };
 
+function isFiniteTimestamp(value) {
+  return Number.isFinite(value);
+}
+
+function getDailySummaryBucketTime(dateKey) {
+  const parts = String(dateKey).split("-");
+  if (parts.length !== 3) return NaN;
+  const year = Number(parts[0]);
+  const month = Number(parts[1]);
+  const day = Number(parts[2]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return NaN;
+  return new Date(year, month - 1, day).getTime();
+}
+
+function isDailySummaryDateKeyInPeriod(dateKey, { nowMs, maxDays = null } = {}) {
+  const dayTime = getDailySummaryBucketTime(dateKey);
+  if (!isFiniteTimestamp(dayTime)) return false;
+  if (dayTime > nowMs) return false;
+  if (maxDays === null) return true;
+  const diffDays = Math.floor((nowMs - dayTime) / 86400000);
+  return diffDays >= 0 && diffDays < maxDays;
+}
+
+function getPeriodStart(period, nowMs) {
+  const duration = PERIOD_MS[period];
+  return typeof duration === "number" ? nowMs - duration : null;
+}
+
+function isTimestampInPeriod(timestamp, period, nowMs) {
+  const entryTime = new Date(timestamp).getTime();
+  if (!isFiniteTimestamp(entryTime)) return false;
+  if (entryTime > nowMs) return false;
+  const periodStart = getPeriodStart(period, nowMs);
+  if (periodStart === null) return true;
+  return entryTime >= periodStart;
+}
+
+function countRequestsForPeriod({ period, history, dailySummary, nowMs }) {
+  if (period === "all") {
+    return Object.entries(dailySummary).reduce((sum, [dateKey, day]) => {
+      if (!isDailySummaryDateKeyInPeriod(dateKey, { nowMs })) return sum;
+      return sum + (day?.requests || 0);
+    }, 0);
+  }
+
+  if (period === "24h") {
+    return history.filter((entry) => isTimestampInPeriod(entry.timestamp, period, nowMs)).length;
+  }
+
+  const periodStart = getPeriodStart(period, nowMs);
+  return Object.entries(dailySummary).reduce((sum, [dateKey, day]) => {
+    const dayTime = getDailySummaryBucketTime(dateKey);
+    if (!isFiniteTimestamp(dayTime)) return sum;
+    if (dayTime > nowMs) return sum;
+    if (periodStart !== null && dayTime < periodStart) return sum;
+    return sum + (day?.requests || 0);
+  }, 0);
+}
+
+function createEmptyUsageSummary() {
+  return {
+    requests: 0,
+    promptTokens: 0,
+    completionTokens: 0,
+    cost: 0,
+  };
+}
+
+function addUsageTotals(target, values = {}) {
+  target.requests += values.requests || 0;
+  target.promptTokens += values.promptTokens || 0;
+  target.completionTokens += values.completionTokens || 0;
+  target.cost += values.cost || 0;
+  return target;
+}
+
+export function getPluginUsageSummary({ period = "today", history = [], dailySummary = {}, now = new Date() } = {}) {
+  const summary = createEmptyUsageSummary();
+
+  if (period === "last24h") {
+    const cutoff = now.getTime() - 86400000;
+    for (const entry of history) {
+      const entryTime = new Date(entry.timestamp).getTime();
+      if (!Number.isFinite(entryTime)) continue;
+      if (entryTime < cutoff || entryTime > now.getTime()) continue;
+      addUsageTotals(summary, {
+        requests: 1,
+        promptTokens: entry.tokens?.prompt_tokens || entry.tokens?.input_tokens || 0,
+        completionTokens: entry.tokens?.completion_tokens || entry.tokens?.output_tokens || 0,
+        cost: entry.cost || 0,
+      });
+    }
+    return summary;
+  }
+
+  const currentDateKey = getLocalDateKey(now);
+
+  if (period === "today") {
+    addUsageTotals(summary, dailySummary[currentDateKey]);
+    return summary;
+  }
+
+  if (period === "7d") {
+    for (let offset = 0; offset < 7; offset += 1) {
+      const day = new Date(now);
+      day.setDate(day.getDate() - offset);
+      addUsageTotals(summary, dailySummary[getLocalDateKey(day)]);
+    }
+  }
+
+  return summary;
+}
+
 /**
  * Get aggregated usage stats
  * @param {"24h"|"7d"|"30d"|"60d"|"all"} period - Time period to filter
@@ -506,6 +619,7 @@ export async function getUsageStats(period = "all") {
   const db = await getUsageDb();
   const history = db.data.history || [];
   const dailySummary = db.data.dailySummary || {};
+  const nowMs = Date.now();
 
   const { getProviderConnections, getApiKeys, getProviderNodes } = await import("@/lib/localDb.js");
 
@@ -554,19 +668,18 @@ export async function getUsageStats(period = "all") {
     })
     .slice(0, 20);
 
-  const lifetimeTotalRequests = typeof db.data.totalRequestsLifetime === "number"
-    ? db.data.totalRequestsLifetime
-    : history.length;
+  const useDailySummary = period !== "24h";
+  const periodTotalRequests = countRequestsForPeriod({ period, history, dailySummary, nowMs });
 
   const stats = {
-    totalRequests: lifetimeTotalRequests,
+    totalRequests: periodTotalRequests,
     totalPromptTokens: 0, totalCompletionTokens: 0, totalCost: 0,
     byProvider: {}, byModel: {}, byAccount: {}, byApiKey: {}, byEndpoint: {},
     last10Minutes: [],
     pending: pendingRequests,
     activeRequests: [],
     recentRequests,
-    errorProvider: (Date.now() - lastErrorProvider.ts < 10000) ? lastErrorProvider.provider : "",
+    errorProvider: (nowMs - lastErrorProvider.ts < 10000) ? lastErrorProvider.provider : "",
   };
 
   // Active requests from pending
@@ -585,7 +698,7 @@ export async function getUsageStats(period = "all") {
   }
 
   // last10Minutes — always from live history
-  const now = new Date();
+  const now = new Date(nowMs);
   const currentMinuteStart = new Date(Math.floor(now.getTime() / 60000) * 60000);
   const tenMinutesAgo = new Date(currentMinuteStart.getTime() - 9 * 60 * 1000);
   const bucketMap = {};
@@ -610,20 +723,11 @@ export async function getUsageStats(period = "all") {
   }
 
   // Determine if we use dailySummary (7d/30d/60d/all) or live history (24h)
-  const useDailySummary = period !== "24h";
-
   if (useDailySummary) {
     // Collect relevant date keys
     const periodDays = { "7d": 7, "30d": 30, "60d": 60 };
     const maxDays = periodDays[period] || null; // null = all
-    const today = new Date();
-    const dateKeys = Object.keys(dailySummary).filter((dateKey) => {
-      if (!maxDays) return true;
-      const parts = dateKey.split("-");
-      const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-      const diffDays = Math.floor((today.getTime() - d.getTime()) / 86400000);
-      return diffDays < maxDays;
-    });
+    const dateKeys = Object.keys(dailySummary).filter((dateKey) => isDailySummaryDateKeyInPeriod(dateKey, { nowMs, maxDays }));
 
     for (const dateKey of dateKeys) {
       const day = dailySummary[dateKey];
@@ -710,8 +814,7 @@ export async function getUsageStats(period = "all") {
     }
   } else {
     // 24h: use live history (original logic)
-    const cutoff = Date.now() - PERIOD_MS["24h"];
-    const filtered = history.filter((e) => new Date(e.timestamp).getTime() >= cutoff);
+    const filtered = history.filter((e) => isTimestampInPeriod(e.timestamp, "24h", nowMs));
 
     for (const entry of filtered) {
       const promptTokens = entry.tokens?.prompt_tokens || 0;

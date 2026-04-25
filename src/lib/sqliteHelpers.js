@@ -1,8 +1,8 @@
 import path from 'node:path';
 import fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { DATA_DIR } from './dataDir.js';
+import { readSqliteMigrationSql, SQLITE_MIGRATIONS } from './sqliteMigrations.js';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -83,7 +83,6 @@ function BunSQLiteDatabase(filePath) {
 }
 
 const DB_SQLITE_FILE = path.join(DATA_DIR, 'db.sqlite');
-const MIGRATIONS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'migrations');
 const HOT_STATE_KEYS = new Set([
   'routingStatus',
   'quotaState',
@@ -104,6 +103,86 @@ const HOT_STATE_KEYS = new Set([
 ]);
 
 let sqliteDb = null;
+const DEFAULT_SQLITE_MMAP_SIZE = 1024 * 1024 * 1024;
+
+export function configureSqlitePragmas(db) {
+  db.pragma('journal_mode = WAL');
+  db.pragma('synchronous = NORMAL');
+  db.pragma('cache_size = -64000');
+  db.pragma('temp_store = MEMORY');
+  db.pragma(`mmap_size = ${DEFAULT_SQLITE_MMAP_SIZE}`);
+}
+
+function listMissingMigrationIndexes(db, migration) {
+  const requiredIndexes = normalizeRequiredIndexes(migration);
+
+  if (requiredIndexes.length === 0) {
+    return [];
+  }
+
+  const existingIndexes = new Set(
+    db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name IS NOT NULL")
+      .all()
+      .map((row) => row?.name)
+      .filter((name) => typeof name === 'string' && name.length > 0)
+  );
+
+  return requiredIndexes
+    .map((indexDefinition) => indexDefinition.name)
+    .filter((indexName) => !existingIndexes.has(indexName));
+}
+
+function normalizeRequiredIndexes(migration) {
+  if (!Array.isArray(migration?.requiredIndexes)) {
+    return [];
+  }
+
+  return migration.requiredIndexes
+    .map((indexDefinition) => {
+      if (typeof indexDefinition === 'string' && indexDefinition.length > 0) {
+        return { name: indexDefinition, sql: null };
+      }
+      if (
+        indexDefinition &&
+        typeof indexDefinition === 'object' &&
+        typeof indexDefinition.name === 'string' &&
+        indexDefinition.name.length > 0
+      ) {
+        return {
+          name: indexDefinition.name,
+          sql: typeof indexDefinition.sql === 'string' && indexDefinition.sql.trim().length > 0
+            ? indexDefinition.sql.trim()
+            : null,
+        };
+      }
+      return null;
+    })
+    .filter(Boolean);
+}
+
+function repairMigrationIndexes(db, migration, missingIndexes) {
+  if (!Array.isArray(missingIndexes) || missingIndexes.length === 0) {
+    return;
+  }
+
+  const requiredIndexesByName = new Map(
+    normalizeRequiredIndexes(migration).map((indexDefinition) => [indexDefinition.name, indexDefinition])
+  );
+
+  const repairIndexes = db.transaction(() => {
+    for (const indexName of missingIndexes) {
+      const indexDefinition = requiredIndexesByName.get(indexName);
+      if (!indexDefinition?.sql) {
+        throw new Error(
+          `SQLite migration ${migration?.version} is missing repair SQL for required index ${indexName}`
+        );
+      }
+      db.exec(indexDefinition.sql);
+    }
+  });
+
+  repairIndexes();
+}
 
 function logSafeError(message, error) {
   console.error(message, {
@@ -166,29 +245,43 @@ export function getSqliteDb() {
   const Driver = loadDatabaseDriver();
   const db = new Driver(DB_SQLITE_FILE);
 
-  // Enable WAL mode
-  db.pragma('journal_mode = WAL');
-  db.pragma('synchronous = NORMAL');
-
-  // Performance optimizations
-  db.pragma('cache_size = -64000'); // 64MB
-  db.pragma('temp_store = MEMORY');
-  db.pragma('mmap_size = 30000000000'); // 30GB
+  configureSqlitePragmas(db);
 
   sqliteDb = db;
   return sqliteDb;
 }
 
 export function ensureSchema(db) {
-  // Check if tables exist
-  const tables = db.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('entities', 'settings', 'hot_state', 'schema_version')"
-  ).all();
-  
-  if (tables.length < 4) {
-    const schemaPath = path.join(MIGRATIONS_DIR, '001_initial_schema.sql');
-    const schema = fs.readFileSync(schemaPath, 'utf-8');
-    db.exec(schema);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_version (
+      version INTEGER PRIMARY KEY,
+      applied_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+    )
+  `);
+
+  const appliedVersions = new Set(
+    db.prepare('SELECT version FROM schema_version ORDER BY version ASC').all().map((row) => Number(row.version))
+  );
+
+  for (const migration of SQLITE_MIGRATIONS) {
+    const version = Number(migration?.version);
+    if (!Number.isInteger(version) || version < 1) {
+      throw new Error(`Invalid SQLite migration version: ${migration?.version}`);
+    }
+
+    const missingIndexes = listMissingMigrationIndexes(db, migration);
+    if (appliedVersions.has(version)) {
+      repairMigrationIndexes(db, migration, missingIndexes);
+      continue;
+    }
+
+    const applyMigration = db.transaction(() => {
+      db.exec(readSqliteMigrationSql(migration));
+      db.prepare('INSERT OR IGNORE INTO schema_version (version, applied_at) VALUES (?, ?)').run(version, Date.now());
+    });
+
+    applyMigration();
+    appliedVersions.add(version);
   }
 }
 
@@ -203,6 +296,22 @@ function removeSqliteArtifacts() {
 const COLLECTION_KEYS = ['providerConnections', 'providerNodes', 'proxyPools', 'combos', 'apiKeys', 'customModels'];
 const SINGLETON_KEYS = ['settings', 'modelAliases', 'pricing', 'mitmAlias', 'opencodeSync', 'runtimeConfig', 'tunnelState'];
 const HOT_STATE_METADATA_KEY = 'hotStateMetadata';
+
+function validateCollectionRecords(data, collectionName) {
+  const records = Array.isArray(data?.[collectionName]) ? data[collectionName] : [];
+
+  for (const [index, item] of records.entries()) {
+    if (!item || typeof item !== 'object' || Array.isArray(item) || !item.id || typeof item.id !== 'string') {
+      throw new Error(`Invalid ${collectionName}[${index}]: missing id`);
+    }
+  }
+}
+
+function validateSqliteImportCollections(data) {
+  for (const collectionName of COLLECTION_KEYS) {
+    validateCollectionRecords(data, collectionName);
+  }
+}
 
 function loadHotStateMetadataMap() {
   const db = getSqliteDb();
@@ -283,6 +392,8 @@ export function migrateFromJSON() {
     // Read JSON data
     const jsonData = JSON.parse(fs.readFileSync(DB_JSON_FILE, 'utf-8'));
     
+    validateSqliteImportCollections(jsonData);
+
     const db = getSqliteDb();
     ensureSchema(db);
     
@@ -558,6 +669,8 @@ export function rebuildHotStateFromConnections(connections) {
 }
 
 export function saveAllDataToSqlite(data) {
+  validateSqliteImportCollections(data);
+
   const db = getSqliteDb();
   ensureSchema(db);
   

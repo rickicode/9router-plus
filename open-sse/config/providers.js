@@ -218,11 +218,6 @@ export const PROVIDERS = {
     format: "openai",
     headers: {}
   },
-  opencode: {
-    baseUrl: "http://localhost:4096/v1/chat/completions",
-    format: "openai",
-    headers: {}
-  },
   cline: {
     baseUrl: "https://api.cline.bot/api/v1/chat/completions",
     format: "openai",
@@ -363,11 +358,6 @@ export const PROVIDERS = {
     baseUrl: "https://www.perplexity.ai/rest/sse/perplexity_ask",
     format: "perplexity-web",
     authType: "cookie"
-  },
-  azure: {
-    baseUrl: "",
-    format: "openai",
-    headers: {}
   },
 };
 

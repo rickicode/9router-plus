@@ -51,7 +51,7 @@ export function cleanupNow() {
     }
 }
 
-/** Start the periodic background cleanup (idempotent). Called automatically on module load. */
+/** Start the periodic background cleanup (idempotent). */
 export function startCacheCleanup() {
     if (_cleanupTimer) return;
     _cleanupTimer = setInterval(() => {
@@ -70,9 +70,6 @@ export function stopCacheCleanup() {
     _cleanupTimer = null;
 }
 
-// Start automatically when the module is first imported
-startCacheCleanup();
-
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
@@ -84,6 +81,8 @@ startCacheCleanup();
  * @returns {Promise<string|null>} Real project ID or null
  */
 export async function getProjectIdForConnection(connectionId, accessToken) {
+    startCacheCleanup();
+
     if (!connectionId || !accessToken) return null;
 
     // Return cached value if still fresh

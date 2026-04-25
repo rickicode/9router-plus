@@ -5,8 +5,9 @@ compatibility_flags = ["nodejs_compat"]
 
 [alias]
 "@/lib/usageDb.js" = "./src/stubs/usageDb.js"
+"undici" = "./src/stubs/undici.js"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "proxy-db"
-database_id = "YOUR_D1_DATABASE_ID"
+database_id = "e88728e3-54f9-48b0-8648-e9a0c4815449"

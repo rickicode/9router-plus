@@ -9,10 +9,35 @@ import { getConsistentMachineId } from "../../src/shared/utils/machineId.js";
 // In-memory map: hash(machineId + first assistant content) → { sessionId, lastUsed }
 const SESSION_TTL_MS = 60 * 60 * 1000; // 1 hour
 const assistantSessionMap = new Map();
+let sessionCleanupInterval = null;
 
 // Cache machine ID at module level (resolved once)
 let cachedMachineId = null;
-getConsistentMachineId().then(id => { cachedMachineId = id; });
+let machineIdPromise = null;
+
+async function ensureMachineId() {
+  if (cachedMachineId) return cachedMachineId;
+  if (!machineIdPromise) {
+    machineIdPromise = getConsistentMachineId()
+      .then((id) => {
+        cachedMachineId = id;
+        return id;
+      })
+      .catch(() => null);
+  }
+  return machineIdPromise;
+}
+
+function ensureSessionCleanupInterval() {
+  if (sessionCleanupInterval) return;
+  sessionCleanupInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of assistantSessionMap) {
+      if (now - entry.lastUsed > SESSION_TTL_MS) assistantSessionMap.delete(key);
+    }
+  }, 10 * 60 * 1000);
+  sessionCleanupInterval.unref?.();
+}
 
 function hashContent(text) {
   return createHash("sha256").update(text).digest("hex").slice(0, 16);
@@ -59,14 +84,6 @@ function resolveConversationSessionId(input, machineId) {
   assistantSessionMap.set(hash, { sessionId, lastUsed: Date.now() });
   return sessionId;
 }
-
-// Cleanup expired entries periodically
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of assistantSessionMap) {
-    if (now - entry.lastUsed > SESSION_TTL_MS) assistantSessionMap.delete(key);
-  }
-}, 10 * 60 * 1000);
 
 /**
  * Codex Executor - handles OpenAI Codex API (Responses API format)
@@ -116,6 +133,8 @@ export class CodexExecutor extends BaseExecutor {
   }
 
   async execute(args) {
+    ensureSessionCleanupInterval();
+    cachedMachineId = await ensureMachineId();
     // Fetch remote images before the synchronous transform/execute pipeline
     await this.prefetchImages(args.body);
     return super.execute(args);

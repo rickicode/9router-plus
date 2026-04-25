@@ -89,6 +89,8 @@ ecosystem.config.*
 context-snapshot.json
 .a5c/
 .claude/
+.opencode/
+project-map.md
 .pi/agents/supervisor.md
 .pi/taskplane.json
 state.md

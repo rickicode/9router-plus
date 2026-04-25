@@ -14,18 +14,24 @@ import { MEMORY_CONFIG } from "../config/runtimeConfig.js";
 // Runtime storage: Key = connectionId, Value = { sessionId, lastUsed }
 const runtimeSessionStore = new Map();
 
-// Periodically evict entries that haven't been used within TTL
-const cleanupInterval = setInterval(() => {
-    const now = Date.now();
-    for (const [key, entry] of runtimeSessionStore) {
-        if (now - entry.lastUsed > MEMORY_CONFIG.sessionTtlMs) {
-            runtimeSessionStore.delete(key);
-        }
-    }
-}, MEMORY_CONFIG.sessionCleanupIntervalMs);
+let cleanupInterval = null;
 
-// Allow Node.js to exit even if interval is still active
-if (cleanupInterval.unref) cleanupInterval.unref();
+function ensureCleanupInterval() {
+    if (cleanupInterval) return;
+
+    // Workers disallow timers in global scope, so start cleanup lazily on first use.
+    cleanupInterval = setInterval(() => {
+        const now = Date.now();
+        for (const [key, entry] of runtimeSessionStore) {
+            if (now - entry.lastUsed > MEMORY_CONFIG.sessionTtlMs) {
+                runtimeSessionStore.delete(key);
+            }
+        }
+    }, MEMORY_CONFIG.sessionCleanupIntervalMs);
+
+    // Allow Node.js to exit even if interval is still active
+    if (cleanupInterval.unref) cleanupInterval.unref();
+}
 
 /**
  * Get or create a session ID for the given connection.
@@ -42,6 +48,8 @@ if (cleanupInterval.unref) cleanupInterval.unref();
  * @returns {string} A stable session ID string matching binary format
  */
 export function deriveSessionId(connectionId) {
+    ensureCleanupInterval();
+
     if (!connectionId) {
         return generateBinaryStyleId();
     }
