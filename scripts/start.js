@@ -44,7 +44,11 @@ function resolveRedisUrl({ cliRedisUrl, configRedisUrl, envRedisUrl }) {
   if (cliRedisUrl) return cliRedisUrl;
   if (configRedisUrl) return configRedisUrl;
   if (envRedisUrl) return envRedisUrl;
-  return null;
+  return "redis://127.0.0.1:6379";
+}
+
+function resolveNextCliPath() {
+  return require.resolve("next/dist/bin/next");
 }
 
 async function main() {
@@ -199,16 +203,17 @@ async function main() {
   }
 
   const hasStandaloneServer = fs.existsSync(standaloneServerPath);
+  const nextCliPath = hasStandaloneServer ? null : resolveNextCliPath();
   const child = hasStandaloneServer
     ? spawn(process.execPath, [standaloneServerPath, ...args.forwardArgs], {
       stdio: "inherit",
       env,
       shell: false,
     })
-    : spawn("next", ["start", "--port", port, ...args.forwardArgs], {
+    : spawn(process.execPath, [nextCliPath, "start", "--port", port, ...args.forwardArgs], {
       stdio: "inherit",
       env,
-      shell: process.platform === "win32",
+      shell: false,
     });
 
   let shuttingDown = false;
@@ -502,6 +507,7 @@ module.exports = {
   parseArgs,
   probeRedis,
   resolveRedisUrl,
+  resolveNextCliPath,
   resolveStandaloneServerPath,
   shouldSyncStandaloneAssets,
   startRedisServer,

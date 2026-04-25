@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import Database from "better-sqlite3";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -27,9 +28,20 @@ async function loadModulesWithTempDataDir() {
   return { dataDir, localDb, providerHotState };
 }
 
-async function readDbJson(dataDir) {
-  const raw = await fs.readFile(path.join(dataDir, "db.json"), "utf8");
-  return JSON.parse(raw);
+async function pathExists(targetPath) {
+  return fs.access(targetPath).then(() => true).catch(() => false);
+}
+
+function readProviderConnectionFromSqlite(dataDir, id) {
+  const db = new Database(path.join(dataDir, "db.sqlite"), { readonly: true });
+  try {
+    const row = db.prepare("SELECT value FROM entities WHERE collection = ? AND id = ?")
+      .get("providerConnections", id);
+
+    return row ? JSON.parse(row.value) : null;
+  } finally {
+    db.close();
+  }
 }
 
 function createFakeRedisClient() {
@@ -62,6 +74,11 @@ function createFakeRedisClient() {
 }
 
 afterEach(async () => {
+  try {
+    const sqliteHelpers = await import("@/lib/sqliteHelpers.js");
+    sqliteHelpers.closeSqliteDb();
+  } catch (_) {}
+
   delete process.env.DATA_DIR;
   delete process.env.REDIS_URL;
   delete process.env.REDIS_HOST;
@@ -135,7 +152,11 @@ describe("localDb provider connection status writes", () => {
     expect(upserted).not.toHaveProperty("lastTested", "2026-04-22T12:00:00.000Z");
     expect(upserted).not.toHaveProperty("errorCode", "auth_invalid");
 
-    const persisted = (await readDbJson(dataDir)).providerConnections.find((c) => c.id === created.id);
+    expect(await pathExists(path.join(dataDir, "db.sqlite"))).toBe(true);
+    expect(await pathExists(path.join(dataDir, "db.json"))).toBe(false);
+    expect(await pathExists(path.join(dataDir, "db.json.backup"))).toBe(false);
+
+    const persisted = readProviderConnectionFromSqlite(dataDir, created.id);
     expect(persisted).toMatchObject({
       id: created.id,
       routingStatus: "blocked",
@@ -179,7 +200,7 @@ describe("localDb provider connection status writes", () => {
       errorCode: "auth_invalid",
     });
 
-    const persisted = (await readDbJson(dataDir)).providerConnections.find((c) => c.id === created.id);
+    const persisted = readProviderConnectionFromSqlite(dataDir, created.id);
     expect(persisted).toMatchObject({
       id: created.id,
       routingStatus: "blocked",
@@ -218,7 +239,7 @@ describe("localDb provider connection status writes", () => {
       testStatus: "unavailable",
     });
 
-    const persisted = (await readDbJson(dataDir)).providerConnections.find((c) => c.id === created.id);
+    const persisted = readProviderConnectionFromSqlite(dataDir, created.id);
     expect(persisted).toMatchObject({
       id: created.id,
       name: "After mixed update",
@@ -257,7 +278,7 @@ describe("localDb provider connection status writes", () => {
       reasonDetail: "Provider health check failed",
     });
 
-    const persisted = (await readDbJson(dataDir)).providerConnections.find((c) => c.id === created.id);
+    const persisted = readProviderConnectionFromSqlite(dataDir, created.id);
     expect(persisted).toMatchObject({
       id: created.id,
       healthStatus: "unhealthy",
@@ -265,5 +286,38 @@ describe("localDb provider connection status writes", () => {
       reasonDetail: "Provider health check failed",
     });
     expect(persisted).not.toHaveProperty("routingStatus");
+  });
+
+  it("persists provider connection writes into sqlite-backed local storage", async () => {
+    const { dataDir, localDb } = await loadModulesWithTempDataDir();
+
+    const created = await localDb.createProviderConnection({
+      provider: "sqlite-provider",
+      authType: "apikey",
+      name: "SQLite Primary",
+      apiKey: "secret",
+      isActive: true,
+      priority: 1,
+    });
+
+    await localDb.updateProviderConnection(created.id, {
+      routingStatus: "blocked",
+      authState: "expired",
+      reasonCode: "auth_invalid",
+      lastCheckedAt: "2026-04-22T12:00:00.000Z",
+    });
+
+    expect(await pathExists(path.join(dataDir, "db.sqlite"))).toBe(true);
+    expect(await pathExists(path.join(dataDir, "db.json"))).toBe(false);
+    expect(await pathExists(path.join(dataDir, "db.json.backup"))).toBe(false);
+
+    const persisted = readProviderConnectionFromSqlite(dataDir, created.id);
+    expect(persisted).toMatchObject({
+      id: created.id,
+      routingStatus: "blocked",
+      authState: "expired",
+      reasonCode: "auth_invalid",
+      lastCheckedAt: "2026-04-22T12:00:00.000Z",
+    });
   });
 });

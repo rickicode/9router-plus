@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveRedisUrl } from "../../scripts/start.js";
+import { resolveRedisUrl, resolveNextCliPath } from "../../scripts/start.js";
 
 describe("start redis URL resolution", () => {
   it("defaults to localhost Redis when no CLI, runtime config, or env value is set", () => {
@@ -37,5 +37,9 @@ describe("start redis URL resolution", () => {
         envRedisUrl: "redis://env.example:6379",
       })
     ).toBe("redis://env.example:6379");
+  });
+
+  it("resolves the local Next CLI for direct node/bun start execution", () => {
+    expect(resolveNextCliPath()).toMatch(/next[/\\]dist[/\\]bin[/\\]next$/);
   });
 });

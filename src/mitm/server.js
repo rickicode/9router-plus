@@ -6,11 +6,12 @@ const { promisify } = require("util");
 const { execSync } = require("child_process");
 const log = (msg) => console.log(`[${new Date().toLocaleTimeString("en-US", { hour12: false })}] [MITM] ${msg}`);
 const err = (msg) => console.error(`[${new Date().toLocaleTimeString("en-US", { hour12: false })}] ❌ [MITM] ${msg}`);
+const Database = require("better-sqlite3");
 const { TARGET_HOSTS, URL_PATTERNS, getToolForHost } = require("./config.js");
 const { DATA_DIR, MITM_DIR } = require("./paths.js");
 const { getCertForDomain } = require("./cert/generate.js");
 
-const DB_FILE = path.join(DATA_DIR, "db.json");
+const DB_SQLITE_FILE = path.join(DATA_DIR, "db.sqlite");
 const LOCAL_PORT = 443;
 const IS_WIN = process.platform === "win32";
 const ENABLE_FILE_LOG = false;
@@ -109,16 +110,20 @@ function extractModel(url, body) {
 
 function getMappedModel(tool, model) {
   if (!model) return null;
+  let db = null;
   try {
-    if (!fs.existsSync(DB_FILE)) return null;
-    const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
-    const aliases = db.mitmAlias?.[tool];
+    if (!fs.existsSync(DB_SQLITE_FILE)) return null;
+    db = new Database(DB_SQLITE_FILE, { readonly: true, fileMustExist: true });
+    const row = db.prepare("SELECT value FROM settings WHERE key = ?").get("mitmAlias");
+    const mitmAlias = row ? JSON.parse(row.value) : {};
+    const aliases = mitmAlias?.[tool];
     if (!aliases) return null;
     if (aliases[model]) return aliases[model];
     // Prefix match fallback
     const prefixKey = Object.keys(aliases).find(k => k && aliases[k] && (model.startsWith(k) || k.startsWith(model)));
     return prefixKey ? aliases[prefixKey] : null;
   } catch { return null; }
+  finally { if (db) db.close(); }
 }
 
 function saveRequestLog(url, bodyBuffer) {

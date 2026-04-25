@@ -93,3 +93,5 @@ context-snapshot.json
 state.md
 session-log.md
 .worktrees/
+.logs/
+tests/tmp/

@@ -1,9 +1,7 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { DATA_DIR } from "./dataDir.js";
+import { loadSingletonFromSqlite, upsertSingleton } from "./sqliteHelpers.js";
 
-const CONFIG_FILE = path.join(DATA_DIR, "runtime-config.json");
+const CONFIG_FILE = null;
 
 const DEFAULT_CONFIG = {
   version: 1,
@@ -19,10 +17,6 @@ const DEFAULT_CONFIG = {
     servers: [],
   },
 };
-
-async function ensureDataDir() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-}
 
 function cloneDefaultConfig() {
   return {
@@ -65,24 +59,15 @@ function ensureConfigShape(config) {
 
 export async function readRuntimeConfig() {
   try {
-    await ensureDataDir();
-    const raw = await fs.readFile(CONFIG_FILE, "utf8");
-    return ensureConfigShape(JSON.parse(raw));
+    return ensureConfigShape(loadSingletonFromSqlite("runtimeConfig") || cloneDefaultConfig());
   } catch (error) {
-    if (error?.code === "ENOENT") {
-      return cloneDefaultConfig();
-    }
-    if (error instanceof SyntaxError) {
-      return cloneDefaultConfig();
-    }
     throw error;
   }
 }
 
 export async function writeRuntimeConfig(config) {
   const next = ensureConfigShape(config);
-  await ensureDataDir();
-  await fs.writeFile(CONFIG_FILE, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  upsertSingleton("runtimeConfig", next);
   return next;
 }
 

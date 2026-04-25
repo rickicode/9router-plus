@@ -8,7 +8,9 @@ const tempDirs = [];
 
 vi.mock("@/lib/dataDir.js", () => ({
   getDataDir: () => process.env.DATA_DIR,
-  DATA_DIR: process.env.DATA_DIR,
+  get DATA_DIR() {
+    return process.env.DATA_DIR;
+  },
 }));
 
 const mockGetConnectionEffectiveStatus = vi.fn((connection) => connection?.__status || "unknown");
@@ -55,7 +57,12 @@ async function loadLocalDb(initialData) {
   }
 
   vi.resetModules();
-  return import("../../src/lib/localDb.js");
+  const [localDb, sqliteHelpers] = await Promise.all([
+    import("../../src/lib/localDb.js"),
+    import("@/lib/sqliteHelpers.js"),
+  ]);
+
+  return { dataDir, localDb, sqliteHelpers };
 }
 
 beforeEach(() => {
@@ -68,6 +75,11 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  try {
+    const sqliteHelpers = await import("@/lib/sqliteHelpers.js");
+    sqliteHelpers.closeSqliteDb();
+  } catch (_) {}
+
   delete process.env.DATA_DIR;
   delete process.env.REDIS_URL;
   delete process.env.REDIS_HOST;
@@ -81,7 +93,7 @@ afterEach(async () => {
 
 describe("localDb quota scheduler settings", () => {
   it("returns quota scheduler defaults for a fresh database", async () => {
-    const localDb = await loadLocalDb();
+    const { localDb } = await loadLocalDb();
 
     const settings = await localDb.getSettings();
 
@@ -98,10 +110,69 @@ describe("localDb quota scheduler settings", () => {
     });
   });
 
+  it("hydrates migrated SQLite settings and normalizes with defaults", async () => {
+    const { localDb, sqliteHelpers } = await loadLocalDb({
+      settings: {
+        cloudEnabled: true,
+        quotaScheduler: {
+          enabled: false,
+          batchSize: 7,
+        },
+        customFlag: true,
+      },
+    });
+
+    await localDb.getSettings();
+    expect(sqliteHelpers.loadSingletonFromSqlite("settings")).toMatchObject({
+      cloudEnabled: true,
+      customFlag: true,
+    });
+
+    await expect(localDb.getSettings()).resolves.toMatchObject({
+      cloudEnabled: true,
+      customFlag: true,
+      quotaScheduler: {
+        enabled: false,
+        batchSize: 7,
+        cadenceMs: 900000,
+      },
+      quotaExhaustedThresholdPercent: 10,
+    });
+  });
+
+  it("uses migrated JSON settings as SQLite authority", async () => {
+    const { localDb, sqliteHelpers } = await loadLocalDb({
+      settings: {
+        cloudEnabled: false,
+        customFlag: "lowdb",
+        quotaScheduler: {
+          enabled: true,
+          batchSize: 11,
+        },
+      },
+    });
+
+    await localDb.getSettings();
+    expect(sqliteHelpers.loadSingletonFromSqlite("settings")).toMatchObject({
+      customFlag: "lowdb",
+      quotaScheduler: expect.objectContaining({ batchSize: 11 }),
+    });
+
+    await expect(localDb.getSettings()).resolves.toMatchObject({
+      cloudEnabled: false,
+      customFlag: "lowdb",
+      quotaScheduler: {
+        enabled: true,
+        batchSize: 11,
+      },
+    });
+  });
+
   it("preserves unknown settings keys on import, read, and update", async () => {
-    const localDb = await loadLocalDb();
+    const { localDb } = await loadLocalDb();
 
     await localDb.importDb({
+      format: "9router-db-v1",
       providerConnections: [],
       providerNodes: [],
       proxyPools: [],
@@ -141,10 +212,11 @@ describe("localDb quota scheduler settings", () => {
   });
 
   it("drops stale legacy settings keys while preserving unrelated custom settings keys", async () => {
-    const localDb = await loadLocalDb();
+    const { localDb } = await loadLocalDb();
     const legacyRemovedKey = String.fromCharCode(114, 116, 107, 69, 110, 97, 98, 108, 101, 100);
 
     await localDb.importDb({
+      format: "9router-db-v1",
       providerConnections: [],
       providerNodes: [],
       proxyPools: [],
@@ -190,10 +262,11 @@ describe("localDb quota scheduler settings", () => {
   });
 
   it("strips legacy-looking boolean toggles without removing unrelated unknown keys", async () => {
-    const localDb = await loadLocalDb();
+    const { localDb } = await loadLocalDb();
     const removedKey = String.fromCharCode(114, 116, 107, 69, 110, 97, 98, 108, 101, 100);
 
     await localDb.importDb({
+      format: "9router-db-v1",
       providerConnections: [],
       providerNodes: [],
       proxyPools: [],
@@ -230,7 +303,7 @@ describe("localDb quota scheduler settings", () => {
   });
 
   it("summarizes canonical statuses as connected/error/unknown buckets", async () => {
-    const localDb = await loadLocalDb();
+    const { localDb } = await loadLocalDb();
 
     mockGetConnectionStatusDetails
       .mockReturnValueOnce({ status: "eligible" })
@@ -257,7 +330,7 @@ describe("localDb quota scheduler settings", () => {
   });
 
   it("preserves an explicit disabled scheduler choice after updates", async () => {
-    const localDb = await loadLocalDb();
+    const { localDb } = await loadLocalDb();
 
     const updated = await localDb.updateSettings({
       quotaScheduler: {
@@ -282,7 +355,7 @@ describe("localDb quota scheduler settings", () => {
   });
 
   it("merges partial quota scheduler updates with nested defaults", async () => {
-    const localDb = await loadLocalDb();
+    const { localDb } = await loadLocalDb();
 
     const updated = await localDb.updateSettings({
       quotaScheduler: {
@@ -302,7 +375,7 @@ describe("localDb quota scheduler settings", () => {
   });
 
   it("persists explicit quota exhausted threshold updates", async () => {
-    const localDb = await loadLocalDb();
+    const { localDb } = await loadLocalDb();
 
     const updated = await localDb.updateSettings({
       quotaExhaustedThresholdPercent: 15,
@@ -318,7 +391,7 @@ describe("localDb quota scheduler settings", () => {
   });
 
   it("clamps quota exhausted threshold updates to valid percentage range", async () => {
-    const localDb = await loadLocalDb();
+    const { localDb } = await loadLocalDb();
 
     const high = await localDb.updateSettings({
       quotaExhaustedThresholdPercent: 150,
@@ -336,7 +409,7 @@ describe("localDb quota scheduler settings", () => {
   });
 
   it("clamps quota scheduler cadence to a minimum of 15 minutes", async () => {
-    const localDb = await loadLocalDb();
+    const { localDb } = await loadLocalDb();
 
     const updated = await localDb.updateSettings({
       quotaScheduler: {
@@ -350,7 +423,7 @@ describe("localDb quota scheduler settings", () => {
   });
 
   it("isolates quota scheduler defaults from caller-side nested mutations", async () => {
-    const localDb = await loadLocalDb({ settings: {} });
+    const { localDb } = await loadLocalDb({ settings: {} });
 
     const baseline = await localDb.getSettings();
     const firstRead = await localDb.getSettings();
@@ -360,5 +433,51 @@ describe("localDb quota scheduler settings", () => {
 
     const secondRead = await localDb.getSettings();
     expect(secondRead.quotaScheduler).toEqual(baseline.quotaScheduler);
+  });
+
+  it("persists settings updates to SQLite", async () => {
+    const { localDb, sqliteHelpers } = await loadLocalDb();
+
+    const updated = await localDb.updateSettings({
+      cloudEnabled: true,
+    });
+
+    expect(updated).toMatchObject({
+      cloudEnabled: true,
+    });
+    expect(sqliteHelpers.loadSingletonFromSqlite("settings")).toMatchObject({ cloudEnabled: true });
+    await expect(localDb.getSettings()).resolves.toMatchObject({
+      cloudEnabled: true,
+    });
+  });
+
+  it("persists atomic settings updates to SQLite", async () => {
+    const { localDb, sqliteHelpers } = await loadLocalDb();
+
+    const updated = await localDb.atomicUpdateSettings((current) => ({
+      ...current,
+      cloudEnabled: true,
+      quotaScheduler: {
+        ...current.quotaScheduler,
+        batchSize: 10,
+      },
+    }));
+
+    expect(updated).toMatchObject({
+      cloudEnabled: true,
+      quotaScheduler: {
+        batchSize: 10,
+      },
+    });
+    expect(sqliteHelpers.loadSingletonFromSqlite("settings")).toMatchObject({
+      cloudEnabled: true,
+      quotaScheduler: expect.objectContaining({ batchSize: 10 }),
+    });
+    await expect(localDb.getSettings()).resolves.toMatchObject({
+      cloudEnabled: true,
+      quotaScheduler: {
+        batchSize: 10,
+      },
+    });
   });
 });

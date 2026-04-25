@@ -14,6 +14,11 @@ import {
   setConnectionHotState,
   writeConnectionHotState,
 } from "../../src/lib/providerHotState.js";
+import {
+  clearAllSqliteHotState,
+  loadProviderHotState,
+  upsertHotState,
+} from "../../src/lib/sqliteHelpers.js";
 
 function createDeferred() {
   let resolve;
@@ -30,6 +35,301 @@ describe("providerHotState", () => {
     delete process.env.REDIS_URL;
     delete process.env.REDIS_HOST;
     __resetProviderHotStateForTests();
+    clearAllSqliteHotState();
+  });
+
+  it("mirrors Redis-ready setConnectionHotState writes into SQLite", async () => {
+    process.env.REDIS_URL = "redis://example.test:6379";
+
+    const redisHash = {};
+    __setRedisClientForTests({
+      isReady: true,
+      hGetAll: async () => ({ ...redisHash }),
+      hSet: async (_key, payload) => {
+        Object.assign(redisHash, payload);
+      },
+      expire: async () => 1,
+    });
+
+    const result = await setConnectionHotState("conn-sqlite-mirror", "provider-sqlite-mirror", {
+      routingStatus: "eligible",
+      authState: "ok",
+      apiKey: "secret-should-not-persist",
+    });
+
+    expect(result).toMatchObject({
+      storedInRedis: true,
+      storedInSqlite: true,
+      state: {
+        routingStatus: "eligible",
+        authState: "ok",
+      },
+    });
+    expect(result.state).not.toHaveProperty("apiKey");
+    expect(Object.keys(redisHash).join("\n")).not.toContain("apiKey");
+    expect(Object.values(redisHash).join("\n")).not.toContain("secret-should-not-persist");
+
+    expect(loadProviderHotState("provider-sqlite-mirror")).toEqual({
+      "conn-sqlite-mirror": {
+        routingStatus: "eligible",
+        authState: "ok",
+      },
+    });
+  });
+
+  it("uses SQLite fallback when Redis is unavailable", async () => {
+    const result = await setConnectionHotState("conn-sqlite-fallback", "provider-sqlite-fallback", {
+      routingStatus: "blocked",
+      reasonDetail: "redis down",
+    });
+
+    expect(result).toMatchObject({
+      storedInRedis: false,
+      storedInSqlite: true,
+      state: {
+        routingStatus: "blocked",
+        reasonDetail: "redis down",
+      },
+    });
+
+    expect(loadProviderHotState("provider-sqlite-fallback")).toEqual({
+      "conn-sqlite-fallback": {
+        routingStatus: "blocked",
+        reasonDetail: "redis down",
+      },
+    });
+
+    const immediateProjected = await getConnectionHotStates([
+      { id: "conn-sqlite-fallback", provider: "provider-sqlite-fallback" },
+    ]);
+
+    expect(immediateProjected.get("provider-sqlite-fallback:conn-sqlite-fallback")).toMatchObject({
+      id: "conn-sqlite-fallback",
+      provider: "provider-sqlite-fallback",
+      routingStatus: "blocked",
+      reasonDetail: "redis down",
+    });
+
+    __resetProviderHotStateForTests();
+
+    const projected = await getConnectionHotStates([
+      { id: "conn-sqlite-fallback", provider: "provider-sqlite-fallback" },
+    ]);
+
+    expect(projected.get("provider-sqlite-fallback:conn-sqlite-fallback")).toMatchObject({
+      id: "conn-sqlite-fallback",
+      provider: "provider-sqlite-fallback",
+      routingStatus: "blocked",
+      reasonDetail: "redis down",
+    });
+  });
+
+  it("loads SQLite hot-state when Redis is unavailable and process cache is empty", async () => {
+    await setConnectionHotState("conn-sqlite-read", "provider-sqlite-read", {
+      routingStatus: "eligible",
+      healthStatus: "healthy",
+    });
+
+    __resetProviderHotStateForTests();
+
+    const projected = await getConnectionHotStates([
+      {
+        id: "conn-sqlite-read",
+        provider: "provider-sqlite-read",
+        testStatus: "active",
+        routingStatus: "unknown",
+      },
+    ]);
+
+    expect(projected.get("provider-sqlite-read:conn-sqlite-read")).toMatchObject({
+      id: "conn-sqlite-read",
+      provider: "provider-sqlite-read",
+      testStatus: "active",
+      routingStatus: "eligible",
+      healthStatus: "healthy",
+    });
+    expect(projected.get("conn-sqlite-read")).toMatchObject({
+      id: "conn-sqlite-read",
+      provider: "provider-sqlite-read",
+      testStatus: "active",
+      routingStatus: "eligible",
+      healthStatus: "healthy",
+    });
+  });
+
+  it("does not surface pre-existing SQLite hot-state secret fields", async () => {
+    upsertHotState("provider-sqlite-secret", "conn-sqlite-secret", {
+      routingStatus: "eligible",
+      apiKey: "sk-sqlite-secret",
+      accessToken: "sqlite-access-token",
+    });
+
+    __resetProviderHotStateForTests();
+
+    const projected = await getConnectionHotStates([
+      { id: "conn-sqlite-secret", provider: "provider-sqlite-secret" },
+    ]);
+
+    const snapshot = projected.get("provider-sqlite-secret:conn-sqlite-secret");
+    expect(snapshot).toMatchObject({
+      id: "conn-sqlite-secret",
+      provider: "provider-sqlite-secret",
+      routingStatus: "eligible",
+    });
+    expect(snapshot).not.toHaveProperty("apiKey");
+    expect(snapshot).not.toHaveProperty("accessToken");
+  });
+
+  it("hydrates Redis from SQLite only when the provider hash is empty", async () => {
+    await setConnectionHotState("conn-hydrate", "provider-hydrate", {
+      routingStatus: "eligible",
+      reasonDetail: "from sqlite",
+    });
+
+    __resetProviderHotStateForTests();
+    process.env.REDIS_URL = "redis://example.test:6379";
+
+    const emptyRedisHash = {};
+    __setRedisClientForTests({
+      isReady: true,
+      hGetAll: async () => ({ ...emptyRedisHash }),
+      hSet: async (_key, payload) => {
+        Object.assign(emptyRedisHash, payload);
+      },
+      del: async () => {
+        for (const key of Object.keys(emptyRedisHash)) delete emptyRedisHash[key];
+      },
+      expire: async () => 1,
+    });
+
+    const hydrated = await getConnectionHotStates([
+      { id: "conn-hydrate", provider: "provider-hydrate", testStatus: "active" },
+    ]);
+
+    expect(hydrated.get("conn-hydrate")).toMatchObject({
+      id: "conn-hydrate",
+      routingStatus: "eligible",
+      reasonDetail: "from sqlite",
+    });
+    expect(Object.keys(emptyRedisHash).some((field) => field.startsWith("__conn__:"))).toBe(true);
+
+    __resetProviderHotStateForTests();
+
+    const redisState = {
+      "conn-hydrate": JSON.stringify({
+        routingStatus: "blocked",
+        reasonDetail: "from redis",
+      }),
+    };
+    __setRedisClientForTests({
+      isReady: true,
+      hGetAll: async () => ({ ...redisState }),
+      hSet: async (_key, payload) => {
+        Object.assign(redisState, payload);
+      },
+      expire: async () => 1,
+    });
+
+    const trustedRedis = await getConnectionHotStates([
+      { id: "conn-hydrate", provider: "provider-hydrate", testStatus: "active" },
+    ]);
+
+    expect(trustedRedis.get("conn-hydrate")).toMatchObject({
+      id: "conn-hydrate",
+      testStatus: "active",
+    });
+    expect(trustedRedis.get("conn-hydrate")).not.toHaveProperty("routingStatus", "blocked");
+    expect(trustedRedis.get("conn-hydrate")).not.toHaveProperty("reasonDetail", "from redis");
+  });
+
+  it("prefers newer SQLite fallback state over stale Redis during recovery", async () => {
+    const redisState = {
+      "conn-stale": JSON.stringify({
+        routingStatus: "eligible",
+        reasonDetail: "stale redis",
+      }),
+    };
+
+    process.env.REDIS_URL = "redis://example.test:6379";
+    __setRedisClientForTests({
+      isReady: true,
+      hGetAll: async () => ({ ...redisState }),
+      hSet: async (_key, payload) => {
+        Object.assign(redisState, payload);
+      },
+      hDel: async (_key, field) => {
+        delete redisState[field];
+      },
+      expire: async () => 1,
+      del: async () => {
+        for (const key of Object.keys(redisState)) delete redisState[key];
+      },
+    });
+
+    await setConnectionHotState("conn-stale", "provider-stale", {
+      routingStatus: "eligible",
+      reasonDetail: "seeded while redis online",
+    });
+
+    delete process.env.REDIS_URL;
+    await deleteConnectionHotState("conn-stale", "provider-stale");
+    expect(loadProviderHotState("provider-stale")).toEqual({});
+
+    __resetProviderHotStateForTests();
+    process.env.REDIS_URL = "redis://example.test:6379";
+    __setRedisClientForTests({
+      isReady: true,
+      hGetAll: async () => ({ ...redisState }),
+      hSet: async (_key, payload) => {
+        Object.assign(redisState, payload);
+      },
+      hDel: async (_key, field) => {
+        delete redisState[field];
+      },
+      expire: async () => 1,
+      del: async () => {
+        for (const key of Object.keys(redisState)) delete redisState[key];
+      },
+    });
+
+    const projected = await getConnectionHotStates([
+      { id: "conn-stale", provider: "provider-stale", testStatus: "active" },
+    ]);
+
+    expect(projected.get("provider-stale:conn-stale")).toMatchObject({
+      id: "conn-stale",
+      provider: "provider-stale",
+      testStatus: "active",
+    });
+    expect(projected.get("provider-stale:conn-stale")).not.toHaveProperty("routingStatus");
+
+    __resetProviderHotStateForTests();
+    process.env.REDIS_URL = "redis://example.test:6379";
+    __setRedisClientForTests({
+      isReady: true,
+      hGetAll: async () => ({ ...redisState }),
+      hSet: async (_key, payload) => {
+        Object.assign(redisState, payload);
+      },
+      hDel: async (_key, field) => {
+        delete redisState[field];
+      },
+      expire: async () => 1,
+      del: async () => {
+        for (const key of Object.keys(redisState)) delete redisState[key];
+      },
+    });
+
+    const projectedAgain = await getConnectionHotStates([
+      { id: "conn-stale", provider: "provider-stale", testStatus: "active" },
+    ]);
+
+    expect(projectedAgain.get("provider-stale:conn-stale")).toMatchObject({
+      id: "conn-stale",
+      provider: "provider-stale",
+      testStatus: "active",
+    });
+    expect(projectedAgain.get("provider-stale:conn-stale")).not.toHaveProperty("routingStatus");
   });
 
   it("refreshes provider state from Redis instead of serving stale cached eligibility forever", async () => {
@@ -740,6 +1040,86 @@ describe("providerHotState", () => {
     expect(snapshot).not.toHaveProperty("lastErrorAt");
   });
 
+  it("does not surface pre-existing Redis per-key secret fields", async () => {
+    process.env.REDIS_URL = "redis://example.test:6379";
+
+    const redisHashes = new Map([
+      [
+        "9router:provider-hot-state:provider-secret-per-key",
+        {
+          "__conn__:Y29ubi1zZWNyZXQ=:cm91dGluZ1N0YXR1cw==": JSON.stringify("eligible"),
+          "__conn__:Y29ubi1zZWNyZXQ=:YXBpS2V5": JSON.stringify("sk-legacy-secret"),
+          "__conn__:Y29ubi1zZWNyZXQ=:YWNjZXNzVG9rZW4=": JSON.stringify("legacy-access-token"),
+        },
+      ],
+    ]);
+
+    __setRedisClientForTests({
+      isReady: true,
+      async hGetAll(key) {
+        return { ...(redisHashes.get(key) || {}) };
+      },
+      async hSet(key, payload) {
+        redisHashes.set(key, {
+          ...(redisHashes.get(key) || {}),
+          ...payload,
+        });
+      },
+      async hDel(key, field) {
+        const current = { ...(redisHashes.get(key) || {}) };
+        delete current[field];
+        redisHashes.set(key, current);
+      },
+      async expire() {
+        return 1;
+      },
+    });
+
+    const snapshot = await getConnectionHotState("conn-secret", "provider-secret-per-key");
+
+    expect(snapshot).toMatchObject({
+      id: "conn-secret",
+      routingStatus: "eligible",
+    });
+    expect(snapshot).not.toHaveProperty("apiKey");
+    expect(snapshot).not.toHaveProperty("accessToken");
+  });
+
+  it("does not surface pre-existing Redis legacy blob secret fields", async () => {
+    process.env.REDIS_URL = "redis://example.test:6379";
+
+    __setRedisClientForTests({
+      isReady: true,
+      async hGetAll() {
+        return {
+          "conn-secret-blob": JSON.stringify({
+            routingStatus: "eligible",
+            apiKey: "sk-legacy-blob-secret",
+            accessToken: "legacy-blob-access-token",
+          }),
+        };
+      },
+      async hSet() {
+        return 1;
+      },
+      async hDel() {
+        return 1;
+      },
+      async expire() {
+        return 1;
+      },
+    });
+
+    const snapshot = await getConnectionHotState("conn-secret-blob", "provider-secret-blob");
+
+    expect(snapshot).toMatchObject({
+      id: "conn-secret-blob",
+      routingStatus: "eligible",
+    });
+    expect(snapshot).not.toHaveProperty("apiKey");
+    expect(snapshot).not.toHaveProperty("accessToken");
+  });
+
   it("hydrates mixed legacy and per-key Redis state deterministically with per-key values winning", async () => {
     process.env.REDIS_URL = "redis://example.test:6379";
 
@@ -827,6 +1207,8 @@ describe("providerHotState", () => {
           "conn-legacy": JSON.stringify({
             testStatus: "unavailable",
             lastError: "legacy failure",
+            apiKey: "legacy-secret-key",
+            accessToken: "legacy-secret-token",
             backoffLevel: 2,
           }),
         },
@@ -866,14 +1248,21 @@ describe("providerHotState", () => {
     });
     expect(snapshot).not.toHaveProperty("testStatus");
     expect(snapshot).not.toHaveProperty("lastError");
+    expect(snapshot).not.toHaveProperty("apiKey");
+    expect(snapshot).not.toHaveProperty("accessToken");
 
     const storedHash = redisHashes.get("9router:provider-hot-state:provider-legacy-migration");
     expect(storedHash).not.toHaveProperty("conn-legacy");
     expect(storedHash).not.toHaveProperty("__conn__:Y29ubi1sZWdhY3k=:dGVzdFN0YXR1cw==");
     expect(storedHash).not.toHaveProperty("__conn__:Y29ubi1sZWdhY3k=:bGFzdEVycm9y");
+    expect(storedHash).not.toHaveProperty("__conn__:Y29ubi1sZWdhY3k=:YXBpS2V5");
+    expect(storedHash).not.toHaveProperty("__conn__:Y29ubi1sZWdhY3k=:YWNjZXNzVG9rZW4=");
+    expect(Object.values(storedHash || {}).join("\n")).not.toContain("legacy-secret");
     expect(Object.values(storedHash || {})).not.toContain(JSON.stringify({
       testStatus: "unavailable",
       lastError: "legacy failure",
+      apiKey: "legacy-secret-key",
+      accessToken: "legacy-secret-token",
       backoffLevel: 2,
     }));
   });
@@ -954,8 +1343,8 @@ describe("providerHotState", () => {
         redisKey,
         {
           "conn-race": JSON.stringify({
-            a: 0,
-            b: 0,
+            routingStatus: "unknown",
+            quotaState: "ok",
           }),
         },
       ],
@@ -1032,10 +1421,10 @@ describe("providerHotState", () => {
     });
 
     const firstWrite = setConnectionHotState("conn-race", "provider-legacy-race", {
-      a: 1,
+      routingStatus: "eligible",
     });
     const secondWrite = setConnectionHotState("conn-race", "provider-legacy-race", {
-      b: 2,
+      quotaState: "exhausted",
     });
 
     await readsStarted.promise;
@@ -1044,15 +1433,15 @@ describe("providerHotState", () => {
 
     expect(await getConnectionHotState("conn-race", "provider-legacy-race")).toMatchObject({
       id: "conn-race",
-      a: 1,
-      b: 2,
+      routingStatus: "eligible",
+      quotaState: "exhausted",
     });
 
     const storedHash = redisHashes.get(redisKey);
     expect(storedHash).not.toHaveProperty("conn-race");
     expect(storedHash).toMatchObject({
-      "__conn__:Y29ubi1yYWNl:YQ==": JSON.stringify(1),
-      "__conn__:Y29ubi1yYWNl:Yg==": JSON.stringify(2),
+      "__conn__:Y29ubi1yYWNl:cm91dGluZ1N0YXR1cw==": JSON.stringify("eligible"),
+      "__conn__:Y29ubi1yYWNl:cXVvdGFTdGF0ZQ==": JSON.stringify("exhausted"),
     });
   });
 

@@ -37,6 +37,7 @@ export default function ProvidersPage() {
     useState(false);
   const [credentialImportText, setCredentialImportText] = useState("");
   const [credentialImportFileName, setCredentialImportFileName] = useState("");
+  const [replaceCredentialRestore, setReplaceCredentialRestore] = useState(false);
   const [importingCredentials, setImportingCredentials] = useState(false);
   const [credentialImportStatus, setCredentialImportStatus] = useState({
     type: "",
@@ -166,7 +167,10 @@ export default function ProvidersPage() {
       detail: credentialImportFileName || "Parsing pasted backup text",
     });
     try {
-      const payload = JSON.parse(credentialImportText);
+      const parsedPayload = JSON.parse(credentialImportText);
+      const payload = replaceCredentialRestore
+        ? { ...parsedPayload, mode: "replace" }
+        : parsedPayload;
       setCredentialImportStatus({
         type: "info",
         message: "Uploading backup to restore service",
@@ -199,6 +203,7 @@ export default function ProvidersPage() {
       }
       setCredentialImportText("");
       setCredentialImportFileName("");
+      setReplaceCredentialRestore(false);
       if (credentialFileInputRef.current) {
         credentialFileInputRef.current.value = "";
       }
@@ -211,6 +216,7 @@ export default function ProvidersPage() {
       setShowCredentialImportModal(false);
       setCredentialImportText("");
       setCredentialImportFileName("");
+      setReplaceCredentialRestore(false);
       if (credentialFileInputRef.current) {
         credentialFileInputRef.current.value = "";
       }
@@ -704,6 +710,7 @@ export default function ProvidersPage() {
           if (importingCredentials) return;
           setShowCredentialImportModal(false);
           setCredentialImportStatus({ type: "", message: "", detail: "" });
+          setReplaceCredentialRestore(false);
         }}
         title="Import Credentials Backup"
         size="lg"
@@ -718,6 +725,7 @@ export default function ProvidersPage() {
                 setShowCredentialImportModal(false);
                 setCredentialImportText("");
                 setCredentialImportFileName("");
+                setReplaceCredentialRestore(false);
                 setCredentialImportStatus({ type: "", message: "", detail: "" });
                 if (credentialFileInputRef.current) {
                   credentialFileInputRef.current.value = "";
@@ -826,6 +834,22 @@ export default function ProvidersPage() {
             className="w-full min-h-[240px] rounded border border-border bg-[var(--color-surface)] p-3 text-sm font-mono text-text-main focus:outline-none focus:ring-2 focus:ring-primary/30"
             placeholder="Paste credentials backup JSON here"
           />
+
+          <label className="flex items-start gap-3 rounded border border-warning/30 bg-warning/10 p-3 text-sm text-text-main">
+            <input
+              type="checkbox"
+              checked={replaceCredentialRestore}
+              onChange={(event) => setReplaceCredentialRestore(event.target.checked)}
+              disabled={importingCredentials}
+              className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-2 focus:ring-primary/30"
+            />
+            <span>
+              <span className="block font-medium">Replace existing provider credentials</span>
+              <span className="mt-1 block text-text-muted">
+                Delete provider credentials that are not present in this backup. Leave unchecked to merge/update without deleting existing providers.
+              </span>
+            </span>
+          </label>
         </div>
       </Modal>
     </div>

@@ -1,10 +1,8 @@
-import { Low } from "lowdb";
-import { JSONFile } from "lowdb/node";
 import { v4 as uuidv4 } from "uuid";
 import path from "node:path";
 import fs from "node:fs";
-import lockfile from "proper-lockfile";
 import { DATA_DIR } from "@/lib/dataDir.js";
+import { DB_SQLITE_FILE, clearHotStateForProvider, ensureSchema, getSqliteDb, loadAllDataFromSqlite, loadSingletonFromSqlite, markProviderHotStateInvalidated, migrateFromJSON, rebuildHotStateFromConnections, saveAllDataToSqlite } from "@/lib/sqliteHelpers.js";
 import { getConnectionEffectiveStatus, getConnectionStatusDetails } from "@/lib/connectionStatus.js";
 import { sanitizeConnectionStatusRecord } from "./providerHotState.js";
 import { normalizeQuotaSchedulerSettings } from "./quotaRefreshPlanner.js";
@@ -16,6 +14,7 @@ import {
 } from "@/lib/opencodeSync/schema.js";
 
 const DEFAULT_MITM_ROUTER_BASE = "http://localhost:20128";
+export const DB_BACKUP_FORMAT = "9router-db-v1";
 const LEGACY_MIRROR_STATUS_FIELDS = new Set([
   "testStatus",
   "lastError",
@@ -168,6 +167,51 @@ function cloneDefaultData() {
   };
 }
 
+function validateDbImportPayload(payload) {
+  if (!isPlainObject(payload)) {
+    throw new Error("Invalid database payload: expected an object");
+  }
+
+  if (payload.format !== DB_BACKUP_FORMAT) {
+    throw new Error(`Invalid database payload format: expected ${DB_BACKUP_FORMAT}`);
+  }
+
+  const defaults = cloneDefaultData();
+  const allowedKeys = new Set([
+    "format",
+    ...Object.keys(defaults),
+    "opencodeSync",
+    "runtimeConfig",
+    "tunnelState",
+  ]);
+
+  for (const key of Object.keys(payload)) {
+    if (!allowedKeys.has(key)) {
+      throw new Error(`Invalid database payload: unknown top-level key ${key}`);
+    }
+  }
+
+  for (const [key, defaultValue] of Object.entries(defaults)) {
+    if (payload[key] === undefined) continue;
+
+    if (Array.isArray(defaultValue) && !Array.isArray(payload[key])) {
+      throw new Error(`Invalid database payload: ${key} must be an array`);
+    }
+
+    if (isPlainObject(defaultValue) && !isPlainObject(payload[key])) {
+      throw new Error(`Invalid database payload: ${key} must be an object`);
+    }
+  }
+}
+
+function logSafeError(message, error) {
+  console.warn(message, {
+    name: error?.name,
+    code: error?.code,
+    message: error?.message,
+  });
+}
+
 export { getConnectionEffectiveStatus };
 
 export function getConnectionStatusSummary(connections = []) {
@@ -188,10 +232,6 @@ export function getConnectionStatusSummary(connections = []) {
   }
 
   return summary;
-}
-
-if (!isCloud && DB_FILE && !fs.existsSync(DB_FILE)) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(cloneDefaultData(), null, 2));
 }
 
 function ensureDbShape(data) {
@@ -316,13 +356,9 @@ function ensureDbShape(data) {
 let dbInstance = null;
 let dbCache = null;
 let dbCacheExpiresAt = 0;
+let sqliteInitPromise = null;
 
 const DB_CACHE_TTL_MS = 1000;
-
-const LOCK_OPTIONS = {
-  retries: { retries: 15, minTimeout: 50, maxTimeout: 3000 },
-  stale: 10000,
-};
 
 class LocalMutex {
   constructor() {
@@ -349,32 +385,22 @@ class LocalMutex {
 
 const localMutex = new LocalMutex();
 
-async function withFileLock(db, operation) {
+async function withLocalDbMutex(operation) {
   if (isCloud) {
     await operation();
     return;
   }
 
   const releaseLocal = await localMutex.acquire();
-  let release = null;
   try {
-    release = await lockfile.lock(DB_FILE, LOCK_OPTIONS);
     await operation();
-  } catch (error) {
-    if (error.code === "ELOCKED") {
-      console.warn(`[DB] File is locked, retrying...`);
-    }
-    throw error;
   } finally {
-    if (release) {
-      try { await release(); } catch (_) { }
-    }
     releaseLocal();
   }
 }
 
 async function safeRead(db) {
-  await withFileLock(db, () => db.read());
+  db.data = loadAllDataFromStorage();
 }
 
 function cloneDbData(data) {
@@ -382,6 +408,39 @@ function cloneDbData(data) {
     return structuredClone(data);
   }
   return JSON.parse(JSON.stringify(data));
+}
+
+function createMemoryDb(data) {
+  return {
+    data,
+    async read() {
+      this.data = loadAllDataFromStorage();
+    },
+    async write() {
+      saveAllDataToStorage(this.data);
+    },
+  };
+}
+
+function loadAllDataFromStorage() {
+  if (!isCloud && fs.existsSync(DB_SQLITE_FILE)) {
+    const sqliteData = loadAllDataFromSqlite();
+    if (loadSingletonFromSqlite("opencodeSync") == null) {
+      delete sqliteData.opencodeSync;
+    }
+    return ensureDbShape(sqliteData).data;
+  }
+
+  return cloneDefaultData();
+}
+
+function saveAllDataToStorage(data) {
+  if (isCloud) {
+    return;
+  }
+
+  const nextData = ensureDbShape(cloneDbData(data)).data;
+  saveAllDataToSqlite(nextData);
 }
 
 function hasFreshDbCache() {
@@ -398,6 +457,61 @@ function invalidateDbCache() {
   dbCacheExpiresAt = 0;
 }
 
+async function ensureSqliteBootstrap() {
+  if (isCloud) return;
+  if (!sqliteInitPromise) {
+    sqliteInitPromise = (async () => {
+      try {
+        if (DB_FILE && fs.existsSync(DB_FILE) && !fs.existsSync(DB_SQLITE_FILE)) {
+          migrateFromJSON({ preserveJson: false });
+        } else {
+          const sqliteDb = getSqliteDb();
+          ensureSchema(sqliteDb);
+          if (!fs.existsSync(DB_SQLITE_FILE)) {
+            saveAllDataToStorage(cloneDefaultData());
+          }
+        }
+      } catch (error) {
+        logSafeError("[DB] SQLite bootstrap failed", error);
+        throw error;
+      }
+    })();
+  }
+
+  await sqliteInitPromise;
+}
+
+function getProviderConnectionsFromLowDbData(db, filter = {}) {
+  let connections = db.data.providerConnections || [];
+
+  if (filter.provider) connections = connections.filter((c) => c.provider === filter.provider);
+  if (filter.isActive !== undefined) connections = connections.filter((c) => c.isActive === filter.isActive);
+
+  connections.sort((a, b) => (a.priority || 999) - (b.priority || 999));
+  return connections;
+}
+
+function validateSqliteProviderConnections(connections) {
+  if (!Array.isArray(connections)) {
+    throw new Error("SQLite providerConnections payload must be an array");
+  }
+
+  const validConnections = connections.filter((connection) => connection && typeof connection === "object");
+
+  if (validConnections.length !== connections.length) {
+    throw new Error("SQLite providerConnections payload contained invalid records");
+  }
+
+  const clonedData = cloneDbData({ providerConnections: validConnections });
+  const { data } = ensureDbShape(clonedData);
+  return data.providerConnections || [];
+}
+
+async function getProviderConnectionsWithFallback(filter = {}) {
+  const db = await getDb();
+  return getProviderConnectionsFromLowDbData(db, filter);
+}
+
 function ensureDbShapeForWrite(db) {
   const { data } = ensureDbShape(db.data);
   db.data = data;
@@ -406,26 +520,36 @@ function ensureDbShapeForWrite(db) {
 async function persistDbWrite(db) {
   invalidateDbCache();
   ensureDbShapeForWrite(db);
-  await db.write();
+  saveAllDataToStorage(db.data);
   setDbCache(db.data);
 }
 
 async function safeWrite(db) {
-  await withFileLock(db, () => persistDbWrite(db));
+  const release = await localMutex.acquire();
+  try {
+    await persistDbWrite(db);
+  } finally {
+    release();
+  }
+}
+
+function isPlainObject(value) {
+  return value != null && typeof value === "object" && !Array.isArray(value);
 }
 
 export async function getDb() {
   if (isCloud) {
     if (!dbInstance) {
       const data = cloneDefaultData();
-      dbInstance = new Low({ read: async () => { }, write: async () => { } }, data);
-      dbInstance.data = data;
+      dbInstance = createMemoryDb(data);
     }
     return dbInstance;
   }
 
+  await ensureSqliteBootstrap();
+
   if (!dbInstance) {
-    dbInstance = new Low(new JSONFile(DB_FILE), cloneDefaultData());
+    dbInstance = createMemoryDb(cloneDefaultData());
   }
 
   if (hasFreshDbCache()) {
@@ -433,17 +557,7 @@ export async function getDb() {
     return dbInstance;
   }
 
-  try {
-    await safeRead(dbInstance);
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      console.warn('[DB] Corrupt JSON detected, resetting to defaults...');
-      dbInstance.data = cloneDefaultData();
-      await safeWrite(dbInstance);
-    } else {
-      throw error;
-    }
-  }
+  await safeRead(dbInstance);
 
   if (!dbInstance.data) {
     dbInstance.data = cloneDefaultData();
@@ -466,13 +580,7 @@ export async function migrateDbShape() {
 }
 
 export async function getProviderConnections(filter = {}) {
-  const db = await getDb();
-  let connections = db.data.providerConnections || [];
-
-  if (filter.provider) connections = connections.filter(c => c.provider === filter.provider);
-  if (filter.isActive !== undefined) connections = connections.filter(c => c.isActive === filter.isActive);
-
-  connections.sort((a, b) => (a.priority || 999) - (b.priority || 999));
+  const connections = await getProviderConnectionsWithFallback(filter);
   return await mergeConnectionsWithHotState(connections);
 }
 
@@ -616,6 +724,8 @@ export async function deleteProviderConnectionsByProvider(providerId) {
   const deletedCount = beforeCount - db.data.providerConnections.length;
   await safeWrite(db);
   if (deletedCount > 0) {
+    clearHotStateForProvider(providerId);
+    markProviderHotStateInvalidated(providerId);
     await clearProviderHotState(providerId);
   }
   return deletedCount;
@@ -633,10 +743,10 @@ export async function createProviderConnection(data) {
   const db = await getDb();
   const normalizedData = stripLegacyMirrorStatusPatch(data || {});
 
-  // Wrap entire upsert logic in file lock to prevent race conditions
+  // Wrap entire upsert logic in local mutex to prevent in-process races.
   let result;
-  await withFileLock(db, async () => {
-    await db.read(); // Re-read inside lock to get latest state
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
     const now = new Date().toISOString();
 
     // Upsert: check existing by provider + email (oauth) or provider + name (apikey)
@@ -689,7 +799,7 @@ export async function createProviderConnection(data) {
     }
 
     const connection = {
-      id: uuidv4(),
+      id: typeof normalizedData.id === "string" && normalizedData.id.trim() ? normalizedData.id : uuidv4(),
       provider: normalizedData.provider,
       authType: normalizedData.authType || "oauth",
       name: connectionName,
@@ -823,8 +933,8 @@ export async function atomicUpdateProviderConnection(id, mutator) {
   const db = await getDb();
   let result = null;
 
-  await withFileLock(db, async () => {
-    await db.read();
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
 
     const index = db.data.providerConnections.findIndex(c => c.id === id);
     if (index === -1) {
@@ -985,6 +1095,17 @@ export async function setMitmAliasAll(toolName, mappings) {
   const db = await getDb();
   if (!db.data.mitmAlias) db.data.mitmAlias = {};
   db.data.mitmAlias[toolName] = mappings || {};
+  await safeWrite(db);
+}
+
+export async function setMitmAlias(toolName, mappings) {
+  return setMitmAliasAll(toolName, mappings);
+}
+
+export async function deleteMitmAlias(toolName) {
+  const db = await getDb();
+  if (!db.data.mitmAlias) db.data.mitmAlias = {};
+  delete db.data.mitmAlias[toolName];
   await safeWrite(db);
 }
 
@@ -1158,8 +1279,8 @@ export async function atomicUpdateSettings(mutator) {
   const db = await getDb();
   let result = null;
 
-  await withFileLock(db, async () => {
-    await db.read();
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
     const current = mergeSettingsWithDefaults(db.data.settings || { cloudEnabled: false });
     const updated = await mutator(structuredClone(current));
 
@@ -1181,8 +1302,9 @@ export async function mutateOpenCodeTokens(mutator) {
   }
 
   const db = await getDb();
-  await withFileLock(db, async () => {
-    await db.read();
+  let nextOpenCodeSync = null;
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
     db.data.opencodeSync = normalizeOpenCodeSyncDomain(db.data.opencodeSync);
     const current = [...(db.data.opencodeSync.tokens || [])];
     const result = mutator(current);
@@ -1193,9 +1315,10 @@ export async function mutateOpenCodeTokens(mutator) {
 
     db.data.opencodeSync.tokens = [...result.tokens];
     await persistDbWrite(db);
+    nextOpenCodeSync = normalizeOpenCodeSyncDomain(db.data.opencodeSync);
   });
 
-  db.data.opencodeSync = normalizeOpenCodeSyncDomain(db.data.opencodeSync);
+  db.data.opencodeSync = normalizeOpenCodeSyncDomain(nextOpenCodeSync || db.data.opencodeSync);
   return db.data.opencodeSync.tokens;
 }
 
@@ -1238,21 +1361,24 @@ export async function updateSettings(updates) {
 
 export async function exportDb() {
   const db = await getDb();
-  return db.data || cloneDefaultData();
+  return {
+    format: DB_BACKUP_FORMAT,
+    ...(db.data || cloneDefaultData()),
+  };
 }
 
 export async function importDb(payload) {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("Invalid database payload");
-  }
+  validateDbImportPayload(payload);
+
+  const { format: _format, ...importPayload } = payload;
 
   const nextData = {
     ...cloneDefaultData(),
-    ...payload,
+    ...importPayload,
     settings: {
       ...cloneDefaultData().settings,
-      ...(payload.settings && typeof payload.settings === "object" && !Array.isArray(payload.settings)
-        ? payload.settings
+      ...(importPayload.settings && typeof importPayload.settings === "object" && !Array.isArray(importPayload.settings)
+        ? importPayload.settings
         : {}),
     },
   };
@@ -1261,9 +1387,17 @@ export async function importDb(payload) {
 
   const { data: normalized } = ensureDbShape(nextData);
   const db = await getDb();
+  const invalidatedProviders = new Set((db.data.providerConnections || []).map((connection) => connection?.provider).filter(Boolean));
+  for (const connection of normalized.providerConnections || []) {
+    if (connection?.provider) invalidatedProviders.add(connection.provider);
+  }
   db.data = normalized;
   await safeWrite(db);
   await clearAllHotState();
+  rebuildHotStateFromConnections(db.data.providerConnections || []);
+  for (const providerId of invalidatedProviders) {
+    markProviderHotStateInvalidated(providerId);
+  }
   return db.data;
 }
 
@@ -1278,34 +1412,40 @@ export async function getCloudUrl() {
 }
 
 export async function getPricing() {
-  const db = await getDb();
-  const userPricing = db.data.pricing || {};
   const { PROVIDER_PRICING } = await import("@/shared/constants/pricing.js");
 
-  const merged = {};
+  function mergePricingWithDefaults(userPricing = {}) {
+    const merged = {};
 
-  for (const [provider, models] of Object.entries(PROVIDER_PRICING)) {
-    merged[provider] = { ...models };
-    if (userPricing[provider]) {
-      for (const [model, pricing] of Object.entries(userPricing[provider])) {
-        merged[provider][model] = merged[provider][model]
-          ? { ...merged[provider][model], ...pricing }
-          : pricing;
-      }
-    }
-  }
-
-  for (const [provider, models] of Object.entries(userPricing)) {
-    if (!merged[provider]) {
+    for (const [provider, models] of Object.entries(PROVIDER_PRICING)) {
       merged[provider] = { ...models };
-    } else {
-      for (const [model, pricing] of Object.entries(models)) {
-        if (!merged[provider][model]) merged[provider][model] = pricing;
+      if (userPricing[provider] && typeof userPricing[provider] === "object" && !Array.isArray(userPricing[provider])) {
+        for (const [model, pricing] of Object.entries(userPricing[provider])) {
+          merged[provider][model] = merged[provider][model]
+            ? { ...merged[provider][model], ...pricing }
+            : pricing;
+        }
       }
     }
+
+    for (const [provider, models] of Object.entries(userPricing)) {
+      if (!models || typeof models !== "object" || Array.isArray(models)) continue;
+
+      if (!merged[provider]) {
+        merged[provider] = { ...models };
+      } else {
+        for (const [model, pricing] of Object.entries(models)) {
+          if (!merged[provider][model]) merged[provider][model] = pricing;
+        }
+      }
+    }
+
+    return merged;
   }
 
-  return merged;
+  const db = await getDb();
+  const userPricing = db.data.pricing || {};
+  return mergePricingWithDefaults(isPlainObject(userPricing) ? userPricing : {});
 }
 
 export async function getPricingForModel(provider, model) {
@@ -1373,11 +1513,15 @@ function normalizeOpenCodeSyncDomain(value) {
   };
 }
 
-export async function getOpenCodePreferences() {
+export async function getOpenCodeSync() {
   const db = await getDb();
   db.data.opencodeSync = normalizeOpenCodeSyncDomain(db.data.opencodeSync);
-  db.data.opencodeSync.preferences = normalizeOpenCodePreferences(db.data.opencodeSync.preferences);
-  return db.data.opencodeSync.preferences;
+  return db.data.opencodeSync;
+}
+
+export async function getOpenCodePreferences() {
+  const opencodeSync = await getOpenCodeSync();
+  return normalizeOpenCodePreferences(opencodeSync.preferences);
 }
 
 export async function updateOpenCodePreferences(updates) {
@@ -1395,9 +1539,8 @@ export async function updateOpenCodePreferences(updates) {
 }
 
 export async function listOpenCodeTokens() {
-  const db = await getDb();
-  db.data.opencodeSync = normalizeOpenCodeSyncDomain(db.data.opencodeSync);
-  return db.data.opencodeSync.tokens;
+  const opencodeSync = await getOpenCodeSync();
+  return opencodeSync.tokens;
 }
 
 export async function replaceOpenCodeTokens(tokens) {
