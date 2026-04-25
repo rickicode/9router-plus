@@ -1,9 +1,8 @@
 import { v4 as uuidv4 } from "uuid";
 import path from "node:path";
 import fs from "node:fs";
-import lockfile from "proper-lockfile";
 import { DATA_DIR } from "@/lib/dataDir.js";
-import { DB_SQLITE_FILE, ensureSchema, getSqliteDb, loadAllDataFromSqlite, loadCollectionFromSqlite, loadSettingsSingletonFromSqlite, loadSingletonFromSqlite, migrateFromJSON, saveAllDataToSqlite, upsertSettingsSingleton, upsertSingleton } from "@/lib/sqliteHelpers.js";
+import { DB_SQLITE_FILE, ensureSchema, getSqliteDb, loadAllDataFromSqlite, loadSingletonFromSqlite, migrateFromJSON, saveAllDataToSqlite } from "@/lib/sqliteHelpers.js";
 import { getConnectionEffectiveStatus, getConnectionStatusDetails } from "@/lib/connectionStatus.js";
 import { sanitizeConnectionStatusRecord } from "./providerHotState.js";
 import { normalizeQuotaSchedulerSettings } from "./quotaRefreshPlanner.js";
@@ -189,10 +188,6 @@ export function getConnectionStatusSummary(connections = []) {
   return summary;
 }
 
-if (!isCloud && DB_FILE && !fs.existsSync(DB_FILE)) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(cloneDefaultData(), null, 2));
-}
-
 function ensureDbShape(data) {
   const defaults = cloneDefaultData();
   const next = data && typeof data === "object" ? data : {};
@@ -319,11 +314,6 @@ let sqliteInitPromise = null;
 
 const DB_CACHE_TTL_MS = 1000;
 
-const LOCK_OPTIONS = {
-  retries: { retries: 15, minTimeout: 50, maxTimeout: 3000 },
-  stale: 10000,
-};
-
 class LocalMutex {
   constructor() {
     this._queue = [];
@@ -349,32 +339,22 @@ class LocalMutex {
 
 const localMutex = new LocalMutex();
 
-async function withFileLock(db, operation) {
+async function withLocalDbMutex(operation) {
   if (isCloud) {
     await operation();
     return;
   }
 
   const releaseLocal = await localMutex.acquire();
-  let release = null;
   try {
-    release = await lockfile.lock(DB_FILE, LOCK_OPTIONS);
     await operation();
-  } catch (error) {
-    if (error.code === "ELOCKED") {
-      console.warn(`[DB] File is locked, retrying...`);
-    }
-    throw error;
   } finally {
-    if (release) {
-      try { await release(); } catch (_) { }
-    }
     releaseLocal();
   }
 }
 
 async function safeRead(db) {
-  await withFileLock(db, () => db.read());
+  db.data = loadAllDataFromStorage();
 }
 
 function cloneDbData(data) {
@@ -403,11 +383,6 @@ function loadAllDataFromStorage() {
       delete sqliteData.opencodeSync;
     }
     return ensureDbShape(sqliteData).data;
-  }
-
-  if (!isCloud && DB_FILE && fs.existsSync(DB_FILE)) {
-    const jsonData = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
-    return ensureDbShape(jsonData).data;
   }
 
   return cloneDefaultData();
@@ -441,14 +416,18 @@ async function ensureSqliteBootstrap() {
   if (!sqliteInitPromise) {
     sqliteInitPromise = (async () => {
       try {
-        const sqliteExists = fs.existsSync(DB_SQLITE_FILE);
-        const sqliteDb = getSqliteDb();
-        ensureSchema(sqliteDb);
-        if (!sqliteExists && DB_FILE && fs.existsSync(DB_FILE)) {
-          migrateFromJSON({ preserveJson: true });
+        if (DB_FILE && fs.existsSync(DB_FILE) && !fs.existsSync(DB_SQLITE_FILE)) {
+          migrateFromJSON({ preserveJson: false });
+        } else {
+          const sqliteDb = getSqliteDb();
+          ensureSchema(sqliteDb);
+          if (!fs.existsSync(DB_SQLITE_FILE)) {
+            saveAllDataToStorage(cloneDefaultData());
+          }
         }
       } catch (error) {
-        console.warn("[DB] Phase 3 SQLite read bootstrap skipped; lowdb remains the write source:", error);
+        console.warn("[DB] SQLite bootstrap failed:", error);
+        throw error;
       }
     })();
   }
@@ -484,25 +463,6 @@ function validateSqliteProviderConnections(connections) {
 
 async function getProviderConnectionsWithFallback(filter = {}) {
   const db = await getDb();
-
-  if (!isCloud) {
-    try {
-      // Phase 3 read slice: prefer SQLite for reads when available, but keep all writes on lowdb.
-      const sqliteConnections = validateSqliteProviderConnections(
-        loadCollectionFromSqlite("providerConnections")
-      );
-      let connections = sqliteConnections;
-
-      if (filter.provider) connections = connections.filter((c) => c.provider === filter.provider);
-      if (filter.isActive !== undefined) connections = connections.filter((c) => c.isActive === filter.isActive);
-
-      connections.sort((a, b) => (a.priority || 999) - (b.priority || 999));
-      return connections;
-    } catch (error) {
-      console.warn("[DB] Phase 3 SQLite providerConnections read failed, falling back to lowdb:", error);
-    }
-  }
-
   return getProviderConnectionsFromLowDbData(db, filter);
 }
 
@@ -514,76 +474,21 @@ function ensureDbShapeForWrite(db) {
 async function persistDbWrite(db) {
   invalidateDbCache();
   ensureDbShapeForWrite(db);
-  await db.write();
+  saveAllDataToStorage(db.data);
   setDbCache(db.data);
 }
 
 async function safeWrite(db) {
-  await withFileLock(db, () => persistDbWrite(db));
-}
-
-async function mirrorSettingsToSqlite(settings) {
-  if (isCloud) return;
-
+  const release = await localMutex.acquire();
   try {
-    const sqliteDb = getSqliteDb();
-    ensureSchema(sqliteDb);
-    upsertSettingsSingleton("settings", settings);
-  } catch (error) {
-    console.warn("[DB] Phase 4 SQLite settings mirror failed; lowdb remains authoritative:", error);
+    await persistDbWrite(db);
+  } finally {
+    release();
   }
 }
 
 function isPlainObject(value) {
   return value != null && typeof value === "object" && !Array.isArray(value);
-}
-
-async function mirrorModelAliasesToSqlite(modelAliases) {
-  if (isCloud) return;
-
-  try {
-    const sqliteDb = getSqliteDb();
-    ensureSchema(sqliteDb);
-    upsertSingleton("modelAliases", modelAliases);
-  } catch (error) {
-    console.warn("[DB] Phase 4 SQLite modelAliases mirror failed; lowdb remains authoritative:", error);
-  }
-}
-
-async function mirrorMitmAliasToSqlite(mitmAlias) {
-  if (isCloud) return;
-
-  try {
-    const sqliteDb = getSqliteDb();
-    ensureSchema(sqliteDb);
-    upsertSingleton("mitmAlias", mitmAlias);
-  } catch (error) {
-    console.warn("[DB] Phase 4 SQLite mitmAlias mirror failed; lowdb remains authoritative:", error);
-  }
-}
-
-async function mirrorPricingToSqlite(pricing) {
-  if (isCloud) return;
-
-  try {
-    const sqliteDb = getSqliteDb();
-    ensureSchema(sqliteDb);
-    upsertSingleton("pricing", pricing);
-  } catch (error) {
-    console.warn("[DB] Phase 4 SQLite pricing mirror failed; lowdb remains authoritative:", error);
-  }
-}
-
-async function mirrorOpenCodeSyncToSqlite(opencodeSync) {
-  if (isCloud) return;
-
-  try {
-    const sqliteDb = getSqliteDb();
-    ensureSchema(sqliteDb);
-    upsertSingleton("opencodeSync", normalizeOpenCodeSyncDomain(opencodeSync));
-  } catch (error) {
-    console.warn("[DB] Phase 4 SQLite opencodeSync mirror failed; lowdb remains authoritative:", error);
-  }
 }
 
 export async function getDb() {
@@ -606,17 +511,7 @@ export async function getDb() {
     return dbInstance;
   }
 
-  try {
-    await safeRead(dbInstance);
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      console.warn('[DB] Corrupt JSON detected, resetting to defaults...');
-      dbInstance.data = cloneDefaultData();
-      await safeWrite(dbInstance);
-    } else {
-      throw error;
-    }
-  }
+  await safeRead(dbInstance);
 
   if (!dbInstance.data) {
     dbInstance.data = cloneDefaultData();
@@ -800,10 +695,10 @@ export async function createProviderConnection(data) {
   const db = await getDb();
   const normalizedData = stripLegacyMirrorStatusPatch(data || {});
 
-  // Wrap entire upsert logic in file lock to prevent race conditions
+  // Wrap entire upsert logic in local mutex to prevent in-process races.
   let result;
-  await withFileLock(db, async () => {
-    await db.read(); // Re-read inside lock to get latest state
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
     const now = new Date().toISOString();
 
     // Upsert: check existing by provider + email (oauth) or provider + name (apikey)
@@ -990,8 +885,8 @@ export async function atomicUpdateProviderConnection(id, mutator) {
   const db = await getDb();
   let result = null;
 
-  await withFileLock(db, async () => {
-    await db.read();
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
 
     const index = db.data.providerConnections.findIndex(c => c.id === id);
     if (index === -1) {
@@ -1098,22 +993,6 @@ export async function reorderProviderConnections(providerId) {
 }
 
 export async function getModelAliases() {
-  if (!isCloud) {
-    try {
-      const sqliteModelAliases = loadSingletonFromSqlite("modelAliases");
-
-      if (sqliteModelAliases == null) {
-        console.warn("[DB] Phase 4 SQLite modelAliases row missing, falling back to lowdb");
-      } else if (isPlainObject(sqliteModelAliases)) {
-        return sqliteModelAliases;
-      } else {
-        console.warn("[DB] Phase 4 SQLite modelAliases payload invalid, falling back to lowdb:", sqliteModelAliases);
-      }
-    } catch (error) {
-      console.warn("[DB] Phase 4 SQLite modelAliases read failed, falling back to lowdb:", error);
-    }
-  }
-
   const db = await getDb();
   return db.data.modelAliases || {};
 }
@@ -1122,40 +1001,16 @@ export async function setModelAlias(alias, model) {
   const db = await getDb();
   db.data.modelAliases[alias] = model;
   await safeWrite(db);
-  await mirrorModelAliasesToSqlite(db.data.modelAliases);
 }
 
 export async function deleteModelAlias(alias) {
   const db = await getDb();
   delete db.data.modelAliases[alias];
   await safeWrite(db);
-  await mirrorModelAliasesToSqlite(db.data.modelAliases);
 }
 
 // Custom models — user-added models with explicit type (llm/image/tts/embedding/...)
 export async function getCustomModels() {
-  if (!isCloud) {
-    try {
-      const sqliteCustomModels = loadCollectionFromSqlite("customModels");
-
-      if (Array.isArray(sqliteCustomModels) && sqliteCustomModels.every(isPlainObject)) {
-        if (sqliteCustomModels.length === 0) {
-          const db = await getDb();
-          const lowdbCustomModels = db.data.customModels || [];
-          if (lowdbCustomModels.length > 0) {
-            console.warn("[DB] Phase 5a SQLite customModels empty while lowdb has data, falling back to lowdb");
-            return lowdbCustomModels;
-          }
-        }
-        return sqliteCustomModels;
-      }
-
-      console.warn("[DB] Phase 5a SQLite customModels payload invalid, falling back to lowdb:", sqliteCustomModels);
-    } catch (error) {
-      console.warn("[DB] Phase 5a SQLite customModels read failed, falling back to lowdb:", error);
-    }
-  }
-
   const db = await getDb();
   return db.data.customModels || [];
 }
@@ -1182,22 +1037,6 @@ export async function deleteCustomModel({ providerAlias, id, type = "llm" }) {
 }
 
 export async function getMitmAlias(toolName) {
-  if (!isCloud) {
-    try {
-      const sqliteMitmAlias = loadSingletonFromSqlite("mitmAlias");
-
-      if (sqliteMitmAlias == null) {
-        console.warn("[DB] Phase 4 SQLite mitmAlias row missing, falling back to lowdb");
-      } else if (isPlainObject(sqliteMitmAlias)) {
-        return toolName ? sqliteMitmAlias[toolName] || {} : sqliteMitmAlias;
-      } else {
-        console.warn("[DB] Phase 4 SQLite mitmAlias payload invalid, falling back to lowdb:", sqliteMitmAlias);
-      }
-    } catch (error) {
-      console.warn("[DB] Phase 4 SQLite mitmAlias read failed, falling back to lowdb:", error);
-    }
-  }
-
   const db = await getDb();
   const all = db.data.mitmAlias || {};
   if (toolName) return all[toolName] || {};
@@ -1209,7 +1048,6 @@ export async function setMitmAliasAll(toolName, mappings) {
   if (!db.data.mitmAlias) db.data.mitmAlias = {};
   db.data.mitmAlias[toolName] = mappings || {};
   await safeWrite(db);
-  await mirrorMitmAliasToSqlite(db.data.mitmAlias);
 }
 
 export async function setMitmAlias(toolName, mappings) {
@@ -1221,7 +1059,6 @@ export async function deleteMitmAlias(toolName) {
   if (!db.data.mitmAlias) db.data.mitmAlias = {};
   delete db.data.mitmAlias[toolName];
   await safeWrite(db);
-  await mirrorMitmAliasToSqlite(db.data.mitmAlias);
 }
 
 export async function getCombos() {
@@ -1382,22 +1219,6 @@ export async function cleanupProviderConnections() {
 }
 
 export async function getSettings() {
-  if (!isCloud) {
-    try {
-      const sqliteSettings = loadSettingsSingletonFromSqlite("settings");
-
-      if (sqliteSettings == null) {
-        console.warn("[DB] Phase 4 SQLite settings row missing, falling back to lowdb");
-      } else if (typeof sqliteSettings === "object" && !Array.isArray(sqliteSettings)) {
-        return mergeSettingsWithDefaults(sqliteSettings);
-      } else {
-        console.warn("[DB] Phase 4 SQLite settings payload invalid, falling back to lowdb:", sqliteSettings);
-      }
-    } catch (error) {
-      console.warn("[DB] Phase 4 SQLite settings read failed, falling back to lowdb:", error);
-    }
-  }
-
   const db = await getDb();
   return mergeSettingsWithDefaults(db.data.settings || { cloudEnabled: false });
 }
@@ -1410,8 +1231,8 @@ export async function atomicUpdateSettings(mutator) {
   const db = await getDb();
   let result = null;
 
-  await withFileLock(db, async () => {
-    await db.read();
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
     const current = mergeSettingsWithDefaults(db.data.settings || { cloudEnabled: false });
     const updated = await mutator(structuredClone(current));
 
@@ -1424,8 +1245,6 @@ export async function atomicUpdateSettings(mutator) {
     result = db.data.settings;
   });
 
-  await mirrorSettingsToSqlite(result);
-
   return result;
 }
 
@@ -1436,8 +1255,8 @@ export async function mutateOpenCodeTokens(mutator) {
 
   const db = await getDb();
   let nextOpenCodeSync = null;
-  await withFileLock(db, async () => {
-    await db.read();
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
     db.data.opencodeSync = normalizeOpenCodeSyncDomain(db.data.opencodeSync);
     const current = [...(db.data.opencodeSync.tokens || [])];
     const result = mutator(current);
@@ -1452,7 +1271,6 @@ export async function mutateOpenCodeTokens(mutator) {
   });
 
   db.data.opencodeSync = normalizeOpenCodeSyncDomain(nextOpenCodeSync || db.data.opencodeSync);
-  await mirrorOpenCodeSyncToSqlite(db.data.opencodeSync);
   return db.data.opencodeSync.tokens;
 }
 
@@ -1490,7 +1308,6 @@ export async function updateSettings(updates) {
     },
   });
   await safeWrite(db);
-  await mirrorSettingsToSqlite(db.data.settings);
   return db.data.settings;
 }
 
@@ -1521,11 +1338,6 @@ export async function importDb(payload) {
   const db = await getDb();
   db.data = normalized;
   await safeWrite(db);
-  await mirrorSettingsToSqlite(db.data.settings);
-  await mirrorModelAliasesToSqlite(db.data.modelAliases);
-  await mirrorMitmAliasToSqlite(db.data.mitmAlias);
-  await mirrorPricingToSqlite(db.data.pricing);
-  await mirrorOpenCodeSyncToSqlite(db.data.opencodeSync);
   await clearAllHotState();
   return db.data;
 }
@@ -1572,22 +1384,6 @@ export async function getPricing() {
     return merged;
   }
 
-  if (!isCloud) {
-    try {
-      const sqlitePricing = loadSingletonFromSqlite("pricing");
-
-      if (sqlitePricing == null) {
-        console.warn("[DB] Phase 4 SQLite pricing row missing, falling back to lowdb");
-      } else if (isPlainObject(sqlitePricing)) {
-        return mergePricingWithDefaults(sqlitePricing);
-      } else {
-        console.warn("[DB] Phase 4 SQLite pricing payload invalid, falling back to lowdb:", sqlitePricing);
-      }
-    } catch (error) {
-      console.warn("[DB] Phase 4 SQLite pricing read failed, falling back to lowdb:", error);
-    }
-  }
-
   const db = await getDb();
   const userPricing = db.data.pricing || {};
   return mergePricingWithDefaults(isPlainObject(userPricing) ? userPricing : {});
@@ -1595,17 +1391,6 @@ export async function getPricing() {
 
 export async function getPricingForModel(provider, model) {
   if (!model) return null;
-
-  if (!isCloud) {
-    try {
-      const sqlitePricing = loadSingletonFromSqlite("pricing");
-      if (isPlainObject(sqlitePricing) && sqlitePricing[provider]?.[model]) {
-        return sqlitePricing[provider][model];
-      }
-    } catch (error) {
-      console.warn("[DB] Phase 4 SQLite pricing read failed in getPricingForModel, falling back to lowdb:", error);
-    }
-  }
 
   const db = await getDb();
   const userPricing = db.data.pricing || {};
@@ -1630,7 +1415,6 @@ export async function updatePricing(pricingData) {
   }
 
   await safeWrite(db);
-  await mirrorPricingToSqlite(db.data.pricing);
   return db.data.pricing;
 }
 
@@ -1650,7 +1434,6 @@ export async function resetPricing(provider, model) {
   }
 
   await safeWrite(db);
-  await mirrorPricingToSqlite(db.data.pricing);
   return db.data.pricing;
 }
 
@@ -1658,7 +1441,6 @@ export async function resetAllPricing() {
   const db = await getDb();
   db.data.pricing = {};
   await safeWrite(db);
-  await mirrorPricingToSqlite(db.data.pricing);
   return db.data.pricing;
 }
 
@@ -1673,22 +1455,6 @@ function normalizeOpenCodeSyncDomain(value) {
 }
 
 export async function getOpenCodeSync() {
-  if (!isCloud) {
-    try {
-      const sqliteOpenCodeSync = loadSingletonFromSqlite("opencodeSync");
-
-      if (sqliteOpenCodeSync == null) {
-        console.warn("[DB] Phase 4 SQLite opencodeSync row missing, falling back to lowdb");
-      } else if (isPlainObject(sqliteOpenCodeSync)) {
-        return normalizeOpenCodeSyncDomain(sqliteOpenCodeSync);
-      } else {
-        console.warn("[DB] Phase 4 SQLite opencodeSync payload invalid, falling back to lowdb:", sqliteOpenCodeSync);
-      }
-    } catch (error) {
-      console.warn("[DB] Phase 4 SQLite opencodeSync read failed, falling back to lowdb:", error);
-    }
-  }
-
   const db = await getDb();
   db.data.opencodeSync = normalizeOpenCodeSyncDomain(db.data.opencodeSync);
   return db.data.opencodeSync;
@@ -1710,7 +1476,6 @@ export async function updateOpenCodePreferences(updates) {
   });
 
   await safeWrite(db);
-  await mirrorOpenCodeSyncToSqlite(db.data.opencodeSync);
   return db.data.opencodeSync.preferences;
 }
 
@@ -1724,6 +1489,5 @@ export async function replaceOpenCodeTokens(tokens) {
   db.data.opencodeSync = normalizeOpenCodeSyncDomain(db.data.opencodeSync);
   db.data.opencodeSync.tokens = Array.isArray(tokens) ? [...tokens] : [];
   await safeWrite(db);
-  await mirrorOpenCodeSyncToSqlite(db.data.opencodeSync);
   return db.data.opencodeSync.tokens;
 }

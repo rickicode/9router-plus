@@ -4,6 +4,7 @@
 
 import {
   createProviderConnection,
+  deleteProviderConnection,
   getProviderConnections,
   updateProviderConnection,
 } from "@/lib/localDb";
@@ -59,6 +60,8 @@ export async function importCredentials(payload) {
   // Fetch existing connections and build matcher
   const existing = await getProviderConnections();
   const matcher = new ConnectionMatcher(existing);
+  const replaceMode = payload?.mode === "replace";
+  const restoredIds = new Set();
 
   let created = 0;
   let updated = 0;
@@ -70,6 +73,7 @@ export async function importCredentials(payload) {
       await updateProviderConnection(existingConnection.id, data);
       matcher.updateConnection(existingConnection.id, data);
       matcher.markProcessed(existingConnection.id);
+      restoredIds.add(existingConnection.id);
       updated += 1;
     } else {
       if (data.authType === "apikey" && !data.name) {
@@ -83,13 +87,25 @@ export async function importCredentials(payload) {
       const createdConnection = await createProviderConnection(data);
       matcher.addConnection(createdConnection);
       matcher.markProcessed(createdConnection.id);
+      restoredIds.add(createdConnection.id);
       created += 1;
+    }
+  }
+
+  let deleted = 0;
+  if (replaceMode) {
+    for (const connection of existing) {
+      if (!restoredIds.has(connection.id)) {
+        const didDelete = await deleteProviderConnection(connection.id);
+        if (didDelete) deleted += 1;
+      }
     }
   }
 
   return {
     created,
     updated,
+    deleted,
     skipped: skipReasons.length,
     imported: created + updated,
     skipReasons,

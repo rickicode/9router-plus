@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getProviderConnections = vi.fn();
 const getEligibleConnections = vi.fn();
 const getSettings = vi.fn();
+const updateSettings = vi.fn(async () => ({}));
 
 vi.mock("next/server", () => ({
   NextResponse: {
@@ -17,6 +18,7 @@ vi.mock("next/server", () => ({
 vi.mock("@/lib/localDb", () => ({
   getProviderConnections,
   getSettings,
+  updateSettings,
 }));
 
 vi.mock("@/lib/providerHotState", () => ({
@@ -34,6 +36,12 @@ describe("internal proxy resolve route", () => {
     getProviderConnections.mockReset();
     getEligibleConnections.mockReset();
     getSettings.mockReset();
+    updateSettings.mockClear();
+    getSettings.mockResolvedValue({
+      fallbackStrategy: "fill-first",
+      internalProxyResolveToken: "test-resolve-token",
+      internalProxyReportToken: "test-report-token",
+    });
     process.env.INTERNAL_PROXY_RESOLVE_TOKEN = "test-resolve-token";
     process.env.INTERNAL_PROXY_REPORT_TOKEN = "test-report-token";
     delete process.env.GO_PROXY_RESOLVE_CACHE_TTL_SECONDS;
@@ -63,6 +71,11 @@ describe("internal proxy resolve route", () => {
   it("rejects resolve requests when resolve token is unset even if report token exists", async () => {
     delete process.env.INTERNAL_PROXY_RESOLVE_TOKEN;
     process.env.INTERNAL_PROXY_REPORT_TOKEN = "test-report-token";
+    getSettings.mockResolvedValue({
+      fallbackStrategy: "fill-first",
+      internalProxyResolveToken: "different-resolve-token",
+      internalProxyReportToken: "test-report-token",
+    });
 
     const { POST } = await import("../../src/app/api/internal/proxy/resolve/route.js");
 
@@ -98,7 +111,11 @@ describe("internal proxy resolve route", () => {
       },
     ]);
     getEligibleConnections.mockImplementation(async (_providerId, connections) => connections);
-    getSettings.mockResolvedValue({ fallbackStrategy: "fill-first" });
+    getSettings.mockResolvedValue({
+      fallbackStrategy: "fill-first",
+      internalProxyResolveToken: "test-resolve-token",
+      internalProxyReportToken: "test-report-token",
+    });
 
     const { POST } = await import("../../src/app/api/internal/proxy/resolve/route.js");
 
@@ -143,7 +160,11 @@ describe("internal proxy resolve route", () => {
       },
     ]);
     getEligibleConnections.mockImplementation(async (_providerId, connections) => connections);
-    getSettings.mockResolvedValue({ fallbackStrategy: "fill-first" });
+    getSettings.mockResolvedValue({
+      fallbackStrategy: "fill-first",
+      internalProxyResolveToken: "test-resolve-token",
+      internalProxyReportToken: "test-report-token",
+    });
     process.env.GO_PROXY_RESOLVE_CACHE_TTL_SECONDS = "999";
 
     const { POST } = await import("../../src/app/api/internal/proxy/resolve/route.js");

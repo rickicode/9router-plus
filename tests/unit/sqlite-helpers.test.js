@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -23,6 +24,8 @@ function createFullDataset() {
     pricing: { openai: { input: 1, output: 2 } },
     mitmAlias: { enabled: true, alias: "lab" },
     opencodeSync: { enabled: true, version: 3 },
+    runtimeConfig: { version: 1, redis: { enabled: false, servers: [] } },
+    tunnelState: { state: { provider: "cloudflare" }, cloudflaredPid: 1234 },
   };
 }
 
@@ -84,6 +87,13 @@ describe("sqliteHelpers contract", () => {
     expect(sqliteHelpers.loadAllDataFromSqlite()).toEqual(data);
   });
 
+  it("opens SQLite in WAL journal mode", async () => {
+    const sqliteHelpers = await loadSqliteHelpers();
+    const db = sqliteHelpers.getSqliteDb();
+
+    expect(db.pragma("journal_mode", { simple: true })).toBe("wal");
+  });
+
   it("upsertEntity() updates a single collection row", async () => {
     const data = createFullDataset();
     const sqliteHelpers = await loadSqliteHelpers();
@@ -134,5 +144,35 @@ describe("sqliteHelpers contract", () => {
     expect(sqliteHelpers.loadCollectionFromSqlite("providerConnections")).toEqual([
       data.providerConnections[1],
     ]);
+  });
+
+  it("saveAllDataToSqlite() removes stale singleton rows omitted from the next dataset", async () => {
+    const data = createFullDataset();
+    const sqliteHelpers = await loadSqliteHelpers();
+
+    sqliteHelpers.saveAllDataToSqlite(data);
+    const nextData = { ...data };
+    delete nextData.pricing;
+
+    sqliteHelpers.saveAllDataToSqlite(nextData);
+
+    expect(sqliteHelpers.loadSingletonFromSqlite("pricing")).toBeNull();
+  });
+
+  it("migrateFromJSON() verifies all collections before removing the legacy json", async () => {
+    const data = createFullDataset();
+    const dataDir = process.env.DATA_DIR;
+    const jsonPath = path.join(dataDir, "db.json");
+
+    await fs.writeFile(jsonPath, JSON.stringify({
+      ...data,
+      customModels: [{ name: "missing-id", providerAlias: "openai" }],
+    }, null, 2));
+
+    const sqliteHelpers = await loadSqliteHelpers();
+
+    expect(() => sqliteHelpers.migrateFromJSON({ preserveJson: false })).toThrow(/customModels/);
+    expect(fsSync.existsSync(jsonPath)).toBe(true);
+    expect(fsSync.existsSync(path.join(dataDir, "db.json.backup"))).toBe(false);
   });
 });

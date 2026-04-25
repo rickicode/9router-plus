@@ -30,6 +30,8 @@ vi.mock("@/lib/connectionStatus", async () => {
 });
 
 describe("models availability route", () => {
+  const futureIso = () => new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
   beforeEach(() => {
     mockConnections.length = 0;
     getProviderConnections.mockClear();
@@ -38,13 +40,14 @@ describe("models availability route", () => {
   });
 
   it("derives canonical provider-wide and model-lock rows from centralized state", async () => {
+    const retryAt = futureIso();
     mockConnections.push(
       {
         id: "conn-cooldown",
         provider: "codex",
         name: "Cooldown Conn",
         routingStatus: "exhausted",
-        nextRetryAt: "2026-04-25T00:00:00.000Z",
+        nextRetryAt: retryAt,
         reasonDetail: "Quota exhausted",
       },
       {
@@ -52,7 +55,7 @@ describe("models availability route", () => {
         provider: "codex",
         name: "Model Lock Conn",
         routingStatus: "eligible",
-        ["modelLock_gpt-4.1"]: "2026-04-24T00:00:00.000Z",
+        ["modelLock_gpt-4.1"]: futureIso(),
       },
       {
         id: "conn-blocked",
@@ -73,8 +76,14 @@ describe("models availability route", () => {
         provider: "codex",
         model: "__all",
         status: "exhausted",
-        until: "2026-04-25T00:00:00.000Z",
+        until: retryAt,
         lastError: "Quota exhausted",
+      }),
+      expect.objectContaining({
+        connectionId: "conn-model-lock",
+        provider: "codex",
+        model: "gpt-4.1",
+        status: "cooldown",
       }),
       expect.objectContaining({
         connectionId: "conn-blocked",
@@ -86,17 +95,18 @@ describe("models availability route", () => {
         lastError: null,
       }),
     ]);
-    expect(response.body.unavailableCount).toBe(2);
+    expect(response.body.unavailableCount).toBe(3);
   });
 
   it("includes exhausted provider-wide and model-lock rows when both apply", async () => {
+    const retryAt = futureIso();
     mockConnections.push({
       id: "conn-both",
       provider: "codex",
       name: "Mixed Conn",
       routingStatus: "exhausted",
-      nextRetryAt: "2026-04-25T00:00:00.000Z",
-      modelLock_gpt4: "2026-04-24T00:00:00.000Z",
+      nextRetryAt: retryAt,
+      modelLock_gpt4: futureIso(),
     });
 
     const { GET } = await import("../../src/app/api/models/availability/route.js");
@@ -108,7 +118,12 @@ describe("models availability route", () => {
         connectionId: "conn-both",
         model: "__all",
         status: "exhausted",
-        until: "2026-04-25T00:00:00.000Z",
+        until: retryAt,
+      }),
+      expect.objectContaining({
+        connectionId: "conn-both",
+        model: "gpt4",
+        status: "cooldown",
       }),
     ]);
   });

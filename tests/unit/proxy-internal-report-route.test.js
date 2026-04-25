@@ -4,6 +4,11 @@ const saveRequestUsage = vi.fn(async () => {});
 const saveRequestDetail = vi.fn(async () => {});
 const getProviderConnectionById = vi.fn(async () => ({ id: "conn-primary", provider: "openai" }));
 const updateProviderConnection = vi.fn(async () => ({}));
+const getSettings = vi.fn(async () => ({
+  internalProxyReportToken: "test-internal-token",
+  internalProxyResolveToken: "test-resolve-token",
+}));
+const updateSettings = vi.fn(async () => ({}));
 const writeConnectionHotState = vi.fn(async ({ patch }) => patch);
 const projectLegacyConnectionState = vi.fn(() => ({ testStatus: "active" }));
 
@@ -25,6 +30,8 @@ vi.mock("@/lib/usageDb", () => ({
 vi.mock("@/lib/localDb", () => ({
   getProviderConnectionById,
   updateProviderConnection,
+  getSettings,
+  updateSettings,
 }));
 
 vi.mock("@/lib/providerHotState", () => ({
@@ -39,6 +46,8 @@ describe("internal proxy report route", () => {
     saveRequestDetail.mockClear();
     getProviderConnectionById.mockClear();
     updateProviderConnection.mockClear();
+    getSettings.mockClear();
+    updateSettings.mockClear();
     writeConnectionHotState.mockClear();
     projectLegacyConnectionState.mockClear();
     process.env.INTERNAL_PROXY_REPORT_TOKEN = "test-internal-token";

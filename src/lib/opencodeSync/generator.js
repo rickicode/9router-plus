@@ -18,7 +18,7 @@ const SLIM_CONFIG_SCHEMA = "https://unpkg.com/oh-my-opencode-slim@latest/oh-my-o
 const NINEROUTER_PROVIDER_ID = "9router";
 const NINEROUTER_PROVIDER_PACKAGE = "@ai-sdk/openai-compatible";
 const NINEROUTER_PROVIDER_NAME = "9Router";
-const DEFAULT_PROVIDER_BASE_URL = "http://localhost:20138/v1";
+const DEFAULT_PROVIDER_BASE_URL = "http://localhost:20129/v1";
 const DEFAULT_PROVIDER_API_KEY = "sk_9router";
 
 const PLUGIN_PRIORITY = new Map([

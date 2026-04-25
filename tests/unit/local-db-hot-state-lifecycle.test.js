@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import Database from "better-sqlite3";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -27,9 +28,16 @@ async function loadModulesWithTempDataDir() {
   return { dataDir, localDb, providerHotState };
 }
 
-async function readDbJson(dataDir) {
-  const raw = await fs.readFile(path.join(dataDir, "db.json"), "utf8");
-  return JSON.parse(raw);
+function readProviderConnectionFromSqlite(dataDir, id) {
+  const db = new Database(path.join(dataDir, "db.sqlite"), { readonly: true });
+  try {
+    const row = db.prepare("SELECT value FROM entities WHERE collection = ? AND id = ?")
+      .get("providerConnections", id);
+
+    return row ? JSON.parse(row.value) : null;
+  } finally {
+    db.close();
+  }
 }
 
 function createFakeRedisClient() {
@@ -62,6 +70,11 @@ function createFakeRedisClient() {
 }
 
 afterEach(async () => {
+  try {
+    const sqliteHelpers = await import("@/lib/sqliteHelpers.js");
+    sqliteHelpers.closeSqliteDb();
+  } catch (_) {}
+
   delete process.env.DATA_DIR;
   delete process.env.REDIS_URL;
   delete process.env.REDIS_HOST;
@@ -186,10 +199,7 @@ describe("localDb hot-state lifecycle", () => {
       reasonDetail: "Authentication expired",
     });
 
-    const persistedDb = await readDbJson(dataDir);
-    expect(
-      persistedDb.providerConnections.find((connection) => connection.id === created.id)
-    ).toMatchObject({
+    expect(readProviderConnectionFromSqlite(dataDir, created.id)).toMatchObject({
       id: created.id,
       authState: "expired",
       reasonDetail: "Authentication expired",
@@ -240,10 +250,7 @@ describe("localDb hot-state lifecycle", () => {
       },
     });
 
-    const persistedDb = await readDbJson(dataDir);
-    expect(
-      persistedDb.providerConnections.find((connection) => connection.id === created.id)
-    ).toMatchObject({
+    expect(readProviderConnectionFromSqlite(dataDir, created.id)).toMatchObject({
       id: created.id,
       name: "After mixed update",
       apiKey: "new-secret",

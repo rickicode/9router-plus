@@ -78,6 +78,20 @@ describe("localDb opencode sync helpers", () => {
     expect(await listOpenCodeTokens()).toEqual([{ id: "token-2", label: "Desktop" }]);
   });
 
+  it("bootstraps a fresh local database directly in SQLite without creating active db.json", async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "9router-opencode-fresh-sqlite-"));
+    process.env.DATA_DIR = dataDir;
+
+    const { getDb, getOpenCodePreferences } = await import("../../src/lib/localDb.js");
+    const db = await getDb();
+
+    expect(fs.existsSync(path.join(dataDir, "db.sqlite"))).toBe(true);
+    expect(fs.existsSync(path.join(dataDir, "db.json"))).toBe(false);
+    expect(fs.existsSync(path.join(dataDir, "db.json.backup"))).toBe(false);
+    expect(db.data.providerConnections).toEqual([]);
+    expect(await getOpenCodePreferences()).toMatchObject({ variant: "openagent" });
+  });
+
   it("loads local db state from SQLite after JSON migration without requiring lowdb", async () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "9router-opencode-sqlite-"));
     process.env.DATA_DIR = dataDir;

@@ -46,11 +46,15 @@
 - Added translation layer integration for OpenAI ↔ Claude ↔ Gemini
 - Added custom provider translation support
 - Added streaming translation for all formats
+- Added SQLite WAL-backed local storage for provider data, settings, model aliases, pricing, MITM aliases, OpenCode sync, runtime config, and tunnel state.
 
 ## Changed
 - Refactored hot state management
 - Improved error handling and context preservation
 - Expanded test coverage and refreshed supporting documentation
+- Migrated active local storage from `db.json` to `db.sqlite`; legacy `db.json` is now only used as one-time migration input and then backed up.
+- Removed `proper-lockfile`; local writes now use SQLite-backed persistence with the in-process local mutex.
+- Kept `lowdb` only for usage/request-details storage pending a dedicated efficiency migration.
 
 # v0.3.98 (2026-04-22)
 

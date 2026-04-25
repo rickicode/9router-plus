@@ -30,16 +30,26 @@ export function getSqliteDb() {
 export function ensureSchema(db) {
   // Check if tables exist
   const tables = db.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('entities', 'settings')"
+    "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('entities', 'settings', 'schema_version')"
   ).all();
   
-  if (tables.length === 0) {
-    // Phase 3: create the temporary SQLite read-side schema while lowdb remains the write-side source.
+  if (tables.length < 3) {
     const schemaPath = path.join(MIGRATIONS_DIR, '001_initial_schema.sql');
     const schema = fs.readFileSync(schemaPath, 'utf-8');
     db.exec(schema);
   }
 }
+
+function removeSqliteArtifacts() {
+  for (const file of [DB_SQLITE_FILE, `${DB_SQLITE_FILE}-wal`, `${DB_SQLITE_FILE}-shm`]) {
+    if (fs.existsSync(file)) {
+      fs.unlinkSync(file);
+    }
+  }
+}
+
+const COLLECTION_KEYS = ['providerConnections', 'providerNodes', 'proxyPools', 'combos', 'apiKeys', 'customModels'];
+const SINGLETON_KEYS = ['settings', 'modelAliases', 'pricing', 'mitmAlias', 'opencodeSync', 'runtimeConfig', 'tunnelState'];
 
 export function closeSqliteDb() {
   if (sqliteDb) {
@@ -68,21 +78,17 @@ export function migrateFromJSON() {
     // Read JSON data
     const jsonData = JSON.parse(fs.readFileSync(DB_JSON_FILE, 'utf-8'));
     
-    // Phase 3: create the temporary SQLite read mirror while lowdb remains the active write backend.
     const db = getSqliteDb();
     ensureSchema(db);
     
     // Populate data in transaction
     const transaction = db.transaction(() => {
       // Migrate collections
-      const collections = ['providerConnections', 'providerNodes',
-                          'proxyPools', 'combos', 'apiKeys', 'customModels'];
-      
       const entityStmt = db.prepare(
         'INSERT INTO entities (collection, id, value, updated_at) VALUES (?, ?, ?, ?)'
       );
       
-      for (const collection of collections) {
+      for (const collection of COLLECTION_KEYS) {
         const items = jsonData[collection] || [];
         for (const item of items) {
           if (item.id) {
@@ -92,12 +98,11 @@ export function migrateFromJSON() {
       }
       
       // Migrate singletons
-      const singletonKeys = ['settings', 'modelAliases', 'pricing', 'mitmAlias', 'opencodeSync'];
       const settingStmt = db.prepare(
         'INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)'
       );
       
-      for (const key of singletonKeys) {
+      for (const key of SINGLETON_KEYS) {
         if (jsonData[key] !== undefined) {
           settingStmt.run(key, JSON.stringify(jsonData[key]), Date.now());
         }
@@ -107,8 +112,7 @@ export function migrateFromJSON() {
     transaction();
     
     // Verify migration
-    const collections = ['providerConnections', 'apiKeys', 'combos'];
-    for (const col of collections) {
+    for (const col of COLLECTION_KEYS) {
       const originalCount = (jsonData[col] || []).length;
       const migratedCount = db.prepare(
         'SELECT COUNT(*) as count FROM entities WHERE collection = ?'
@@ -118,6 +122,14 @@ export function migrateFromJSON() {
         throw new Error(`Migration verification failed for ${col}: ${originalCount} → ${migratedCount}`);
       }
     }
+
+    for (const key of SINGLETON_KEYS) {
+      if (jsonData[key] === undefined) continue;
+      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+      if (!row || JSON.stringify(JSON.parse(row.value)) !== JSON.stringify(jsonData[key])) {
+        throw new Error(`Migration verification failed for singleton ${key}`);
+      }
+    }
     
     if (!preserveJson) {
       fs.renameSync(DB_JSON_FILE, `${DB_JSON_FILE}.backup`);
@@ -125,7 +137,7 @@ export function migrateFromJSON() {
     
     console.log('[DB] Migration completed successfully');
     if (preserveJson) {
-      console.log('[DB] JSON source preserved because Phase 3 keeps writes on lowdb while reads may prefer SQLite');
+      console.log('[DB] JSON source preserved by migration option');
     }
     
     return { migrated: true };
@@ -133,10 +145,8 @@ export function migrateFromJSON() {
   } catch (error) {
     console.error('[DB] Migration failed:', error);
     
-    // Cleanup failed SQLite file
-    if (fs.existsSync(DB_SQLITE_FILE)) {
-      fs.unlinkSync(DB_SQLITE_FILE);
-    }
+    closeSqliteDb();
+    removeSqliteArtifacts();
     
     throw new Error(`Migration failed: ${error.message}`);
   }
@@ -147,10 +157,7 @@ export function loadAllDataFromSqlite() {
   const data = {};
   
   // Load collections (array-based)
-  const collections = ['providerConnections', 'providerNodes', 
-                      'proxyPools', 'combos', 'apiKeys', 'customModels'];
-  
-  for (const collection of collections) {
+  for (const collection of COLLECTION_KEYS) {
     const rows = db.prepare(
       'SELECT value FROM entities WHERE collection = ? ORDER BY updated_at'
     ).all(collection);
@@ -159,9 +166,7 @@ export function loadAllDataFromSqlite() {
   }
   
   // Load singletons (object-based)
-  const singletonKeys = ['settings', 'modelAliases', 'pricing', 'mitmAlias', 'opencodeSync'];
-  
-  for (const key of singletonKeys) {
+  for (const key of SINGLETON_KEYS) {
     const row = db.prepare(
       'SELECT value FROM settings WHERE key = ?'
     ).get(key);
@@ -174,6 +179,7 @@ export function loadAllDataFromSqlite() {
 
 export function loadCollectionFromSqlite(collection) {
   const db = getSqliteDb();
+  ensureSchema(db);
   const rows = db.prepare(
     'SELECT value FROM entities WHERE collection = ? ORDER BY updated_at'
   ).all(collection);
@@ -187,6 +193,7 @@ export function loadSettingsSingletonFromSqlite(key = 'settings') {
 
 export function loadSingletonFromSqlite(key) {
   const db = getSqliteDb();
+  ensureSchema(db);
   const row = db.prepare(
     'SELECT value FROM settings WHERE key = ?'
   ).get(key);
@@ -250,10 +257,7 @@ export function saveAllDataToSqlite(data) {
   
   const transaction = db.transaction(() => {
     // Write collections
-    const collections = ['providerConnections', 'providerNodes',
-                        'proxyPools', 'combos', 'apiKeys', 'customModels'];
-    
-    for (const collection of collections) {
+    for (const collection of COLLECTION_KEYS) {
       const items = data[collection] || [];
       
       // Delete removed items
@@ -282,14 +286,15 @@ export function saveAllDataToSqlite(data) {
     }
     
     // Write singletons
-    const singletonKeys = ['settings', 'modelAliases', 'pricing', 'mitmAlias', 'opencodeSync'];
     const stmt = db.prepare(
       'INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)'
     );
     
-    for (const key of singletonKeys) {
+    for (const key of SINGLETON_KEYS) {
       if (data[key] !== undefined) {
         stmt.run(key, JSON.stringify(data[key]), Date.now());
+      } else {
+        db.prepare('DELETE FROM settings WHERE key = ?').run(key);
       }
     }
   });

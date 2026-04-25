@@ -44,7 +44,7 @@ function resolveRedisUrl({ cliRedisUrl, configRedisUrl, envRedisUrl }) {
   if (cliRedisUrl) return cliRedisUrl;
   if (configRedisUrl) return configRedisUrl;
   if (envRedisUrl) return envRedisUrl;
-  return null;
+  return "redis://127.0.0.1:6379";
 }
 
 async function main() {
