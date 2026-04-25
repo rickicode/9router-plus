@@ -1,4 +1,9 @@
-import { createClient } from "redis";
+// Redis has been retired from 9router-plus — SQLite WAL is now the single
+// source of truth for provider hot state. The functions below previously
+// fronted Redis and fell back to SQLite; now they ALWAYS use SQLite. The
+// Redis-shaped helpers (`getRedisClient`, `mirrorProviderStateToRedis`, etc.)
+// are kept as no-ops to preserve the public API surface for tests and other
+// callers, but they no longer perform any network I/O.
 import {
   deleteHotState,
   loadHotStates,
@@ -7,6 +12,9 @@ import {
   markProviderHotStateInvalidated,
   upsertHotState,
 } from "./sqliteHelpers.js";
+// HOT_STATE_KEYS is now defined in a shared module so providerHotState.js
+// and sqliteHelpers.js cannot drift independently.
+import { HOT_STATE_KEYS } from "./hotStateKeys.js";
 
 const REDIS_PREFIX = "9router:provider-hot-state:";
 const HOT_STATE_TTL_SECONDS = Number(process.env.REDIS_HOT_STATE_TTL_SECONDS || 86400);
@@ -16,37 +24,18 @@ const CONNECTION_FIELD_SEPARATOR = ":";
 const providerStateCache = new Map();
 const sqliteHotStateCache = new Map();
 
-const HOT_STATE_KEYS = new Set([
-  "routingStatus",
-  "healthStatus",
-  "quotaState",
-  "authState",
-  "reasonCode",
-  "reasonDetail",
-  "nextRetryAt",
-  "resetAt",
-  "lastCheckedAt",
-  "usageSnapshot",
-  "version",
-  "lastUsedAt",
-  "consecutiveUseCount",
-  "backoffLevel",
-  "expiresIn",
-  "updatedAt",
-]);
-
+// Redis bookkeeping vars are kept ONLY to preserve test reset semantics.
+// They are never written to from production code paths anymore.
 let redisClient = null;
-let redisConnectPromise = null;
-let redisDisabled = false;
-let redisRetryAfter = 0;
 
 function getRedisRetryAfterMs() {
-  const configured = Number(process.env.REDIS_RETRY_AFTER_MS);
-  return Number.isFinite(configured) && configured >= 0 ? configured : 5000;
+  return 0;
 }
 
+// Redis is permanently disabled — this always returns false so all code
+// paths short-circuit straight to SQLite.
 function isRedisConfigured() {
-  return Boolean(process.env.REDIS_URL || process.env.REDIS_HOST);
+  return false;
 }
 
 function getProviderRedisKey(providerId) {
@@ -54,30 +43,7 @@ function getProviderRedisKey(providerId) {
 }
 
 function buildRedisOptions() {
-  if (process.env.REDIS_URL) {
-    return { url: process.env.REDIS_URL };
-  }
-
-  const host = process.env.REDIS_HOST || "127.0.0.1";
-  const port = Number(process.env.REDIS_PORT || 6379);
-  const database = process.env.REDIS_DB !== undefined ? Number(process.env.REDIS_DB) : 0;
-  const username = process.env.REDIS_USERNAME || undefined;
-  const password = process.env.REDIS_PASSWORD || undefined;
-
-  return {
-    socket: {
-      host,
-      port,
-      connectTimeout: Number(process.env.REDIS_CONNECT_TIMEOUT_MS || 5000),
-      keepAlive: true,
-      keepAliveInitialDelay: 5000,
-      tls: process.env.REDIS_TLS === "true" || process.env.REDIS_TLS === "1",
-    },
-    database,
-    username,
-    password,
-    name: process.env.REDIS_CLIENT_NAME || "9router",
-  };
+  return null;
 }
 
 function parseStoredState(raw) {
@@ -527,36 +493,10 @@ function loadProviderStateFromSqlite(providerId) {
 }
 
 async function getRedisClient() {
-  if (!isRedisConfigured()) return null;
-  if (redisDisabled && Date.now() < redisRetryAfter) return null;
-  if (redisDisabled && Date.now() >= redisRetryAfter) {
-    redisDisabled = false;
-  }
-  if (redisClient?.isReady) return redisClient;
-
-  if (!redisConnectPromise) {
-    redisConnectPromise = (async () => {
-      try {
-        const client = createClient(buildRedisOptions());
-        client.on("error", (err) => {
-          console.warn(`[Redis] Client error: ${err?.message || err}`);
-        });
-        await client.connect();
-        redisClient = client;
-        return client;
-      } catch (error) {
-        console.warn(`[Redis] Disabled temporarily: ${error?.message || error}`);
-        redisDisabled = true;
-        redisRetryAfter = Date.now() + getRedisRetryAfterMs();
-        redisClient = null;
-        return null;
-      } finally {
-        redisConnectPromise = null;
-      }
-    })();
-  }
-
-  return redisConnectPromise;
+  // Redis is fully retired. We still expose the function so callers and
+  // tests can call it without modification, but it always resolves to
+  // either a test-injected stub (for legacy unit tests) or null.
+  return redisClient || null;
 }
 
 async function persistProviderState(providerId, providerState) {
@@ -1147,16 +1087,10 @@ export function __resetProviderHotStateForTests() {
   providerStateCache.clear();
   sqliteHotStateCache.clear();
   redisClient = null;
-  redisConnectPromise = null;
-  redisDisabled = false;
-  redisRetryAfter = 0;
 }
 
 export function __setRedisClientForTests(client) {
   redisClient = client;
-  redisConnectPromise = null;
-  redisDisabled = false;
-  redisRetryAfter = 0;
 }
 
 export function __getProviderHotStateSnapshotForTests(providerId) {

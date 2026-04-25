@@ -5,7 +5,7 @@ import path from "path";
 import fs from "fs";
 import { DATA_DIR } from "@/lib/dataDir.js";
 
-const isCloud = typeof caches !== 'undefined' || typeof caches === 'object';
+const isCloud = typeof caches !== 'undefined' && typeof caches === 'object';
 const DB_FILE = isCloud ? null : path.join(DATA_DIR, "usage.json");
 const LOG_FILE = isCloud ? null : path.join(DATA_DIR, "log.txt");
 

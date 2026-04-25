@@ -2,6 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { DATA_DIR } from './dataDir.js';
+import { HOT_STATE_KEYS } from './hotStateKeys.js';
 import { readSqliteMigrationSql, SQLITE_MIGRATIONS } from './sqliteMigrations.js';
 
 const nodeRequire = createRequire(import.meta.url);
@@ -83,24 +84,6 @@ function BunSQLiteDatabase(filePath) {
 }
 
 const DB_SQLITE_FILE = path.join(DATA_DIR, 'db.sqlite');
-const HOT_STATE_KEYS = new Set([
-  'routingStatus',
-  'quotaState',
-  'healthStatus',
-  'authState',
-  'reasonCode',
-  'reasonDetail',
-  'nextRetryAt',
-  'resetAt',
-  'lastCheckedAt',
-  'usageSnapshot',
-  'version',
-  'lastUsedAt',
-  'consecutiveUseCount',
-  'backoffLevel',
-  'expiresIn',
-  'updatedAt',
-]);
 
 let sqliteDb = null;
 const DEFAULT_SQLITE_MMAP_SIZE = 1024 * 1024 * 1024;
@@ -111,6 +94,8 @@ export function configureSqlitePragmas(db) {
   db.pragma('cache_size = -64000');
   db.pragma('temp_store = MEMORY');
   db.pragma(`mmap_size = ${DEFAULT_SQLITE_MMAP_SIZE}`);
+  db.pragma('busy_timeout = 5000');
+  db.pragma('foreign_keys = ON');
 }
 
 function listMissingMigrationIndexes(db, migration) {

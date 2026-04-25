@@ -1,5 +1,6 @@
 import { cleanupProviderConnections, getSettings, updateSettings, getApiKeys, isCloudEnabled } from "@/lib/localDb";
 import { getQuotaRefreshScheduler } from "@/lib/quotaRefreshScheduler";
+import { closeSqliteDb } from "@/lib/sqliteHelpers";
 import { enableTunnel, isTunnelManuallyDisabled, isTunnelReconnecting } from "@/lib/tunnel/tunnelManager";
 import { killCloudflared, isCloudflaredRunning, ensureCloudflared } from "@/lib/tunnel/cloudflared";
 import { getCloudUsagePoller } from "@/shared/services/cloudUsagePoller";
@@ -76,10 +77,17 @@ export async function initializeApp() {
       }
     }
 
-    // Kill cloudflared on process exit (register once only)
+    // Kill cloudflared and close SQLite (checkpoint WAL) on process exit
+    // (register once only). Closing SQLite cleanly is what prevents the WAL
+    // file from growing unbounded across restarts (M2).
     if (!g.signalHandlersRegistered) {
       const cleanup = () => {
-        killCloudflared();
+        try {
+          killCloudflared();
+        } catch { /* ignore */ }
+        try {
+          closeSqliteDb();
+        } catch { /* ignore */ }
         process.exit();
       };
       process.on("SIGINT", cleanup);

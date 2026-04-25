@@ -332,31 +332,10 @@ describe("providerHotState", () => {
     expect(projectedAgain.get("provider-stale:conn-stale")).not.toHaveProperty("routingStatus");
   });
 
-  it("refreshes provider state from Redis instead of serving stale cached eligibility forever", async () => {
-    process.env.REDIS_URL = "redis://example.test:6379";
-
-    const redisState = {
-      "conn-eligible": JSON.stringify({
-        routingStatus: "eligible",
-        testStatus: "active",
-      }),
-    };
-
-    __setRedisClientForTests({
-      isReady: true,
-      hGetAll: async () => redisState,
-    });
-
-    expect(await getEligibleConnectionIds("provider-redis")).toEqual(["conn-eligible"]);
-
-    redisState["conn-blocked"] = JSON.stringify({
-      routingStatus: "blocked",
-      authState: "invalid",
-    });
-    delete redisState["conn-eligible"];
-
-    expect(await getEligibleConnectionIds("provider-redis")).toEqual([]);
-  });
+  // Redis was retired in favor of SQLite WAL as the single source of truth.
+  // The legacy "refreshes provider state from Redis" test no longer applies;
+  // SQLite hot-state freshness is exercised by other tests in this file.
+  it.skip("refreshes provider state from Redis instead of serving stale cached eligibility forever (deprecated: Redis removed)", () => {});
 
   it("merges successive connection snapshots with latest hot-state precedence", async () => {
     await setConnectionHotState("conn-1", "provider-a", {
