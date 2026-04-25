@@ -145,7 +145,6 @@ function ModelSelector({ preferences, modelCatalog, saving, onSave, activeProvid
         activeProviders={activeProviders}
         modelAliases={modelAliases}
         title={mode === "include" ? "Add allowed models" : "Add excluded models"}
-        multiSelect
       />
     </div>
   );
@@ -616,6 +615,151 @@ function ConfigPreview({ preview, variant, loading, error, onRefresh, selectedAp
         </p>
       </div>
     </div>
+  );
+}
+
+/* ── Advanced Overrides Collapsible ────────────────────────────── */
+
+function AdvancedOverridesCollapsible({ preferences, preview, modelCatalog, saving, error, onSave }) {
+  const variant = preferences?.variant || "openagent";
+  const safePreview = sanitizeSensitiveConfig(preview || null);
+  const [editMode, setEditMode] = useState(false);
+  const [draftJson, setDraftJson] = useState("");
+  const [jsonError, setJsonError] = useState("");
+
+  const variantArtifact = useMemo(() => {
+    try {
+      if (variant === "openagent" && safePreview?.ohMyOpencode) {
+        return { filename: "oh-my-openagent.json", content: safePreview.ohMyOpencode };
+      }
+      if (variant === "slim" && safePreview?.ohMyOpenCodeSlim) {
+        return { filename: "oh-my-opencode-slim.json", content: safePreview.ohMyOpenCodeSlim };
+      }
+    } catch (err) {
+      console.error("Error processing variant artifact in AdvancedOverridesCollapsible:", err);
+    }
+    return null;
+  }, [variant, safePreview]);
+
+  const currentOverrides = preferences?.advancedOverrides?.[variant] || {};
+
+  const title = variant === "slim"
+    ? "Advanced config: Oh My OpenCode Slim"
+    : "Advanced config: Oh My Open Agent";
+
+  const handleEditClick = () => {
+    setDraftJson(prettyJson(currentOverrides));
+    setJsonError("");
+    setEditMode(true);
+  };
+
+  const handleSaveOverrides = () => {
+    try {
+      const parsed = JSON.parse(draftJson);
+      if (typeof parsed !== "object" || Array.isArray(parsed)) {
+        setJsonError("Must be a valid JSON object");
+        return;
+      }
+      onSave({ advancedOverrides: { ...preferences.advancedOverrides, [variant]: parsed } });
+      setEditMode(false);
+      setJsonError("");
+    } catch (err) {
+      setJsonError(err.message || "Invalid JSON");
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditMode(false);
+    setJsonError("");
+  };
+
+  return (
+    <details className="group/details rounded-xl border border-border bg-surface">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+        <span className="flex items-center gap-3 text-sm font-semibold text-text-main">
+          <span className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-surface text-sm text-text-muted" aria-hidden="true">
+            ▶
+          </span>
+          {title}
+        </span>
+        <span className="material-symbols-outlined text-[18px] text-text-muted transition-transform duration-200 group-open/details:rotate-180">
+          expand_more
+        </span>
+      </summary>
+      <div className="border-t border-border px-4 py-4 space-y-4">
+        {/* Advanced Config Editor with Agent/Category Assignments */}
+        <AdvancedConfigEditor
+          variant={variant}
+          preferences={preferences}
+          availableModels={Object.keys(preview?.opencode?.provider?.["9router"]?.models || {})}
+          onSave={onSave}
+          saving={saving}
+        />
+
+        {/* Generated artifact preview */}
+        {variantArtifact && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-text-main">{variantArtifact.filename}</p>
+                <p className="mt-1 text-xs text-text-muted">
+                  Generated advanced config for the selected variant.
+                </p>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => downloadFile(prettyJson(variantArtifact.content), variantArtifact.filename)}
+              >
+                Download
+              </Button>
+            </div>
+            <pre className="max-h-[18rem] overflow-auto rounded-xl border border-border bg-[#0b1020] px-4 py-4 text-xs leading-6 text-slate-100">
+              <code>{prettyJson(variantArtifact.content)}</code>
+            </pre>
+          </div>
+        )}
+
+        {/* Raw JSON Editor (Advanced) */}
+        <details className="rounded border border-border bg-surface/50">
+          <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-text-muted hover:text-text-main transition-colors">
+            Advanced: Edit Raw JSON
+          </summary>
+          <div className="border-t border-border px-3 py-3 space-y-3">
+            {editMode ? (
+              <>
+                <textarea
+                  value={draftJson}
+                  onChange={(e) => setDraftJson(e.target.value)}
+                  className="w-full h-64 px-3 py-2 font-mono text-xs rounded border border-border bg-surface text-text-main focus:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary/20"
+                  placeholder='{\n  "agentAssignments": {\n    "explorer": "cx/gpt-5.3-codex"\n  }\n}'
+                />
+                {jsonError && (
+                  <p className="text-sm text-[var(--color-danger)]">{jsonError}</p>
+                )}
+                <div className="flex gap-2">
+                  <Button variant="ghost" size="sm" onClick={handleCancelEdit}>
+                    Cancel
+                  </Button>
+                  <Button size="sm" onClick={handleSaveOverrides} loading={saving}>
+                    Save JSON
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <pre className="max-h-[18rem] overflow-auto rounded-xl border border-border bg-surface px-4 py-4 text-xs leading-6 text-text-main">
+                  <code>{Object.keys(currentOverrides).length > 0 ? prettyJson(currentOverrides) : "{}"}</code>
+                </pre>
+                <Button variant="secondary" size="sm" onClick={handleEditClick}>
+                  Edit JSON
+                </Button>
+              </>
+            )}
+          </div>
+        </details>
+      </div>
+    </details>
   );
 }
 
@@ -1115,150 +1259,5 @@ export default function OpenCodePageClient() {
           />
         </section>
     </div>
-  );
-}
-
-/* ── Advanced Overrides Collapsible ────────────────────────────── */
-
-function AdvancedOverridesCollapsible({ preferences, preview, modelCatalog, saving, error, onSave }) {
-  const variant = preferences?.variant || "openagent";
-  const safePreview = sanitizeSensitiveConfig(preview || null);
-  const [editMode, setEditMode] = useState(false);
-  const [draftJson, setDraftJson] = useState("");
-  const [jsonError, setJsonError] = useState("");
-
-  const variantArtifact = useMemo(() => {
-    try {
-      if (variant === "openagent" && safePreview?.ohMyOpencode) {
-        return { filename: "oh-my-openagent.json", content: safePreview.ohMyOpencode };
-      }
-      if (variant === "slim" && safePreview?.ohMyOpenCodeSlim) {
-        return { filename: "oh-my-opencode-slim.json", content: safePreview.ohMyOpenCodeSlim };
-      }
-    } catch (err) {
-      console.error("Error processing variant artifact in AdvancedOverridesCollapsible:", err);
-    }
-    return null;
-  }, [variant, safePreview]);
-
-  const currentOverrides = preferences?.advancedOverrides?.[variant] || {};
-
-  const title = variant === "slim"
-    ? "Advanced config: Oh My OpenCode Slim"
-    : "Advanced config: Oh My Open Agent";
-
-  const handleEditClick = () => {
-    setDraftJson(prettyJson(currentOverrides));
-    setJsonError("");
-    setEditMode(true);
-  };
-
-  const handleSaveOverrides = () => {
-    try {
-      const parsed = JSON.parse(draftJson);
-      if (typeof parsed !== "object" || Array.isArray(parsed)) {
-        setJsonError("Must be a valid JSON object");
-        return;
-      }
-      onSave({ advancedOverrides: { ...preferences.advancedOverrides, [variant]: parsed } });
-      setEditMode(false);
-      setJsonError("");
-    } catch (err) {
-      setJsonError(err.message || "Invalid JSON");
-    }
-  };
-
-  const handleCancelEdit = () => {
-    setEditMode(false);
-    setJsonError("");
-  };
-
-  return (
-    <details className="group/details rounded-xl border border-border bg-surface">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
-        <span className="flex items-center gap-3 text-sm font-semibold text-text-main">
-          <span className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-surface text-sm text-text-muted" aria-hidden="true">
-            ▶
-          </span>
-          {title}
-        </span>
-        <span className="material-symbols-outlined text-[18px] text-text-muted transition-transform duration-200 group-open/details:rotate-180">
-          expand_more
-        </span>
-      </summary>
-      <div className="border-t border-border px-4 py-4 space-y-4">
-        {/* Advanced Config Editor with Agent/Category Assignments */}
-        <AdvancedConfigEditor
-          variant={variant}
-          preferences={preferences}
-          availableModels={Object.keys(preview?.opencode?.provider?.["9router"]?.models || {})}
-          onSave={onSave}
-          saving={saving}
-        />
-
-        {/* Generated artifact preview */}
-        {variantArtifact && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-text-main">{variantArtifact.filename}</p>
-                <p className="mt-1 text-xs text-text-muted">
-                  Generated advanced config for the selected variant.
-                </p>
-              </div>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => downloadFile(prettyJson(variantArtifact.content), variantArtifact.filename)}
-              >
-                Download
-              </Button>
-            </div>
-            <pre className="max-h-[18rem] overflow-auto rounded-xl border border-border bg-[#0b1020] px-4 py-4 text-xs leading-6 text-slate-100">
-              <code>{prettyJson(variantArtifact.content)}</code>
-            </pre>
-          </div>
-        )}
-
-        {/* Raw JSON Editor (Advanced) */}
-        <details className="rounded border border-border bg-surface/50">
-          <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-text-muted hover:text-text-main transition-colors">
-            Advanced: Edit Raw JSON
-          </summary>
-          <div className="border-t border-border px-3 py-3 space-y-3">
-            {editMode ? (
-              <>
-                <textarea
-                  value={draftJson}
-                  onChange={(e) => setDraftJson(e.target.value)}
-                  className="w-full h-64 px-3 py-2 font-mono text-xs rounded border border-border bg-surface text-text-main focus:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary/20"
-                  placeholder='{\n  "agentAssignments": {\n    "explorer": "cx/gpt-5.3-codex"\n  }\n}'
-                />
-                {jsonError && (
-                  <p className="text-sm text-[var(--color-danger)]">{jsonError}</p>
-                )}
-                <div className="flex gap-2">
-                  <Button variant="ghost" size="sm" onClick={handleCancelEdit}>
-                    Cancel
-                  </Button>
-                  <Button size="sm" onClick={handleSaveOverrides} loading={saving}>
-                    Save JSON
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <>
-                <pre className="max-h-[18rem] overflow-auto rounded-xl border border-border bg-surface px-4 py-4 text-xs leading-6 text-text-main">
-                  <code>{Object.keys(currentOverrides).length > 0 ? prettyJson(currentOverrides) : "{}"}</code>
-                </pre>
-                <Button variant="secondary" size="sm" onClick={handleEditClick}>
-                  Edit JSON
-                </Button>
-              </>
-            )}
-          </div>
-        </details>
-      </div>
-    </details>
   );
 }

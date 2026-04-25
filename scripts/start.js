@@ -334,8 +334,8 @@ async function checkRedisService() {
   const { promisify } = require("node:util");
   const execFileAsync = promisify(execFile);
 
+  // Try systemctl first
   const services = ["redis", "redis-server"];
-  
   for (const service of services) {
     try {
       const { stdout } = await execFileAsync("systemctl", ["is-active", service]);
@@ -345,6 +345,16 @@ async function checkRedisService() {
     } catch {
       // service not active or doesn't exist
     }
+  }
+
+  // Fallback: check via redis-cli ping
+  try {
+    const { stdout } = await execFileAsync("redis-cli", ["ping"]);
+    if (stdout.trim() === "PONG") {
+      return { running: true, service: "redis-cli" };
+    }
+  } catch {
+    // redis-cli not available or Redis not responding
   }
 
   return { running: false, service: null };
