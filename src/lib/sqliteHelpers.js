@@ -1,7 +1,10 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { DATA_DIR } from './dataDir.js';
+
+const nodeRequire = createRequire(import.meta.url);
 
 let Database = null;
 
@@ -16,8 +19,7 @@ function loadDatabaseDriver() {
 }
 
 function NodeSQLiteDatabase(filePath) {
-  // eslint-disable-next-line global-require
-  const BetterSqliteDatabase = require('better-sqlite3');
+  const BetterSqliteDatabase = nodeRequire('better-sqlite3');
   return new BetterSqliteDatabase(filePath);
 }
 
@@ -41,7 +43,7 @@ class BunSQLiteStatement {
 
 class BunSQLiteAdapter {
   constructor(filePath) {
-    const bunSqlite = import.meta.require?.('bun:sqlite');
+    const bunSqlite = nodeRequire('bun:sqlite');
     const BunBuiltinDatabase = bunSqlite?.Database;
     if (!BunBuiltinDatabase) {
       throw new Error('bun:sqlite is required when running SQLite storage under Bun');
