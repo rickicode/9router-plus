@@ -84,8 +84,81 @@ function BunSQLiteDatabase(filePath) {
 
 const DB_SQLITE_FILE = path.join(DATA_DIR, 'db.sqlite');
 const MIGRATIONS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'migrations');
+const HOT_STATE_KEYS = new Set([
+  'routingStatus',
+  'quotaState',
+  'healthStatus',
+  'authState',
+  'reasonCode',
+  'reasonDetail',
+  'nextRetryAt',
+  'resetAt',
+  'lastCheckedAt',
+  'usageSnapshot',
+  'version',
+  'lastUsedAt',
+  'consecutiveUseCount',
+  'backoffLevel',
+  'expiresIn',
+  'updatedAt',
+]);
 
 let sqliteDb = null;
+
+function logSafeError(message, error) {
+  console.error(message, {
+    name: error?.name,
+    code: error?.code,
+    message: error?.message,
+  });
+}
+
+function assertNonEmptyString(value, name) {
+  if (!value || typeof value !== 'string') {
+    throw new TypeError(`${name} must be a non-empty string`);
+  }
+}
+
+function sanitizeHotState(state = {}) {
+  if (!state || typeof state !== 'object' || Array.isArray(state)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(state).filter(([key, value]) => {
+      if (value === undefined) return false;
+      return HOT_STATE_KEYS.has(key) || key.startsWith('modelLock_');
+    })
+  );
+}
+
+function parseHotStateRow(row) {
+  if (!row?.value) return null;
+
+  try {
+    const parsed = JSON.parse(row.value);
+    const sanitized = sanitizeHotState(parsed);
+    return Object.keys(sanitized).length > 0 ? sanitized : null;
+  } catch {
+    return null;
+  }
+}
+
+function loadHotStateRows(provider, connectionIds = null) {
+  const db = getSqliteDb();
+  ensureSchema(db);
+
+  if (Array.isArray(connectionIds)) {
+    const validIds = connectionIds.filter((connectionId) => typeof connectionId === 'string' && connectionId.length > 0);
+    if (validIds.length === 0) return [];
+    const placeholders = validIds.map(() => '?').join(', ');
+    return db.prepare(
+      `SELECT connection_id, value FROM hot_state WHERE provider = ? AND connection_id IN (${placeholders})`
+    ).all(provider, ...validIds);
+  }
+
+  return db.prepare('SELECT connection_id, value FROM hot_state WHERE provider = ?').all(provider);
+}
 
 export function getSqliteDb() {
   if (sqliteDb) return sqliteDb;
@@ -109,10 +182,10 @@ export function getSqliteDb() {
 export function ensureSchema(db) {
   // Check if tables exist
   const tables = db.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('entities', 'settings', 'schema_version')"
+    "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('entities', 'settings', 'hot_state', 'schema_version')"
   ).all();
   
-  if (tables.length < 3) {
+  if (tables.length < 4) {
     const schemaPath = path.join(MIGRATIONS_DIR, '001_initial_schema.sql');
     const schema = fs.readFileSync(schemaPath, 'utf-8');
     db.exec(schema);
@@ -129,6 +202,59 @@ function removeSqliteArtifacts() {
 
 const COLLECTION_KEYS = ['providerConnections', 'providerNodes', 'proxyPools', 'combos', 'apiKeys', 'customModels'];
 const SINGLETON_KEYS = ['settings', 'modelAliases', 'pricing', 'mitmAlias', 'opencodeSync', 'runtimeConfig', 'tunnelState'];
+const HOT_STATE_METADATA_KEY = 'hotStateMetadata';
+
+function loadHotStateMetadataMap() {
+  const db = getSqliteDb();
+  ensureSchema(db);
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(HOT_STATE_METADATA_KEY);
+  if (!row?.value) return {};
+
+  try {
+    const parsed = JSON.parse(row.value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveHotStateMetadataMap(metadata) {
+  const db = getSqliteDb();
+  ensureSchema(db);
+  db.prepare(
+    'INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)'
+  ).run(HOT_STATE_METADATA_KEY, JSON.stringify(metadata || {}), Date.now());
+}
+
+function nextHotStateMetadataEntry(previous = null) {
+  return {
+    version: Math.max(0, Number(previous?.version) || 0) + 1,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function bumpProviderHotStateMetadata(provider, metadata = null) {
+  assertNonEmptyString(provider, 'provider');
+  const allMetadata = loadHotStateMetadataMap();
+  const nextMetadata = metadata || nextHotStateMetadataEntry(allMetadata[provider]);
+  allMetadata[provider] = nextMetadata;
+  saveHotStateMetadataMap(allMetadata);
+  return nextMetadata;
+}
+
+export function markProviderHotStateInvalidated(provider) {
+  return bumpProviderHotStateMetadata(provider);
+}
+
+export function loadProviderHotStateMetadata(provider) {
+  assertNonEmptyString(provider, 'provider');
+  const metadata = loadHotStateMetadataMap()[provider];
+  if (!metadata || typeof metadata !== 'object') return null;
+  return {
+    version: Math.max(0, Number(metadata.version) || 0),
+    updatedAt: metadata.updatedAt || null,
+  };
+}
 
 export function closeSqliteDb() {
   if (sqliteDb) {
@@ -222,7 +348,7 @@ export function migrateFromJSON() {
     return { migrated: true };
     
   } catch (error) {
-    console.error('[DB] Migration failed:', error);
+    logSafeError('[DB] Migration failed', error);
     
     closeSqliteDb();
     removeSqliteArtifacts();
@@ -328,6 +454,107 @@ export function deleteEntity(collection, id) {
   const db = getSqliteDb();
   ensureSchema(db);
   db.prepare('DELETE FROM entities WHERE collection = ? AND id = ?').run(collection, id);
+}
+
+export function upsertHotState(provider, connectionId, state) {
+  assertNonEmptyString(provider, 'provider');
+  assertNonEmptyString(connectionId, 'connectionId');
+
+  const sanitizedState = sanitizeHotState(state);
+  if (Object.keys(sanitizedState).length === 0) {
+    deleteHotState(provider, connectionId);
+    return null;
+  }
+
+  const db = getSqliteDb();
+  ensureSchema(db);
+  db.prepare(
+    'INSERT OR REPLACE INTO hot_state (provider, connection_id, value, updated_at) VALUES (?, ?, ?, ?)'
+  ).run(provider, connectionId, JSON.stringify(sanitizedState), Date.now());
+  return sanitizedState;
+}
+
+export function loadHotStates(provider, connectionIds) {
+  assertNonEmptyString(provider, 'provider');
+  if (!Array.isArray(connectionIds)) {
+    throw new TypeError('connectionIds must be an array');
+  }
+
+  const rows = loadHotStateRows(provider, connectionIds);
+  const result = {};
+  for (const row of rows) {
+    const parsed = parseHotStateRow(row);
+    if (parsed) {
+      result[row.connection_id] = parsed;
+    }
+  }
+  return result;
+}
+
+export function loadProviderHotState(provider) {
+  assertNonEmptyString(provider, 'provider');
+
+  const rows = loadHotStateRows(provider);
+  const result = {};
+  for (const row of rows) {
+    const parsed = parseHotStateRow(row);
+    if (parsed) {
+      result[row.connection_id] = parsed;
+    }
+  }
+  return result;
+}
+
+export function deleteHotState(provider, connectionId) {
+  assertNonEmptyString(provider, 'provider');
+  assertNonEmptyString(connectionId, 'connectionId');
+
+  const db = getSqliteDb();
+  ensureSchema(db);
+  db.prepare('DELETE FROM hot_state WHERE provider = ? AND connection_id = ?').run(provider, connectionId);
+}
+
+export function clearHotStateForProvider(provider) {
+  assertNonEmptyString(provider, 'provider');
+
+  const db = getSqliteDb();
+  ensureSchema(db);
+  db.prepare('DELETE FROM hot_state WHERE provider = ?').run(provider);
+}
+
+export function clearAllSqliteHotState() {
+  const db = getSqliteDb();
+  ensureSchema(db);
+  db.prepare('DELETE FROM hot_state').run();
+  saveHotStateMetadataMap({});
+}
+
+export function rebuildHotStateFromConnections(connections) {
+  const db = getSqliteDb();
+  ensureSchema(db);
+  const list = Array.isArray(connections) ? connections : [];
+
+  const transaction = db.transaction(() => {
+    db.prepare('DELETE FROM hot_state').run();
+
+    const stmt = db.prepare(
+      'INSERT OR REPLACE INTO hot_state (provider, connection_id, value, updated_at) VALUES (?, ?, ?, ?)'
+    );
+
+    for (const connection of list) {
+      if (!connection || typeof connection !== 'object') continue;
+      const provider = connection.provider;
+      const connectionId = connection.id || connection.connectionId;
+      if (!provider || typeof provider !== 'string' || !connectionId || typeof connectionId !== 'string') continue;
+
+      const sanitizedState = sanitizeHotState(connection);
+      if (Object.keys(sanitizedState).length > 0) {
+        stmt.run(provider, connectionId, JSON.stringify(sanitizedState), Date.now());
+      }
+    }
+  });
+
+  transaction();
 }
 
 export function saveAllDataToSqlite(data) {

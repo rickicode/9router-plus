@@ -145,6 +145,7 @@ describe("localDb opencodeSync SQLite authority", () => {
     const { loadSingletonFromSqlite } = await loadSqliteHelpers();
 
     await localDb.importDb({
+      format: "9router-db-v1",
       settings: { cloudEnabled: false },
       opencodeSync: {
         preferences: { variant: "custom", customTemplate: "imported" },

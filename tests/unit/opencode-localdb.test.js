@@ -64,6 +64,7 @@ describe("localDb opencode sync helpers", () => {
     });
 
     await importDb({
+      format: "9router-db-v1",
       settings: { cloudEnabled: true },
       opencodeSync: {
         preferences: { variant: "custom", customTemplate: "minimal" },

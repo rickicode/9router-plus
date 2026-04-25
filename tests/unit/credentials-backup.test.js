@@ -9,6 +9,7 @@ const createProviderConnection = vi.fn(async (data) => ({
   id: data.id || `created-${mockConnections.length + 1}`,
   ...data,
 }));
+const deleteProviderConnection = vi.fn(async () => true);
 const updateProviderConnection = vi.fn(async (id, data) => ({ id, ...data }));
 const getProviderConnections = vi.fn(async () => mockConnections);
 const tempDirs = [];
@@ -66,6 +67,7 @@ vi.mock("next/server", () => ({
 
 vi.mock("@/lib/localDb", () => ({
   createProviderConnection,
+  deleteProviderConnection,
   getProviderConnections,
   updateProviderConnection,
 }));
@@ -74,6 +76,7 @@ describe("credentials backup round-trip", () => {
   beforeEach(() => {
     mockConnections.length = 0;
     createProviderConnection.mockClear();
+    deleteProviderConnection.mockClear();
     updateProviderConnection.mockClear();
     getProviderConnections.mockClear();
     getProviderConnections.mockResolvedValue(mockConnections);
@@ -348,5 +351,307 @@ describe("credentials backup round-trip", () => {
     });
     expect(readProviderConnectionFromSqlite(dataDir, stale.id)).toBeNull();
     expect(readProviderConnectionsFromSqlite(dataDir)).toHaveLength(1);
+  });
+
+  it("preserves prior state when replace-mode restore fails mid-apply", async () => {
+    const persistedConnections = [
+      {
+        id: "conn-atomic-1",
+        provider: "codex",
+        authType: "oauth",
+        email: "atomic-one@example.com",
+        name: "Atomic One",
+        accessToken: "old-token-1",
+        routingStatus: "eligible",
+      },
+      {
+        id: "conn-atomic-2",
+        provider: "openai",
+        authType: "apikey",
+        name: "Atomic Two",
+        apiKey: "old-key-2",
+        routingStatus: "eligible",
+      },
+    ];
+
+    vi.resetModules();
+    vi.doMock("@/lib/localDb", () => ({
+      getProviderConnections: vi.fn(async () => persistedConnections.map((connection) => ({ ...connection }))),
+      updateProviderConnection: vi.fn(async (id, data) => {
+        const index = persistedConnections.findIndex((connection) => connection.id === id);
+        persistedConnections[index] = { ...persistedConnections[index], ...data };
+        throw new Error("forced mid-restore failure");
+      }),
+      createProviderConnection: vi.fn(async (data) => {
+        persistedConnections.push({ id: `created-${persistedConnections.length + 1}`, ...data });
+        return persistedConnections[persistedConnections.length - 1];
+      }),
+      deleteProviderConnection: vi.fn(async (id) => {
+        const index = persistedConnections.findIndex((connection) => connection.id === id);
+        if (index >= 0) persistedConnections.splice(index, 1);
+        return true;
+      }),
+    }));
+
+    const { POST: importPOST } = await import("../../src/app/api/credentials/import/route.js");
+    const importResponse = await importPOST(new Request("http://localhost/api/credentials/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        format: "universal-credentials",
+        mode: "replace",
+        entries: [{
+          id: "conn-atomic-1",
+          provider: "codex",
+          authType: "oauth",
+          email: "atomic-one@example.com",
+          accessToken: "new-token-1",
+          routingStatus: "blocked",
+        }],
+      }),
+    }));
+
+    expect(importResponse.status).toBe(500);
+    expect(importResponse.body).toEqual({
+      error: "Failed to import credentials",
+    });
+    expect(persistedConnections).toEqual([
+      expect.objectContaining({
+        id: "conn-atomic-1",
+        accessToken: "old-token-1",
+        routingStatus: "eligible",
+      }),
+      expect.objectContaining({
+        id: "conn-atomic-2",
+        apiKey: "old-key-2",
+        routingStatus: "eligible",
+      }),
+    ]);
+
+    vi.doUnmock("@/lib/localDb");
+  });
+
+  it("returns 400 and performs zero mutation for partially invalid replace payload", async () => {
+    mockConnections.push({
+      id: "conn-1",
+      provider: "codex",
+      authType: "oauth",
+      name: "Existing",
+      accessToken: "old-access",
+    });
+
+    const { POST: importPOST } = await import("../../src/app/api/credentials/import/route.js");
+    const importResponse = await importPOST(new Request("http://localhost/api/credentials/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        format: "universal-credentials",
+        mode: "replace",
+        entries: [
+          {
+            provider: "codex",
+            authType: "oauth",
+            accessToken: "new-access",
+          },
+          {
+            provider: "openai",
+            authType: "apikey",
+          },
+        ],
+      }),
+    }));
+
+    expect(importResponse.status).toBe(400);
+    expect(importResponse.body).toMatchObject({
+      errorCode: "REPLACE_MODE_VALIDATION_FAILED",
+      invalidRecords: [
+        expect.objectContaining({
+          index: 2,
+          code: "INVALID_RECORD",
+        }),
+      ],
+    });
+    expect(createProviderConnection).not.toHaveBeenCalled();
+    expect(updateProviderConnection).not.toHaveBeenCalled();
+    expect(deleteProviderConnection).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 and performs zero mutation for all-invalid replace payload", async () => {
+    mockConnections.push({
+      id: "conn-1",
+      provider: "codex",
+      authType: "oauth",
+      name: "Existing",
+      accessToken: "old-access",
+    });
+
+    const { POST: importPOST } = await import("../../src/app/api/credentials/import/route.js");
+    const importResponse = await importPOST(new Request("http://localhost/api/credentials/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        format: "universal-credentials",
+        mode: "replace",
+        entries: [
+          {
+            provider: "codex",
+          },
+          {
+            provider: "openai",
+            authType: "apikey",
+          },
+        ],
+      }),
+    }));
+
+    expect(importResponse.status).toBe(400);
+    expect(importResponse.body).toMatchObject({
+      errorCode: "REPLACE_MODE_VALIDATION_FAILED",
+      invalidRecords: [
+        expect.objectContaining({ index: 1, code: "INVALID_RECORD" }),
+        expect.objectContaining({ index: 2, code: "INVALID_RECORD" }),
+      ],
+    });
+    expect(createProviderConnection).not.toHaveBeenCalled();
+    expect(updateProviderConnection).not.toHaveBeenCalled();
+    expect(deleteProviderConnection).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 and performs zero mutation when replace payload has api key record missing name", async () => {
+    mockConnections.push({
+      id: "conn-1",
+      provider: "codex",
+      authType: "oauth",
+      name: "Existing OAuth",
+      accessToken: "old-access",
+    }, {
+      id: "conn-2",
+      provider: "openai",
+      authType: "apikey",
+      name: "Existing API Key",
+      apiKey: "old-key",
+    });
+
+    const { POST: importPOST } = await import("../../src/app/api/credentials/import/route.js");
+    const importResponse = await importPOST(new Request("http://localhost/api/credentials/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        format: "universal-credentials",
+        mode: "replace",
+        entries: [
+          {
+            id: "conn-1",
+            provider: "codex",
+            authType: "oauth",
+            accessToken: "new-access",
+          },
+          {
+            provider: "openai",
+            authType: "apikey",
+            apiKey: "new-key",
+          },
+        ],
+      }),
+    }));
+
+    expect(importResponse.status).toBe(400);
+    expect(importResponse.body).toMatchObject({
+      errorCode: "REPLACE_MODE_VALIDATION_FAILED",
+      invalidRecords: [
+        expect.objectContaining({
+          index: 2,
+          code: "INVALID_RECORD",
+          message: "API key credential record is missing name",
+        }),
+      ],
+    });
+    expect(createProviderConnection).not.toHaveBeenCalled();
+    expect(updateProviderConnection).not.toHaveBeenCalled();
+    expect(deleteProviderConnection).not.toHaveBeenCalled();
+  });
+
+  it("returns safe 400 for malformed json request bodies", async () => {
+    const { POST: importPOST } = await import("../../src/app/api/credentials/import/route.js");
+    const importResponse = await importPOST(new Request("http://localhost/api/credentials/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{",
+    }));
+
+    expect(importResponse.status).toBe(400);
+    expect(importResponse.body).toEqual({
+      error: "Invalid JSON request body",
+      errorCode: "INVALID_JSON",
+    });
+  });
+
+  it("returns safe 400 when import payload is missing entries or credentials array", async () => {
+    const { POST: importPOST } = await import("../../src/app/api/credentials/import/route.js");
+    const importResponse = await importPOST(new Request("http://localhost/api/credentials/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ format: "universal-credentials" }),
+    }));
+
+    expect(importResponse.status).toBe(400);
+    expect(importResponse.body).toEqual({
+      error: "Payload must contain credentials array or equivalent entries",
+      errorCode: "INVALID_IMPORT_PAYLOAD",
+    });
+  });
+
+  it("returns safe 400 when import payload contains duplicate records", async () => {
+    const { POST: importPOST } = await import("../../src/app/api/credentials/import/route.js");
+    const importResponse = await importPOST(new Request("http://localhost/api/credentials/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        format: "universal-credentials",
+        entries: [
+          {
+            provider: "openai",
+            authType: "apikey",
+            name: "Primary",
+            apiKey: "same-key",
+          },
+          {
+            provider: "openai",
+            authType: "apikey",
+            name: "Primary",
+            apiKey: "same-key",
+          },
+        ],
+      }),
+    }));
+
+    expect(importResponse.status).toBe(400);
+    expect(importResponse.body).toMatchObject({
+      errorCode: "DUPLICATE_IMPORT_RECORDS",
+      error: expect.stringContaining("Duplicate import records detected"),
+    });
+  });
+
+  it("returns safe 500 for unexpected internal import errors", async () => {
+    vi.resetModules();
+    vi.doMock("@/lib/credentials/importer", () => ({
+      importCredentials: vi.fn(async () => {
+        throw new Error("database exploded");
+      }),
+    }));
+
+    const { POST: importPOST } = await import("../../src/app/api/credentials/import/route.js");
+    const importResponse = await importPOST(new Request("http://localhost/api/credentials/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ format: "universal-credentials", entries: [] }),
+    }));
+
+    expect(importResponse.status).toBe(500);
+    expect(importResponse.body).toEqual({
+      error: "Failed to import credentials",
+    });
+
+    vi.doUnmock("@/lib/credentials/importer");
   });
 });

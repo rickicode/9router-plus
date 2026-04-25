@@ -61,6 +61,184 @@ afterEach(async () => {
 });
 
 describe("sqliteHelpers contract", () => {
+  it("persists hot_state rows with provider and connection indexes", async () => {
+    const sqliteHelpers = await loadSqliteHelpers();
+
+    expect(() => sqliteHelpers.upsertHotState("", "conn-1", { routingStatus: "eligible" })).toThrow(
+      /provider must be a non-empty string/
+    );
+    expect(() => sqliteHelpers.upsertHotState("openai", "", { routingStatus: "eligible" })).toThrow(
+      /connectionId must be a non-empty string/
+    );
+
+    sqliteHelpers.upsertHotState("openai", "conn-1", {
+      routingStatus: "eligible",
+      quotaState: "ok",
+      healthStatus: "healthy",
+      authState: "ok",
+      reasonCode: "unknown",
+      reasonDetail: "ready",
+      nextRetryAt: null,
+      resetAt: null,
+      lastCheckedAt: "2026-04-25T10:00:00.000Z",
+      usageSnapshot: { requests: 2 },
+      version: 3,
+      lastUsedAt: "2026-04-25T10:01:00.000Z",
+      consecutiveUseCount: 4,
+      backoffLevel: 1,
+      expiresIn: 60,
+      updatedAt: "2026-04-25T10:02:00.000Z",
+      modelLock_gpt_4o: "2026-04-25T10:05:00.000Z",
+      apiKey: "secret-api-key",
+      accessToken: "secret-access-token",
+      provider: "ignored",
+      baseUrl: "https://example.com",
+    });
+
+    sqliteHelpers.upsertHotState("openai", "conn-empty", {
+      apiKey: "secret-only",
+      accessToken: "secret-only",
+    });
+
+    expect(sqliteHelpers.loadHotStates("openai", ["conn-1", "conn-empty", "missing"])).toEqual({
+      "conn-1": {
+        routingStatus: "eligible",
+        quotaState: "ok",
+        healthStatus: "healthy",
+        authState: "ok",
+        reasonCode: "unknown",
+        reasonDetail: "ready",
+        nextRetryAt: null,
+        resetAt: null,
+        lastCheckedAt: "2026-04-25T10:00:00.000Z",
+        usageSnapshot: { requests: 2 },
+        version: 3,
+        lastUsedAt: "2026-04-25T10:01:00.000Z",
+        consecutiveUseCount: 4,
+        backoffLevel: 1,
+        expiresIn: 60,
+        updatedAt: "2026-04-25T10:02:00.000Z",
+        modelLock_gpt_4o: "2026-04-25T10:05:00.000Z",
+      },
+    });
+
+    expect(sqliteHelpers.loadProviderHotState("openai")).toEqual({
+      "conn-1": {
+        routingStatus: "eligible",
+        quotaState: "ok",
+        healthStatus: "healthy",
+        authState: "ok",
+        reasonCode: "unknown",
+        reasonDetail: "ready",
+        nextRetryAt: null,
+        resetAt: null,
+        lastCheckedAt: "2026-04-25T10:00:00.000Z",
+        usageSnapshot: { requests: 2 },
+        version: 3,
+        lastUsedAt: "2026-04-25T10:01:00.000Z",
+        consecutiveUseCount: 4,
+        backoffLevel: 1,
+        expiresIn: 60,
+        updatedAt: "2026-04-25T10:02:00.000Z",
+        modelLock_gpt_4o: "2026-04-25T10:05:00.000Z",
+      },
+    });
+
+    const db = sqliteHelpers.getSqliteDb();
+    const row = db.prepare("SELECT provider, connection_id, value FROM hot_state WHERE provider = ? AND connection_id = ?").get(
+      "openai",
+      "conn-1"
+    );
+    const storedState = JSON.parse(row.value);
+
+    expect(row.provider).toBe("openai");
+    expect(row.connection_id).toBe("conn-1");
+    expect(storedState).not.toHaveProperty("apiKey");
+    expect(storedState).not.toHaveProperty("accessToken");
+    expect(storedState).not.toHaveProperty("baseUrl");
+
+    const indexes = db.prepare("PRAGMA index_list('hot_state')").all();
+    expect(indexes.map((index) => index.name)).toEqual(
+      expect.arrayContaining(["idx_hot_state_provider", "idx_hot_state_updated_at"])
+    );
+  });
+
+  it("deletes hot_state rows and rebuilds them from provider connections", async () => {
+    const sqliteHelpers = await loadSqliteHelpers();
+
+    sqliteHelpers.upsertHotState("openai", "conn-1", {
+      routingStatus: "blocked",
+      reasonCode: "temporary_failure",
+    });
+    sqliteHelpers.upsertHotState("openai", "stale", {
+      routingStatus: "blocked",
+      reasonCode: "stale",
+    });
+    sqliteHelpers.upsertHotState("anthropic", "conn-2", {
+      routingStatus: "eligible",
+      quotaState: "ok",
+    });
+
+    sqliteHelpers.deleteHotState("openai", "conn-1");
+    expect(sqliteHelpers.loadHotStates("openai", ["conn-1", "stale"])).toEqual({
+      stale: {
+        routingStatus: "blocked",
+        reasonCode: "stale",
+      },
+    });
+
+    sqliteHelpers.rebuildHotStateFromConnections([
+      {
+        id: "conn-1",
+        provider: "openai",
+        routingStatus: "eligible",
+        quotaState: "ok",
+        healthStatus: "healthy",
+        authState: "ok",
+        reasonCode: "unknown",
+        modelLock_gpt_4o: "2026-04-25T10:05:00.000Z",
+        apiKey: "should-not-persist",
+      },
+      {
+        id: "conn-2",
+        provider: "anthropic",
+        routingStatus: "blocked",
+        reasonCode: "cooldown",
+        updatedAt: "2026-04-25T10:06:00.000Z",
+        accessToken: "should-not-persist",
+      },
+      {
+        id: "conn-3",
+        provider: "openai",
+        apiKey: "secret-only",
+      },
+    ]);
+
+    expect(sqliteHelpers.loadProviderHotState("openai")).toEqual({
+      "conn-1": {
+        routingStatus: "eligible",
+        quotaState: "ok",
+        healthStatus: "healthy",
+        authState: "ok",
+        reasonCode: "unknown",
+        modelLock_gpt_4o: "2026-04-25T10:05:00.000Z",
+      },
+    });
+    expect(sqliteHelpers.loadProviderHotState("anthropic")).toEqual({
+      "conn-2": {
+        routingStatus: "blocked",
+        reasonCode: "cooldown",
+        updatedAt: "2026-04-25T10:06:00.000Z",
+      },
+    });
+
+    sqliteHelpers.clearHotStateForProvider("openai");
+    expect(sqliteHelpers.loadProviderHotState("openai")).toEqual({});
+
+    sqliteHelpers.clearAllSqliteHotState();
+    expect(sqliteHelpers.loadProviderHotState("anthropic")).toEqual({});
+  });
+
   it("migrateFromJSON({ preserveJson: false }) migrates db.json into db.sqlite, creates a backup, and preserves data", async () => {
     const data = createFullDataset();
     const dataDir = process.env.DATA_DIR;

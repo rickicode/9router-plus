@@ -211,4 +211,168 @@ describe("settings database route SQLite integration", () => {
       quotaExhaustedThresholdPercent: 17,
     });
   });
+
+  it("includes the explicit DB backup format marker in exports", async () => {
+    const dataDir = await createTempDataDir();
+    const { GET: getRoute } = await loadModulesFor(dataDir);
+
+    const response = await getRoute();
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      format: "9router-db-v1",
+    });
+  });
+
+  it("rejects credentials backup payloads without mutating SQLite state", async () => {
+    const dataDir = await createTempDataDir();
+    const { POST, localDb, sqliteHelpers } = await loadModulesFor(dataDir);
+
+    await localDb.createProviderConnection({
+      id: "conn-before-invalid-credentials",
+      provider: "openai",
+      authType: "apikey",
+      name: "Keep Me",
+      apiKey: "sk-stays",
+      isActive: true,
+    });
+    await localDb.updateSettings({
+      cloudEnabled: true,
+      quotaExhaustedThresholdPercent: 19,
+    });
+
+    const beforeConnections = await localDb.getProviderConnections();
+    const beforeSettings = await localDb.getSettings();
+
+    const response = await POST(
+      new Request("http://localhost/api/settings/database", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          format: "9router-credentials-v1",
+          credentials: [],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toMatch(/format/i);
+    expect(await localDb.getProviderConnections()).toEqual(beforeConnections);
+    expect(await localDb.getSettings()).toEqual(beforeSettings);
+    expect(sqliteHelpers.loadCollectionFromSqlite("providerConnections")).toEqual(beforeConnections);
+    expect(sqliteHelpers.loadSingletonFromSqlite("settings")).toEqual(beforeSettings);
+  });
+
+  it("rejects malformed DB payload shapes without mutating SQLite state", async () => {
+    const dataDir = await createTempDataDir();
+    const { POST, localDb, sqliteHelpers } = await loadModulesFor(dataDir);
+
+    await localDb.createProviderConnection({
+      id: "conn-before-invalid-shape",
+      provider: "anthropic",
+      authType: "apikey",
+      name: "Persisted",
+      apiKey: "sk-persisted",
+      isActive: true,
+    });
+    await localDb.updateSettings({
+      cloudEnabled: false,
+      quotaExhaustedThresholdPercent: 23,
+    });
+
+    const beforeConnections = await localDb.getProviderConnections();
+    const beforeSettings = await localDb.getSettings();
+
+    const response = await POST(
+      new Request("http://localhost/api/settings/database", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          format: "9router-db-v1",
+          providerConnections: {},
+          settings: [],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toMatch(/providerConnections|settings|payload/i);
+    expect(await localDb.getProviderConnections()).toEqual(beforeConnections);
+    expect(await localDb.getSettings()).toEqual(beforeSettings);
+    expect(sqliteHelpers.loadCollectionFromSqlite("providerConnections")).toEqual(beforeConnections);
+    expect(sqliteHelpers.loadSingletonFromSqlite("settings")).toEqual(beforeSettings);
+  });
+
+  it("rejects semantically wrong credential-backup keys on DB import without mutation", async () => {
+    const dataDir = await createTempDataDir();
+    const { POST, localDb, sqliteHelpers } = await loadModulesFor(dataDir);
+
+    await localDb.createProviderConnection({
+      id: "conn-before-family-reject",
+      provider: "openai",
+      authType: "apikey",
+      name: "Keep Family",
+      apiKey: "sk-family",
+      isActive: true,
+    });
+
+    const beforeConnections = await localDb.getProviderConnections();
+    const beforeSettings = await localDb.getSettings();
+
+    const response = await POST(
+      new Request("http://localhost/api/settings/database", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          format: "9router-db-v1",
+          entries: [],
+          credentials: [],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toMatch(/unknown|unexpected|entries|credentials/i);
+    expect(await localDb.getProviderConnections()).toEqual(beforeConnections);
+    expect(await localDb.getSettings()).toEqual(beforeSettings);
+    expect(sqliteHelpers.loadCollectionFromSqlite("providerConnections")).toEqual(beforeConnections);
+    expect(sqliteHelpers.loadSingletonFromSqlite("settings")).toEqual(beforeSettings);
+  });
+
+  it("rejects unknown top-level DB import keys without mutation", async () => {
+    const dataDir = await createTempDataDir();
+    const { POST, localDb, sqliteHelpers } = await loadModulesFor(dataDir);
+
+    await localDb.createProviderConnection({
+      id: "conn-before-unknown-key",
+      provider: "anthropic",
+      authType: "apikey",
+      name: "Keep Unknown",
+      apiKey: "sk-unknown",
+      isActive: true,
+    });
+
+    const beforeConnections = await localDb.getProviderConnections();
+    const beforeSettings = await localDb.getSettings();
+
+    const response = await POST(
+      new Request("http://localhost/api/settings/database", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          format: "9router-db-v1",
+          providerConnections: [],
+          settings: {},
+          unexpectedTopLevel: true,
+        }),
+      }),
+    );
+    
+    expect(response.status).toBe(400);
+    expect(response.body.error).toMatch(/unknown|unexpected|unexpectedTopLevel/i);
+    expect(await localDb.getProviderConnections()).toEqual(beforeConnections);
+    expect(await localDb.getSettings()).toEqual(beforeSettings);
+    expect(sqliteHelpers.loadCollectionFromSqlite("providerConnections")).toEqual(beforeConnections);
+    expect(sqliteHelpers.loadSingletonFromSqlite("settings")).toEqual(beforeSettings);
+  });
 });

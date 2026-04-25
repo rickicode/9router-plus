@@ -1,4 +1,12 @@
 import { createClient } from "redis";
+import {
+  deleteHotState,
+  loadHotStates,
+  loadProviderHotState,
+  loadProviderHotStateMetadata,
+  markProviderHotStateInvalidated,
+  upsertHotState,
+} from "./sqliteHelpers.js";
 
 const REDIS_PREFIX = "9router:provider-hot-state:";
 const HOT_STATE_TTL_SECONDS = Number(process.env.REDIS_HOT_STATE_TTL_SECONDS || 86400);
@@ -6,6 +14,7 @@ const PROVIDER_META_FIELD = "__provider_meta__";
 const CONNECTION_FIELD_PREFIX = "__conn__:";
 const CONNECTION_FIELD_SEPARATOR = ":";
 const providerStateCache = new Map();
+const sqliteHotStateCache = new Map();
 
 const HOT_STATE_KEYS = new Set([
   "routingStatus",
@@ -29,6 +38,12 @@ const HOT_STATE_KEYS = new Set([
 let redisClient = null;
 let redisConnectPromise = null;
 let redisDisabled = false;
+let redisRetryAfter = 0;
+
+function getRedisRetryAfterMs() {
+  const configured = Number(process.env.REDIS_RETRY_AFTER_MS);
+  return Number.isFinite(configured) && configured >= 0 ? configured : 5000;
+}
 
 function isRedisConfigured() {
   return Boolean(process.env.REDIS_URL || process.env.REDIS_HOST);
@@ -157,6 +172,16 @@ const LEGACY_MIRROR_FIELDS = new Set([
   "lastTested",
 ]);
 
+const SECRET_STATE_FIELDS = new Set([
+  "apiKey",
+  "accessToken",
+  "refreshToken",
+  "idToken",
+  "token",
+  "password",
+  "clientSecret",
+]);
+
 const CANONICAL_ROUTING_STATUSES = new Set([
   "eligible",
   "exhausted",
@@ -184,9 +209,17 @@ function stripLegacyMirrorFields(state = null) {
   return sanitizeConnectionStatusRecord(state);
 }
 
+function sanitizeHotStateInput(state = null) {
+  const sanitized = extractHotState(stripLegacyMirrorFields(state || {}));
+  for (const key of SECRET_STATE_FIELDS) {
+    delete sanitized[key];
+  }
+  return sanitized;
+}
+
 function mergeHotState(base, updates) {
-  const sanitizedBase = stripLegacyMirrorFields(base || {});
-  const sanitizedUpdates = stripLegacyMirrorFields(updates || {});
+  const sanitizedBase = sanitizeHotStateInput(base || {});
+  const sanitizedUpdates = sanitizeHotStateInput(updates || {});
   return {
     ...sanitizedBase,
     ...sanitizedUpdates,
@@ -218,7 +251,19 @@ function createEmptyProviderState() {
     eligibleConnectionIds: null,
     retryAt: null,
     updatedAt: null,
+    sqliteVersion: 0,
   };
+}
+
+function createSqliteFallbackProviderState() {
+  return {
+    ...createEmptyProviderState(),
+    sqliteFallbackAvailable: true,
+  };
+}
+
+function hasRedisConnectionFields(rawState = {}) {
+  return Object.keys(rawState || {}).some((field) => field !== PROVIDER_META_FIELD);
 }
 
 function isFutureTimestamp(value) {
@@ -294,12 +339,36 @@ function serializeProviderMeta(providerState) {
     eligibleConnectionIds: providerState.eligibleConnectionIds ? [...providerState.eligibleConnectionIds] : null,
     retryAt: providerState.retryAt || null,
     updatedAt: providerState.updatedAt || null,
+    sqliteVersion: Math.max(0, Number(providerState.sqliteVersion) || 0),
   });
+}
+
+function readProviderMeta(rawState = {}) {
+  const parsed = parseStoredState(rawState?.[PROVIDER_META_FIELD]);
+  if (!parsed || typeof parsed !== "object") return null;
+  return parsed;
+}
+
+function isRedisProviderStateStale(providerId, rawState = {}) {
+  const sqliteMetadata = loadProviderHotStateMetadata(providerId);
+  if (!sqliteMetadata) return false;
+
+  const providerMeta = readProviderMeta(rawState) || {};
+  const redisVersion = Math.max(0, Number(providerMeta.sqliteVersion) || 0);
+  const sqliteVersion = Math.max(0, Number(sqliteMetadata.version) || 0);
+  if (redisVersion !== sqliteVersion) {
+    return redisVersion < sqliteVersion;
+  }
+
+  const redisUpdatedAt = providerMeta.updatedAt ? new Date(providerMeta.updatedAt).getTime() : 0;
+  const sqliteUpdatedAt = sqliteMetadata.updatedAt ? new Date(sqliteMetadata.updatedAt).getTime() : 0;
+  return sqliteUpdatedAt > redisUpdatedAt;
 }
 
 function hydrateProviderState(providerId, rawState = {}) {
   const providerState = createEmptyProviderState();
   const legacyConnectionStates = new Map();
+  const providerMeta = readProviderMeta(rawState);
 
   for (const [field, raw] of Object.entries(rawState || {})) {
     if (field === PROVIDER_META_FIELD) continue;
@@ -313,8 +382,9 @@ function hydrateProviderState(providerId, rawState = {}) {
       const value = parseStoredValue(raw);
       if (value !== undefined) {
         const connectionState = providerState.connections.get(parsedField.connectionId) || {};
-        connectionState[parsedField.stateKey] = value;
-        providerState.connections.set(parsedField.connectionId, stripLegacyMirrorFields(connectionState));
+        providerState.connections.set(parsedField.connectionId, mergeHotState(connectionState, {
+          [parsedField.stateKey]: value,
+        }));
       }
       continue;
     }
@@ -331,13 +401,137 @@ function hydrateProviderState(providerId, rawState = {}) {
   }
 
   recalculateProviderIndexes(providerState);
+  providerState.sqliteVersion = Math.max(0, Number(providerMeta?.sqliteVersion) || 0);
 
   providerStateCache.set(providerId, providerState);
   return providerState;
 }
 
+async function mirrorProviderStateToRedis(providerId, providerState) {
+  const client = await getRedisClient();
+  if (!client || !providerState) return false;
+
+  const key = getProviderRedisKey(providerId);
+  const payload = {
+    [PROVIDER_META_FIELD]: serializeProviderMeta(providerState),
+  };
+
+  for (const [connectionId, connectionState] of providerState.connections.entries()) {
+    const compactState = extractHotState(connectionState);
+    for (const [stateKey, value] of Object.entries(compactState)) {
+      const redisField = getRedisConnectionField(connectionId, stateKey);
+      if (redisField) {
+        payload[redisField] = JSON.stringify(value);
+      }
+    }
+  }
+
+  try {
+    await client.del(key);
+    if (Object.keys(payload).length > 0) {
+      await client.hSet(key, payload);
+    }
+    if (Number.isFinite(HOT_STATE_TTL_SECONDS) && HOT_STATE_TTL_SECONDS > 0) {
+      await client.expire(key, HOT_STATE_TTL_SECONDS);
+    }
+    return true;
+  } catch (error) {
+    console.warn(`[Redis] Failed to mirror SQLite hot state for provider ${providerId}: ${error?.message || error}`);
+    return false;
+  }
+}
+
+async function mirrorProviderStateToRedisIfEmpty(providerId, providerState) {
+  const client = await getRedisClient();
+  if (!client || !providerState) return { mirrored: false, failed: true };
+
+  const key = getProviderRedisKey(providerId);
+
+  try {
+    if (typeof client.watch === "function" && typeof client.multi === "function") {
+      await client.watch(key);
+      try {
+        const liveRawState = await client.hGetAll(key);
+        if (hasRedisConnectionFields(liveRawState)) return { mirrored: false, skippedLiveRedis: true };
+
+        const payload = {
+          [PROVIDER_META_FIELD]: serializeProviderMeta(providerState),
+        };
+        for (const [connectionId, connectionState] of providerState.connections.entries()) {
+          for (const [stateKey, value] of Object.entries(extractHotState(connectionState))) {
+            const redisField = getRedisConnectionField(connectionId, stateKey);
+            if (redisField) payload[redisField] = JSON.stringify(value);
+          }
+        }
+
+        const multi = client.multi();
+        multi.del(key);
+        multi.hSet(key, payload);
+        if (Number.isFinite(HOT_STATE_TTL_SECONDS) && HOT_STATE_TTL_SECONDS > 0) {
+          multi.expire(key, HOT_STATE_TTL_SECONDS);
+        }
+        return Boolean(await multi.exec())
+          ? { mirrored: true }
+          : { mirrored: false, failed: true };
+      } finally {
+        if (typeof client.unwatch === "function") await client.unwatch();
+      }
+    }
+
+    const liveRawState = await client.hGetAll(key);
+    if (hasRedisConnectionFields(liveRawState)) return { mirrored: false, skippedLiveRedis: true };
+    const mirrored = await mirrorProviderStateToRedis(providerId, providerState);
+    return mirrored ? { mirrored: true } : { mirrored: false, failed: true };
+  } catch (error) {
+    console.warn(`[Redis] Failed to verify empty hot state before SQLite hydration for provider ${providerId}: ${error?.message || error}`);
+    return { mirrored: false, failed: true };
+  }
+}
+
+function loadScopedHotStateFromSqlite(providerId, connectionIds = []) {
+  try {
+    return loadHotStates(providerId, connectionIds);
+  } catch {
+    return {};
+  }
+}
+
+function loadProviderStateFromSqlite(providerId) {
+  try {
+    const sqliteStates = loadProviderHotState(providerId);
+    const sqliteMetadata = loadProviderHotStateMetadata(providerId);
+    if (!sqliteStates || Object.keys(sqliteStates).length === 0) {
+      sqliteHotStateCache.delete(providerId);
+      if (!sqliteMetadata) return null;
+      const providerState = createSqliteFallbackProviderState();
+      providerState.updatedAt = sqliteMetadata.updatedAt || providerState.updatedAt;
+      providerState.sqliteVersion = Math.max(0, Number(sqliteMetadata.version) || 0);
+      providerStateCache.set(providerId, providerState);
+      return providerState;
+    }
+
+    sqliteHotStateCache.set(providerId, { ...sqliteStates });
+
+    const providerState = createSqliteFallbackProviderState();
+    for (const [connectionId, connectionState] of Object.entries(sqliteStates)) {
+      providerState.connections.set(connectionId, mergeHotState({}, connectionState));
+    }
+    recalculateProviderIndexes(providerState);
+    providerState.updatedAt = sqliteMetadata?.updatedAt || providerState.updatedAt;
+    providerState.sqliteVersion = Math.max(0, Number(sqliteMetadata?.version) || 0);
+    providerStateCache.set(providerId, providerState);
+    return providerState;
+  } catch {
+    return null;
+  }
+}
+
 async function getRedisClient() {
-  if (!isRedisConfigured() || redisDisabled) return null;
+  if (!isRedisConfigured()) return null;
+  if (redisDisabled && Date.now() < redisRetryAfter) return null;
+  if (redisDisabled && Date.now() >= redisRetryAfter) {
+    redisDisabled = false;
+  }
   if (redisClient?.isReady) return redisClient;
 
   if (!redisConnectPromise) {
@@ -351,8 +545,9 @@ async function getRedisClient() {
         redisClient = client;
         return client;
       } catch (error) {
-        console.warn(`[Redis] Disabled: ${error?.message || error}`);
+        console.warn(`[Redis] Disabled temporarily: ${error?.message || error}`);
         redisDisabled = true;
+        redisRetryAfter = Date.now() + getRedisRetryAfterMs();
         redisClient = null;
         return null;
       } finally {
@@ -421,7 +616,8 @@ async function persistConnectionField(providerId, connectionId, updates = {}) {
         })()
       : mergeHotState({}, sanitizedUpdates);
 
-    for (const [stateKey, value] of Object.entries(fieldsToPersist || {})) {
+    const sanitizedFieldsToPersist = sanitizeHotStateInput(fieldsToPersist || {});
+    for (const [stateKey, value] of Object.entries(sanitizedFieldsToPersist)) {
       const redisField = getRedisConnectionField(connectionId, stateKey);
       if (redisField) {
         payload[redisField] = JSON.stringify(value);
@@ -596,19 +792,31 @@ export async function getProviderHotState(providerId) {
 
   const client = await getRedisClient();
   if (!client) {
-    return providerStateCache.get(providerId) || null;
+    return providerStateCache.get(providerId) || loadProviderStateFromSqlite(providerId) || null;
   }
 
   try {
     const rawState = await client.hGetAll(getProviderRedisKey(providerId));
     if (!rawState || Object.keys(rawState).length === 0) {
       providerStateCache.delete(providerId);
-      return null;
+      return loadProviderStateFromSqlite(providerId) || null;
+    }
+    if (isRedisProviderStateStale(providerId, rawState)) {
+      providerStateCache.delete(providerId);
+      const sqliteProviderState = loadProviderStateFromSqlite(providerId) || null;
+      if (sqliteProviderState) {
+        await mirrorProviderStateToRedis(providerId, sqliteProviderState);
+      }
+      return sqliteProviderState;
+    }
+    if (!hasRedisConnectionFields(rawState)) {
+      providerStateCache.delete(providerId);
+      return loadProviderStateFromSqlite(providerId) || null;
     }
     return hydrateProviderState(providerId, rawState);
   } catch (error) {
     console.warn(`[Redis] Failed to read hot state for provider ${providerId}: ${error?.message || error}`);
-    return providerStateCache.get(providerId) || null;
+    return providerStateCache.get(providerId) || loadProviderStateFromSqlite(providerId) || null;
   }
 }
 
@@ -640,14 +848,16 @@ export function projectProviderHotState(connection = {}, providerState = null) {
     return { ...connection };
   }
 
-  const projected = { ...connection, ...connectionHotState };
-  return stripLegacyMirrorFields(projected);
+  return { ...connection, ...stripLegacyMirrorFields(connectionHotState) };
 }
 
 export async function getConnectionHotState(connectionId, providerId) {
   if (!connectionId || !providerId) return null;
   const providerState = await getProviderHotState(providerId);
-  if (!providerState) return null;
+  if (!providerState) {
+    const fallbackStates = await getConnectionHotStates([{ id: connectionId, provider: providerId }]);
+    return fallbackStates.get(getProviderScopedConnectionKey(providerId, connectionId)) || fallbackStates.get(connectionId) || null;
+  }
   return projectProviderHotState({ id: connectionId }, providerState);
 }
 
@@ -674,10 +884,63 @@ export async function getConnectionHotStates(connectionRefs = []) {
 
   for (const [providerId, providerRefs] of refsByProvider.entries()) {
     const providerState = await getProviderHotState(providerId);
-    if (!providerState) continue;
+    let sqliteStates = {};
+
+    if (!providerState || providerState.sqliteFallbackAvailable) {
+      const cachedSqliteState = sqliteHotStateCache.get(providerId) || null;
+      const requestedConnectionIds = providerRefs.map((ref) => ref.connectionId);
+      if (cachedSqliteState) {
+        sqliteStates = Object.fromEntries(requestedConnectionIds
+          .filter((connectionId) => cachedSqliteState[connectionId])
+          .map((connectionId) => [connectionId, cachedSqliteState[connectionId]]));
+        const missingConnectionIds = requestedConnectionIds.filter((connectionId) => !sqliteStates[connectionId]);
+        if (missingConnectionIds.length > 0) {
+          const loadedStates = loadScopedHotStateFromSqlite(providerId, missingConnectionIds);
+          sqliteStates = { ...sqliteStates, ...loadedStates };
+          if (Object.keys(loadedStates).length > 0) {
+            sqliteHotStateCache.set(providerId, { ...cachedSqliteState, ...loadedStates });
+          }
+        }
+      } else {
+        sqliteStates = loadScopedHotStateFromSqlite(providerId, requestedConnectionIds);
+      }
+
+      const client = await getRedisClient();
+      if (client && Object.keys(sqliteStates).length > 0) {
+        try {
+          const sqliteProviderState = createEmptyProviderState();
+          for (const [connectionId, connectionState] of Object.entries(sqliteStates)) {
+            sqliteProviderState.connections.set(connectionId, mergeHotState({}, connectionState));
+          }
+          recalculateProviderIndexes(sqliteProviderState);
+          const mirrorResult = await mirrorProviderStateToRedisIfEmpty(providerId, sqliteProviderState);
+          if (mirrorResult.skippedLiveRedis) {
+            sqliteStates = {};
+          }
+        } catch (error) {
+          console.warn(`[Redis] Failed to verify empty hot state before SQLite hydration for provider ${providerId}: ${error?.message || error}`);
+        }
+      }
+    }
 
     for (const ref of providerRefs) {
-      const projected = projectProviderHotState(ref.connection || { id: ref.connectionId }, providerState);
+      const baseConnection = ref.connection || { id: ref.connectionId, provider: ref.providerId };
+      const sqliteState = sqliteStates?.[ref.connectionId] || null;
+      const canonicalFallback = extractHotState(baseConnection);
+      const activeProviderState = providerState?.sqliteFallbackAvailable ? null : providerState;
+      const hasKnownProviderState = Boolean(activeProviderState || providerState?.sqliteFallbackAvailable);
+      const projected = activeProviderState
+        ? projectProviderHotState(baseConnection, activeProviderState)
+        : (sqliteState || Object.keys(canonicalFallback).length > 0)
+          ? {
+              ...baseConnection,
+              ...stripLegacyMirrorFields(canonicalFallback),
+              ...sanitizeHotStateInput(sqliteState || {}),
+            }
+          : hasKnownProviderState
+            ? { ...baseConnection }
+            : null;
+      if (!projected) continue;
       const scopedKey = getProviderScopedConnectionKey(ref.providerId, ref.connectionId);
 
       result.set(scopedKey, projected);
@@ -696,7 +959,7 @@ export async function setConnectionHotState(connectionId, providerId, updates = 
     return { storedInRedis: false, state: null };
   }
 
-  const sanitizedUpdates = stripLegacyMirrorFields(updates);
+  const sanitizedUpdates = sanitizeHotStateInput(updates);
   const cachedProviderState = (await getProviderHotState(providerId)) || createEmptyProviderState();
   const providerState = {
     ...cachedProviderState,
@@ -709,6 +972,7 @@ export async function setConnectionHotState(connectionId, providerId, updates = 
   recalculateProviderIndexes(providerState);
 
   let storedInRedis = false;
+  let storedInSqlite = false;
   const client = await getRedisClient();
   if (client) {
     let persisted;
@@ -722,22 +986,43 @@ export async function setConnectionHotState(connectionId, providerId, updates = 
     }
     storedInRedis = persisted.storedInRedis;
     if (!storedInRedis) {
-      providerStateCache.set(providerId, cachedProviderState);
-      return { storedInRedis: false, state: null };
-    }
-    providerStateCache.set(providerId, persisted.providerState || providerState);
-  } else {
-    storedInRedis = await persistProviderState(providerId, providerState);
-    if (storedInRedis) {
-      providerStateCache.set(providerId, providerState);
+      storedInSqlite = Boolean(upsertHotState(providerId, connectionId, next));
+      if (storedInSqlite) {
+        markProviderHotStateInvalidated(providerId);
+        const cachedSqliteState = { ...(sqliteHotStateCache.get(providerId) || {}) };
+        cachedSqliteState[connectionId] = extractHotState(next);
+        sqliteHotStateCache.set(providerId, cachedSqliteState);
+        providerStateCache.set(providerId, createSqliteFallbackProviderState());
+      } else {
+        return { storedInRedis: false, storedInSqlite: false, state: null };
+      }
     } else {
-      providerStateCache.set(providerId, cachedProviderState);
+      const persistedState = persisted.providerState?.connections?.get(connectionId) || next;
+      storedInSqlite = Boolean(upsertHotState(providerId, connectionId, persistedState));
+      providerStateCache.set(providerId, persisted.providerState || providerState);
+      if (storedInSqlite) {
+        const cachedSqliteState = { ...(sqliteHotStateCache.get(providerId) || {}) };
+        cachedSqliteState[connectionId] = extractHotState(persistedState);
+        sqliteHotStateCache.set(providerId, cachedSqliteState);
+      }
+    }
+  } else {
+    storedInSqlite = Boolean(upsertHotState(providerId, connectionId, next));
+    if (storedInSqlite) {
+      markProviderHotStateInvalidated(providerId);
+      const cachedSqliteState = { ...(sqliteHotStateCache.get(providerId) || {}) };
+      cachedSqliteState[connectionId] = extractHotState(next);
+      sqliteHotStateCache.set(providerId, cachedSqliteState);
+      providerStateCache.set(providerId, createSqliteFallbackProviderState());
+    } else {
+      return { storedInRedis, storedInSqlite: false, state: null };
     }
   }
 
   const latestProviderState = providerStateCache.get(providerId) || providerState;
   return {
     storedInRedis,
+    storedInSqlite,
     state: stripLegacyMirrorFields(next),
     providerState: {
       eligibleConnectionIds: latestProviderState.eligibleConnectionIds ? [...latestProviderState.eligibleConnectionIds] : null,
@@ -748,7 +1033,7 @@ export async function setConnectionHotState(connectionId, providerId, updates = 
 }
 
 export async function writeConnectionHotState({ connectionId, provider, patch = {} } = {}) {
-  const sanitizedPatch = stripLegacyMirrorFields(patch);
+  const sanitizedPatch = sanitizeHotStateInput(patch);
   const result = await setConnectionHotState(connectionId, provider, sanitizedPatch);
   return result?.state || null;
 }
@@ -761,6 +1046,18 @@ export async function isRedisHotStateReady() {
 
 export async function deleteConnectionHotState(connectionId, providerId) {
   if (!connectionId || !providerId) return;
+
+  deleteHotState(providerId, connectionId);
+  markProviderHotStateInvalidated(providerId);
+  const cachedSqliteState = sqliteHotStateCache.get(providerId);
+  if (cachedSqliteState) {
+    delete cachedSqliteState[connectionId];
+    if (Object.keys(cachedSqliteState).length === 0) {
+      sqliteHotStateCache.delete(providerId);
+    } else {
+      sqliteHotStateCache.set(providerId, cachedSqliteState);
+    }
+  }
 
   const providerState = (await getProviderHotState(providerId)) || providerStateCache.get(providerId);
   if (!providerState) return;
@@ -783,6 +1080,7 @@ export async function clearProviderHotState(providerId) {
   if (!providerId) return false;
 
   providerStateCache.delete(providerId);
+  sqliteHotStateCache.delete(providerId);
 
   const client = await getRedisClient();
   if (!client) return false;
@@ -798,6 +1096,7 @@ export async function clearProviderHotState(providerId) {
 
 export async function clearAllHotState() {
   providerStateCache.clear();
+  sqliteHotStateCache.clear();
 
   const client = await getRedisClient();
   if (!client) return false;
@@ -846,15 +1145,18 @@ export async function mergeConnectionsWithHotState(connections = []) {
 
 export function __resetProviderHotStateForTests() {
   providerStateCache.clear();
+  sqliteHotStateCache.clear();
   redisClient = null;
   redisConnectPromise = null;
   redisDisabled = false;
+  redisRetryAfter = 0;
 }
 
 export function __setRedisClientForTests(client) {
   redisClient = client;
   redisConnectPromise = null;
   redisDisabled = false;
+  redisRetryAfter = 0;
 }
 
 export function __getProviderHotStateSnapshotForTests(providerId) {

@@ -172,6 +172,7 @@ describe("localDb quota scheduler settings", () => {
     const { localDb } = await loadLocalDb();
 
     await localDb.importDb({
+      format: "9router-db-v1",
       providerConnections: [],
       providerNodes: [],
       proxyPools: [],
@@ -215,6 +216,7 @@ describe("localDb quota scheduler settings", () => {
     const legacyRemovedKey = String.fromCharCode(114, 116, 107, 69, 110, 97, 98, 108, 101, 100);
 
     await localDb.importDb({
+      format: "9router-db-v1",
       providerConnections: [],
       providerNodes: [],
       proxyPools: [],
@@ -264,6 +266,7 @@ describe("localDb quota scheduler settings", () => {
     const removedKey = String.fromCharCode(114, 116, 107, 69, 110, 97, 98, 108, 101, 100);
 
     await localDb.importDb({
+      format: "9router-db-v1",
       providerConnections: [],
       providerNodes: [],
       proxyPools: [],

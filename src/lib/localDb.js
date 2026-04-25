@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from "uuid";
 import path from "node:path";
 import fs from "node:fs";
 import { DATA_DIR } from "@/lib/dataDir.js";
-import { DB_SQLITE_FILE, ensureSchema, getSqliteDb, loadAllDataFromSqlite, loadSingletonFromSqlite, migrateFromJSON, saveAllDataToSqlite } from "@/lib/sqliteHelpers.js";
+import { DB_SQLITE_FILE, clearHotStateForProvider, ensureSchema, getSqliteDb, loadAllDataFromSqlite, loadSingletonFromSqlite, markProviderHotStateInvalidated, migrateFromJSON, rebuildHotStateFromConnections, saveAllDataToSqlite } from "@/lib/sqliteHelpers.js";
 import { getConnectionEffectiveStatus, getConnectionStatusDetails } from "@/lib/connectionStatus.js";
 import { sanitizeConnectionStatusRecord } from "./providerHotState.js";
 import { normalizeQuotaSchedulerSettings } from "./quotaRefreshPlanner.js";
@@ -14,6 +14,7 @@ import {
 } from "@/lib/opencodeSync/schema.js";
 
 const DEFAULT_MITM_ROUTER_BASE = "http://localhost:20128";
+export const DB_BACKUP_FORMAT = "9router-db-v1";
 const LEGACY_MIRROR_STATUS_FIELDS = new Set([
   "testStatus",
   "lastError",
@@ -164,6 +165,51 @@ function cloneDefaultData() {
     settings: mergeSettingsWithDefaults({}),
     pricing: {},
   };
+}
+
+function validateDbImportPayload(payload) {
+  if (!isPlainObject(payload)) {
+    throw new Error("Invalid database payload: expected an object");
+  }
+
+  if (payload.format !== DB_BACKUP_FORMAT) {
+    throw new Error(`Invalid database payload format: expected ${DB_BACKUP_FORMAT}`);
+  }
+
+  const defaults = cloneDefaultData();
+  const allowedKeys = new Set([
+    "format",
+    ...Object.keys(defaults),
+    "opencodeSync",
+    "runtimeConfig",
+    "tunnelState",
+  ]);
+
+  for (const key of Object.keys(payload)) {
+    if (!allowedKeys.has(key)) {
+      throw new Error(`Invalid database payload: unknown top-level key ${key}`);
+    }
+  }
+
+  for (const [key, defaultValue] of Object.entries(defaults)) {
+    if (payload[key] === undefined) continue;
+
+    if (Array.isArray(defaultValue) && !Array.isArray(payload[key])) {
+      throw new Error(`Invalid database payload: ${key} must be an array`);
+    }
+
+    if (isPlainObject(defaultValue) && !isPlainObject(payload[key])) {
+      throw new Error(`Invalid database payload: ${key} must be an object`);
+    }
+  }
+}
+
+function logSafeError(message, error) {
+  console.warn(message, {
+    name: error?.name,
+    code: error?.code,
+    message: error?.message,
+  });
 }
 
 export { getConnectionEffectiveStatus };
@@ -426,7 +472,7 @@ async function ensureSqliteBootstrap() {
           }
         }
       } catch (error) {
-        console.warn("[DB] SQLite bootstrap failed:", error);
+        logSafeError("[DB] SQLite bootstrap failed", error);
         throw error;
       }
     })();
@@ -678,6 +724,8 @@ export async function deleteProviderConnectionsByProvider(providerId) {
   const deletedCount = beforeCount - db.data.providerConnections.length;
   await safeWrite(db);
   if (deletedCount > 0) {
+    clearHotStateForProvider(providerId);
+    markProviderHotStateInvalidated(providerId);
     await clearProviderHotState(providerId);
   }
   return deletedCount;
@@ -751,7 +799,7 @@ export async function createProviderConnection(data) {
     }
 
     const connection = {
-      id: uuidv4(),
+      id: typeof normalizedData.id === "string" && normalizedData.id.trim() ? normalizedData.id : uuidv4(),
       provider: normalizedData.provider,
       authType: normalizedData.authType || "oauth",
       name: connectionName,
@@ -1313,21 +1361,24 @@ export async function updateSettings(updates) {
 
 export async function exportDb() {
   const db = await getDb();
-  return db.data || cloneDefaultData();
+  return {
+    format: DB_BACKUP_FORMAT,
+    ...(db.data || cloneDefaultData()),
+  };
 }
 
 export async function importDb(payload) {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("Invalid database payload");
-  }
+  validateDbImportPayload(payload);
+
+  const { format: _format, ...importPayload } = payload;
 
   const nextData = {
     ...cloneDefaultData(),
-    ...payload,
+    ...importPayload,
     settings: {
       ...cloneDefaultData().settings,
-      ...(payload.settings && typeof payload.settings === "object" && !Array.isArray(payload.settings)
-        ? payload.settings
+      ...(importPayload.settings && typeof importPayload.settings === "object" && !Array.isArray(importPayload.settings)
+        ? importPayload.settings
         : {}),
     },
   };
@@ -1336,9 +1387,17 @@ export async function importDb(payload) {
 
   const { data: normalized } = ensureDbShape(nextData);
   const db = await getDb();
+  const invalidatedProviders = new Set((db.data.providerConnections || []).map((connection) => connection?.provider).filter(Boolean));
+  for (const connection of normalized.providerConnections || []) {
+    if (connection?.provider) invalidatedProviders.add(connection.provider);
+  }
   db.data = normalized;
   await safeWrite(db);
   await clearAllHotState();
+  rebuildHotStateFromConnections(db.data.providerConnections || []);
+  for (const providerId of invalidatedProviders) {
+    markProviderHotStateInvalidated(providerId);
+  }
   return db.data;
 }
 

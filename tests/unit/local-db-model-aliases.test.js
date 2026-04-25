@@ -108,6 +108,7 @@ describe("localDb modelAliases SQLite authority", () => {
     const { localDb, sqliteHelpers } = await loadLocalDb();
 
     await localDb.importDb({
+      format: "9router-db-v1",
       providerConnections: [],
       providerNodes: [],
       proxyPools: [],

@@ -4,6 +4,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DB_BACKUP_FORMAT } from "../../src/lib/localDb.js";
 
 const tempDirs = [];
 
@@ -87,8 +88,9 @@ afterEach(async () => {
 });
 
 describe("localDb hot-state lifecycle", () => {
-  it("clears stale provider hot state during database import", async () => {
+  it("rebuilds sqlite hot state from imported provider connections", async () => {
     const { localDb, providerHotState } = await loadModulesWithTempDataDir();
+    const sqliteHelpers = await import("@/lib/sqliteHelpers.js");
 
     await localDb.createProviderConnection({
       id: "conn-import",
@@ -109,6 +111,7 @@ describe("localDb hot-state lifecycle", () => {
     });
 
     await localDb.importDb({
+      format: DB_BACKUP_FORMAT,
       providerConnections: [
         {
           id: "conn-import",
@@ -117,34 +120,83 @@ describe("localDb hot-state lifecycle", () => {
           apiKey: "imported-secret",
           isActive: true,
           priority: 1,
+          routingStatus: "blocked",
+          quotaState: "exhausted",
+          reasonDetail: "imported quota block",
+          usageSnapshot: { remaining: 0 },
+          modelLock_gpt4: true,
           testStatus: "active",
         },
       ],
     });
 
     expect(providerHotState.__getProviderHotStateSnapshotForTests("provider-import")).toBeNull();
+    providerHotState.__resetProviderHotStateForTests();
 
     const importedConnection = await localDb.getProviderConnectionById("conn-import");
+    expect(sqliteHelpers.loadProviderHotState("provider-import")).toEqual({
+      "conn-import": {
+        routingStatus: "blocked",
+        quotaState: "exhausted",
+        reasonDetail: "imported quota block",
+        usageSnapshot: { remaining: 0 },
+        modelLock_gpt4: true,
+      },
+    });
 
     expect(importedConnection).toMatchObject({
       id: "conn-import",
       provider: "provider-import",
       name: "Imported",
       testStatus: "active",
+      routingStatus: "blocked",
+      quotaState: "exhausted",
+      reasonDetail: "imported quota block",
+      usageSnapshot: { remaining: 0 },
+      modelLock_gpt4: true,
     });
-    expect(importedConnection).toMatchObject({
-      routingStatus: "eligible",
-      authState: "ok",
-      quotaState: "ok",
-      lastError: null,
-    });
+    expect(sqliteHelpers.loadProviderHotState("provider-import")["conn-import"]).not.toHaveProperty("apiKey");
   });
 
-  it("clears provider hot state when deleting provider connections in bulk", async () => {
+  it("removes sqlite hot state when deleting a single provider connection", async () => {
     const { localDb, providerHotState } = await loadModulesWithTempDataDir();
+    const sqliteHelpers = await import("@/lib/sqliteHelpers.js");
 
-    await localDb.createProviderConnection({
-      id: "conn-delete-1",
+    const created = await localDb.createProviderConnection({
+      provider: "provider-delete-single",
+      name: "Delete single",
+      apiKey: "key-single",
+      isActive: true,
+      priority: 1,
+      testStatus: "active",
+    });
+
+    await providerHotState.setConnectionHotState(created.id, "provider-delete-single", {
+      routingStatus: "blocked",
+      authState: "expired",
+      reasonDetail: "single delete",
+    });
+
+    expect(sqliteHelpers.loadHotStates("provider-delete-single", [created.id])).toEqual({
+      [created.id]: {
+        routingStatus: "blocked",
+        authState: "expired",
+        reasonDetail: "single delete",
+      },
+    });
+
+    await expect(localDb.deleteProviderConnection(created.id)).resolves.toBe(true);
+    providerHotState.__resetProviderHotStateForTests();
+
+    expect(sqliteHelpers.loadHotStates("provider-delete-single", [created.id])).toEqual({});
+    await expect(localDb.getProviderConnectionById(created.id)).resolves.toBeNull();
+  });
+
+  it("clears provider sqlite hot state when deleting provider connections in bulk", async () => {
+    const { localDb, providerHotState } = await loadModulesWithTempDataDir();
+    const sqliteHelpers = await import("@/lib/sqliteHelpers.js");
+
+    const createdOne = await localDb.createProviderConnection({
       provider: "provider-delete",
       name: "Delete one",
       apiKey: "key-1",
@@ -152,8 +204,7 @@ describe("localDb hot-state lifecycle", () => {
       priority: 1,
       testStatus: "active",
     });
-    await localDb.createProviderConnection({
-      id: "conn-delete-2",
+    const createdTwo = await localDb.createProviderConnection({
       provider: "provider-delete",
       name: "Delete two",
       apiKey: "key-2",
@@ -162,20 +213,162 @@ describe("localDb hot-state lifecycle", () => {
       testStatus: "active",
     });
 
-    await providerHotState.setConnectionHotState("conn-delete-1", "provider-delete", {
+    await providerHotState.setConnectionHotState(createdOne.id, "provider-delete", {
       routingStatus: "blocked_quota",
       quotaState: "exhausted",
       testStatus: "unavailable",
     });
-    await providerHotState.setConnectionHotState("conn-delete-2", "provider-delete", {
+    await providerHotState.setConnectionHotState(createdTwo.id, "provider-delete", {
       routingStatus: "blocked_health",
       reasonDetail: "stale health",
       testStatus: "error",
     });
 
+    expect(sqliteHelpers.loadProviderHotState("provider-delete")).toEqual({
+      [createdOne.id]: {
+        quotaState: "exhausted",
+      },
+      [createdTwo.id]: {
+        reasonDetail: "stale health",
+      },
+    });
+
     await expect(localDb.deleteProviderConnectionsByProvider("provider-delete")).resolves.toBe(2);
+    providerHotState.__resetProviderHotStateForTests();
+
     expect(providerHotState.__getProviderHotStateSnapshotForTests("provider-delete")).toBeNull();
+    expect(sqliteHelpers.loadProviderHotState("provider-delete")).toEqual({});
     await expect(localDb.getProviderConnections({ provider: "provider-delete" })).resolves.toEqual([]);
+  });
+
+  it("prevents stale Redis provider state from resurrecting deleted hot state after redis recovers", async () => {
+    const { localDb, providerHotState } = await loadModulesWithTempDataDir();
+    const sqliteHelpers = await import("@/lib/sqliteHelpers.js");
+
+    process.env.REDIS_URL = "redis://example.test:6379";
+
+    const staleRedis = createFakeRedisClient();
+    providerHotState.__setRedisClientForTests(staleRedis);
+
+    const created = await localDb.createProviderConnection({
+      provider: "provider-resurrection-delete",
+      name: "Delete after outage",
+      apiKey: "key-delete",
+      isActive: true,
+      priority: 1,
+      testStatus: "active",
+    });
+
+    await providerHotState.setConnectionHotState(created.id, "provider-resurrection-delete", {
+      routingStatus: "blocked",
+      reasonDetail: "stale redis copy",
+    });
+
+    delete process.env.REDIS_URL;
+
+    await expect(localDb.deleteProviderConnection(created.id)).resolves.toBe(true);
+    expect(sqliteHelpers.loadProviderHotState("provider-resurrection-delete")).toEqual({});
+
+    providerHotState.__resetProviderHotStateForTests();
+    process.env.REDIS_URL = "redis://example.test:6379";
+    providerHotState.__setRedisClientForTests(staleRedis);
+
+    const projected = await providerHotState.getConnectionHotStates([
+      { id: created.id, provider: "provider-resurrection-delete", testStatus: "active" },
+    ]);
+
+    expect(projected.get(`provider-resurrection-delete:${created.id}`)).toMatchObject({
+      id: created.id,
+      provider: "provider-resurrection-delete",
+      testStatus: "active",
+    });
+    expect(projected.get(`provider-resurrection-delete:${created.id}`)).not.toHaveProperty("routingStatus");
+
+    providerHotState.__resetProviderHotStateForTests();
+    providerHotState.__setRedisClientForTests(staleRedis);
+
+    const projectedAgain = await providerHotState.getConnectionHotStates([
+      { id: created.id, provider: "provider-resurrection-delete", testStatus: "active" },
+    ]);
+
+    expect(projectedAgain.get(`provider-resurrection-delete:${created.id}`)).toMatchObject({
+      id: created.id,
+      provider: "provider-resurrection-delete",
+      testStatus: "active",
+    });
+    expect(projectedAgain.get(`provider-resurrection-delete:${created.id}`)).not.toHaveProperty("routingStatus");
+  });
+
+  it("prevents stale Redis provider state from resurrecting import-invalidated hot state after redis recovers", async () => {
+    const { localDb, providerHotState } = await loadModulesWithTempDataDir();
+
+    process.env.REDIS_URL = "redis://example.test:6379";
+
+    const staleRedis = createFakeRedisClient();
+    providerHotState.__setRedisClientForTests(staleRedis);
+
+    const created = await localDb.createProviderConnection({
+      id: "conn-import-stale",
+      provider: "provider-import-stale",
+      name: "Before import",
+      apiKey: "old-key",
+      isActive: true,
+      priority: 1,
+      testStatus: "active",
+    });
+
+    await providerHotState.setConnectionHotState(created.id, "provider-import-stale", {
+      routingStatus: "blocked",
+      reasonDetail: "stale redis state",
+    });
+
+    delete process.env.REDIS_URL;
+
+    await localDb.importDb({
+      format: DB_BACKUP_FORMAT,
+      providerConnections: [
+        {
+          id: "conn-import-stale",
+          provider: "provider-import-stale",
+          name: "Imported clean",
+          apiKey: "new-key",
+          isActive: true,
+          priority: 1,
+          routingStatus: "blocked",
+          reasonDetail: "imported truth",
+          testStatus: "active",
+        },
+      ],
+    });
+
+    providerHotState.__resetProviderHotStateForTests();
+    process.env.REDIS_URL = "redis://example.test:6379";
+    providerHotState.__setRedisClientForTests(staleRedis);
+
+    const imported = await localDb.getProviderConnectionById("conn-import-stale");
+
+    expect(imported).toMatchObject({
+      id: "conn-import-stale",
+      provider: "provider-import-stale",
+      name: "Imported clean",
+      routingStatus: "blocked",
+      reasonDetail: "imported truth",
+      testStatus: "active",
+    });
+
+    providerHotState.__resetProviderHotStateForTests();
+    providerHotState.__setRedisClientForTests(staleRedis);
+
+    const importedAgain = await localDb.getProviderConnectionById("conn-import-stale");
+
+    expect(importedAgain).toMatchObject({
+      id: "conn-import-stale",
+      provider: "provider-import-stale",
+      name: "Imported clean",
+      routingStatus: "blocked",
+      reasonDetail: "imported truth",
+      testStatus: "active",
+    });
   });
 
   it("durably persists projected legacy fallback fields for redis-backed hot-only updates", async () => {

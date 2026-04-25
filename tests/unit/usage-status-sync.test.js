@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mockConnections = [];
 const updateProviderConnection = vi.fn(async (id, data) => ({ id, ...data }));
@@ -12,6 +12,8 @@ const writeConnectionHotState = vi.fn(async ({ patch }) => patch);
 const needsRefresh = vi.fn(() => false);
 const refreshCredentials = vi.fn(async () => null);
 const runUsageRefreshJob = vi.fn(async (_connectionId, handler) => handler());
+let writeConnectionHotStateImpl = async ({ patch }) => patch;
+let providerHotStateActualModule = null;
 
 vi.mock("next/server", () => ({
   NextResponse: {
@@ -29,9 +31,18 @@ vi.mock("@/lib/localDb", () => ({
   updateProviderConnection,
 }));
 
-vi.mock("@/lib/providerHotState", () => ({
-  writeConnectionHotState,
-}));
+vi.mock("@/lib/providerHotState", async () => {
+  const actual = await vi.importActual("../../src/lib/providerHotState.js");
+  providerHotStateActualModule = actual;
+  return {
+    ...actual,
+    writeConnectionHotState: vi.fn(async (args) => {
+      const result = await writeConnectionHotStateImpl(args);
+      writeConnectionHotState(args);
+      return result;
+    }),
+  };
+});
 
 vi.mock("open-sse/services/usage.js", () => ({
   getUsageForProvider,
@@ -66,7 +77,18 @@ describe("usage request status sync", () => {
     refreshCredentials.mockImplementation(async () => null);
     runUsageRefreshJob.mockClear();
     runUsageRefreshJob.mockImplementation(async (_connectionId, handler) => handler());
+    writeConnectionHotStateImpl = async ({ patch }) => patch;
+    delete process.env.REDIS_URL;
+    delete process.env.REDIS_HOST;
+    delete process.env.REDIS_PORT;
     vi.resetModules();
+  });
+
+  afterEach(async () => {
+    try {
+      const sqliteHelpers = await import("../../src/lib/sqliteHelpers.js");
+      sqliteHelpers.closeSqliteDb?.();
+    } catch {}
   });
 
   it("marks the connection active after successful usage fetch", async () => {
@@ -317,6 +339,66 @@ describe("usage request status sync", () => {
     });
     expect(result).not.toHaveProperty("testStatus");
     expect(result).not.toHaveProperty("rateLimitedUntil");
+  });
+
+  it("persists canonical hot-state to SQLite when syncUsageStatus writes without Redis", async () => {
+    const providerHotState = await import("../../src/lib/providerHotState.js");
+    const sqliteHelpers = await import("../../src/lib/sqliteHelpers.js");
+    providerHotState.__resetProviderHotStateForTests();
+    sqliteHelpers.clearAllSqliteHotState();
+
+    writeConnectionHotStateImpl = providerHotStateActualModule.writeConnectionHotState;
+
+    const { syncUsageStatus } = await import("../../src/lib/usageStatus.js");
+
+    await syncUsageStatus(
+      { id: "conn-sqlite-fallback", provider: "codex" },
+      {
+        routingStatus: "blocked",
+        quotaState: "exhausted",
+        authState: "invalid",
+        reasonCode: "quota_exhausted",
+        reasonDetail: "Weekly quota exhausted",
+        nextRetryAt: "2026-04-26T00:00:00.000Z",
+        lastCheckedAt: "2026-04-25T12:00:00.000Z",
+        apiKey: "secret-api-key",
+        accessToken: "secret-access-token",
+        refreshToken: "secret-refresh-token",
+        baseUrl: "https://example.com",
+      }
+    );
+
+    providerHotState.__resetProviderHotStateForTests();
+
+    const durableSnapshot = await providerHotState.getConnectionHotState("conn-sqlite-fallback", "codex");
+    expect(durableSnapshot).toEqual({
+      id: "conn-sqlite-fallback",
+      routingStatus: "blocked",
+      quotaState: "exhausted",
+      authState: "invalid",
+      reasonCode: "quota_exhausted",
+      reasonDetail: "Weekly quota exhausted",
+      nextRetryAt: "2026-04-26T00:00:00.000Z",
+      lastCheckedAt: "2026-04-25T12:00:00.000Z",
+      version: expect.any(Number),
+    });
+    expect(durableSnapshot).not.toHaveProperty("apiKey");
+    expect(durableSnapshot).not.toHaveProperty("accessToken");
+    expect(durableSnapshot).not.toHaveProperty("refreshToken");
+    expect(durableSnapshot).not.toHaveProperty("baseUrl");
+
+    expect(sqliteHelpers.loadHotStates("codex", ["conn-sqlite-fallback"])).toEqual({
+      "conn-sqlite-fallback": {
+        routingStatus: "blocked",
+        quotaState: "exhausted",
+        authState: "invalid",
+        reasonCode: "quota_exhausted",
+        reasonDetail: "Weekly quota exhausted",
+        nextRetryAt: "2026-04-26T00:00:00.000Z",
+        lastCheckedAt: "2026-04-25T12:00:00.000Z",
+        version: expect.any(Number),
+      },
+    });
   });
 
   it("does not promote Codex 401 unavailable responses to eligible", async () => {
