@@ -10,7 +10,7 @@
     "test": "npm --prefix tests test",
     "dev:bun": "bun --bun next dev --webpack --port 20128",
     "build:bun": "NODE_ENV=production bun --bun next build --webpack && node ./scripts/ensure-middleware-manifest.js",
-    "start:bun": "NODE_ENV=production bun ./.next/standalone/server.js"
+    "start:bun": "NODE_ENV=production bun --bun ./scripts/start.js"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
