@@ -586,7 +586,7 @@ export async function applyProxyOutcomeReport(report = {}) {
     response: {
       outcome: report.outcome || null,
     },
-  }, { propagateError: true });
+  }, { forceFlush: false, propagateError: true });
 
   if (!connectionId) {
     return { ok: true };

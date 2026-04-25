@@ -553,6 +553,39 @@ export function upsertEntity(collection, entity) {
   ).run(collection, entity.id, JSON.stringify(entity), Date.now());
 }
 
+export function upsertEntities(collection, entities) {
+  if (!collection || typeof collection !== 'string') {
+    throw new TypeError('collection must be a non-empty string');
+  }
+
+  if (!Array.isArray(entities)) {
+    throw new TypeError('entities must be an array');
+  }
+
+  const db = getSqliteDb();
+  ensureSchema(db);
+  const timestamp = Date.now();
+  const stmt = db.prepare(
+    'INSERT OR REPLACE INTO entities (collection, id, value, updated_at) VALUES (?, ?, ?, ?)'
+  );
+
+  const transaction = db.transaction(() => {
+    for (const entity of entities) {
+      if (!entity || typeof entity !== 'object') {
+        throw new TypeError('entity must be an object');
+      }
+
+      if (!entity.id || typeof entity.id !== 'string') {
+        throw new TypeError('entity.id must be a non-empty string');
+      }
+
+      stmt.run(collection, entity.id, JSON.stringify(entity), timestamp);
+    }
+  });
+
+  transaction();
+}
+
 export function deleteEntity(collection, id) {
   if (!collection || typeof collection !== 'string') {
     throw new TypeError('collection must be a non-empty string');

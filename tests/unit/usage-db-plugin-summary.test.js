@@ -113,6 +113,42 @@ describe("getPluginUsageSummary period semantics", () => {
     expect(summary.cost).toBeCloseTo(0.3, 10);
   });
 
+  it("uses history token aliases for last24h and excludes future entries", async () => {
+    const { getPluginUsageSummary } = await import("../../src/lib/usageDb.js");
+
+    const summary = getPluginUsageSummary({
+      period: "last24h",
+      history: [
+        {
+          timestamp: "2026-04-24T12:30:00.000Z",
+          tokens: { input_tokens: 12, output_tokens: 6 },
+          cost: 0.4,
+        },
+        {
+          timestamp: "2026-04-25T12:00:01.000Z",
+          tokens: { input_tokens: 50, output_tokens: 25 },
+          cost: 1.5,
+        },
+      ],
+      dailySummary: {
+        "2026-04-25": {
+          requests: 99,
+          promptTokens: 999,
+          completionTokens: 999,
+          cost: 9.99,
+        },
+      },
+      now: new Date("2026-04-25T12:00:00.000Z"),
+    });
+
+    expect(summary).toMatchObject({
+      requests: 1,
+      promptTokens: 12,
+      completionTokens: 6,
+      cost: 0.4,
+    });
+  });
+
   it("sums the last seven local date buckets including today", async () => {
     const { getPluginUsageSummary } = await import("../../src/lib/usageDb.js");
 

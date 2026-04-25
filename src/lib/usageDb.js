@@ -91,6 +91,13 @@ function migrateHistoryToDailySummary(db) {
 
 // Singleton instance
 let dbInstance = null;
+let usageWriteQueue = Promise.resolve();
+
+function enqueueUsageWrite(task) {
+  const run = usageWriteQueue.then(task, task);
+  usageWriteQueue = run.catch(() => {});
+  return run;
+}
 
 // Use global to share pending state across Next.js route modules
 if (!global._pendingRequests) {
@@ -284,35 +291,37 @@ export async function saveRequestUsage(entry, options = {}) {
   if (isCloud) return; // Skip saving in Workers
 
   try {
-    const db = await getUsageDb();
+    await enqueueUsageWrite(async () => {
+      const db = await getUsageDb();
 
-    // Add timestamp if not present
-    if (!entry.timestamp) {
-      entry.timestamp = new Date().toISOString();
-    }
+      // Add timestamp if not present
+      if (!entry.timestamp) {
+        entry.timestamp = new Date().toISOString();
+      }
 
-    // Ensure history array exists
-    if (!Array.isArray(db.data.history)) {
-      db.data.history = [];
-    }
-    if (typeof db.data.totalRequestsLifetime !== "number") {
-      db.data.totalRequestsLifetime = db.data.history.length;
-    }
+      // Ensure history array exists
+      if (!Array.isArray(db.data.history)) {
+        db.data.history = [];
+      }
+      if (typeof db.data.totalRequestsLifetime !== "number") {
+        db.data.totalRequestsLifetime = db.data.history.length;
+      }
 
-    const entryCost = await calculateCost(entry.provider, entry.model, entry.tokens);
-    entry.cost = entryCost;
-    db.data.history.push(entry);
-    db.data.totalRequestsLifetime += 1;
+      const entryCost = await calculateCost(entry.provider, entry.model, entry.tokens);
+      entry.cost = entryCost;
+      db.data.history.push(entry);
+      db.data.totalRequestsLifetime += 1;
 
-    if (!db.data.dailySummary) db.data.dailySummary = {};
-    aggregateEntryToDailySummary(db.data.dailySummary, entry);
+      if (!db.data.dailySummary) db.data.dailySummary = {};
+      aggregateEntryToDailySummary(db.data.dailySummary, entry);
 
-    const MAX_HISTORY = 10000;
-    if (db.data.history.length > MAX_HISTORY) {
-      db.data.history.splice(0, db.data.history.length - MAX_HISTORY);
-    }
+      const MAX_HISTORY = 10000;
+      if (db.data.history.length > MAX_HISTORY) {
+        db.data.history.splice(0, db.data.history.length - MAX_HISTORY);
+      }
 
-    await db.write();
+      await db.write();
+    });
     statsEmitter.emit("update");
   } catch (error) {
     console.error("Failed to save usage stats:", error);
@@ -945,5 +954,5 @@ export async function getChartData(period = "7d") {
   return buckets;
 }
 
-// Re-export request details functions from new SQLite-based module
+// Re-export request details functions from the JSON-backed request details module
 export { saveRequestDetail, getRequestDetails, getRequestDetailById } from "./requestDetailsDb.js";

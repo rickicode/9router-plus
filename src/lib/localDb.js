@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from "uuid";
 import path from "node:path";
 import fs from "node:fs";
 import { DATA_DIR } from "@/lib/dataDir.js";
-import { DB_SQLITE_FILE, clearHotStateForProvider, ensureSchema, getSqliteDb, loadAllDataFromSqlite, loadSingletonFromSqlite, markProviderHotStateInvalidated, migrateFromJSON, rebuildHotStateFromConnections, saveAllDataToSqlite } from "@/lib/sqliteHelpers.js";
+import { DB_SQLITE_FILE, clearHotStateForProvider, deleteEntity, ensureSchema, getSqliteDb, loadAllDataFromSqlite, loadSingletonFromSqlite, markProviderHotStateInvalidated, migrateFromJSON, rebuildHotStateFromConnections, saveAllDataToSqlite, upsertEntities, upsertEntity, upsertSingleton } from "@/lib/sqliteHelpers.js";
 import { getConnectionEffectiveStatus, getConnectionStatusDetails } from "@/lib/connectionStatus.js";
 import { sanitizeConnectionStatusRecord } from "./providerHotState.js";
 import { normalizeQuotaSchedulerSettings } from "./quotaRefreshPlanner.js";
@@ -400,7 +400,10 @@ async function withLocalDbMutex(operation) {
 }
 
 async function safeRead(db) {
-  db.data = loadAllDataFromStorage();
+  const { data, rawData, normalizedKeys } = loadAllDataFromStorageState();
+  db.data = data;
+  db._rawDataFromStorage = rawData;
+  db._normalizedKeysOnRead = new Set(normalizedKeys);
 }
 
 function cloneDbData(data) {
@@ -423,15 +426,39 @@ function createMemoryDb(data) {
 }
 
 function loadAllDataFromStorage() {
+  return loadAllDataFromStorageState().data;
+}
+
+function loadAllDataFromStorageState() {
   if (!isCloud && fs.existsSync(DB_SQLITE_FILE)) {
     const sqliteData = loadAllDataFromSqlite();
     if (loadSingletonFromSqlite("opencodeSync") == null) {
       delete sqliteData.opencodeSync;
     }
-    return ensureDbShape(sqliteData).data;
+    const rawData = cloneDbData(sqliteData);
+    const { data } = ensureDbShape(sqliteData);
+    return {
+      data,
+      rawData,
+      normalizedKeys: getChangedTopLevelKeys(rawData, data),
+    };
   }
 
-  return cloneDefaultData();
+  const data = cloneDefaultData();
+  return {
+    data,
+    rawData: cloneDbData(data),
+    normalizedKeys: [],
+  };
+}
+
+function getChangedTopLevelKeys(beforeData, afterData) {
+  const keys = new Set([
+    ...Object.keys(beforeData || {}),
+    ...Object.keys(afterData || {}),
+  ]);
+
+  return [...keys].filter((key) => JSON.stringify(beforeData?.[key]) !== JSON.stringify(afterData?.[key]));
 }
 
 function saveAllDataToStorage(data) {
@@ -522,6 +549,92 @@ async function persistDbWrite(db) {
   ensureDbShapeForWrite(db);
   saveAllDataToStorage(db.data);
   setDbCache(db.data);
+}
+
+async function persistSingletonWrite(db, key) {
+  invalidateDbCache();
+  ensureDbShapeForWrite(db);
+  upsertSingleton(key, db.data[key]);
+  setDbCache(db.data);
+  db._rawDataFromStorage = cloneDbData(db.data);
+  db._normalizedKeysOnRead = new Set();
+}
+
+function getStoredCollectionSnapshot(db, collection) {
+  const rawCollection = db?._rawDataFromStorage?.[collection];
+  return Array.isArray(rawCollection) ? rawCollection : [];
+}
+
+function hasCollectionReadNormalization(db, collection) {
+  return db?._normalizedKeysOnRead instanceof Set && db._normalizedKeysOnRead.has(collection);
+}
+
+function syncCollectionPersistence(collection, previousEntities, nextEntities) {
+  upsertEntities(collection, nextEntities);
+
+  const nextIds = new Set(
+    nextEntities
+      .filter((entity) => entity && typeof entity.id === "string" && entity.id.length > 0)
+      .map((entity) => entity.id)
+  );
+
+  for (const entity of previousEntities) {
+    if (!entity || typeof entity.id !== "string" || entity.id.length === 0) continue;
+    if (!nextIds.has(entity.id)) {
+      deleteEntity(collection, entity.id);
+    }
+  }
+}
+
+async function persistCollectionEntityWrite(db, collection, entity) {
+  invalidateDbCache();
+  ensureDbShapeForWrite(db);
+  if (hasCollectionReadNormalization(db, collection)) {
+    syncCollectionPersistence(
+      collection,
+      getStoredCollectionSnapshot(db, collection),
+      Array.isArray(db.data?.[collection]) ? db.data[collection] : []
+    );
+  } else {
+    upsertEntity(collection, entity);
+  }
+  setDbCache(db.data);
+  db._rawDataFromStorage = cloneDbData(db.data);
+  db._normalizedKeysOnRead = new Set();
+}
+
+async function persistCollectionEntityDelete(db, collection, id) {
+  invalidateDbCache();
+  ensureDbShapeForWrite(db);
+  if (hasCollectionReadNormalization(db, collection)) {
+    syncCollectionPersistence(
+      collection,
+      getStoredCollectionSnapshot(db, collection),
+      Array.isArray(db.data?.[collection]) ? db.data[collection] : []
+    );
+  } else {
+    deleteEntity(collection, id);
+  }
+  setDbCache(db.data);
+  db._rawDataFromStorage = cloneDbData(db.data);
+  db._normalizedKeysOnRead = new Set();
+}
+
+async function persistCollectionEntitiesWrite(db, collection, entities) {
+  invalidateDbCache();
+  ensureDbShapeForWrite(db);
+  if (hasCollectionReadNormalization(db, collection)) {
+    syncCollectionPersistence(
+      collection,
+      getStoredCollectionSnapshot(db, collection),
+      Array.isArray(db.data?.[collection]) ? db.data[collection] : []
+    );
+  } else {
+    upsertEntities(collection, entities);
+  }
+  setDbCache(db.data);
+  db._rawDataFromStorage = cloneDbData(db.data);
+  db._normalizedKeysOnRead = new Set();
 }
 
 async function safeWrite(db) {
@@ -772,7 +885,7 @@ export async function createProviderConnection(data) {
         Object.assign(db.data.providerConnections[existingIndex], buildEligibilityRecoveryPatch());
       }
 
-      await persistDbWrite(db);
+      await persistCollectionEntityWrite(db, "providerConnections", db.data.providerConnections[existingIndex]);
       result = db.data.providerConnections[existingIndex];
       return;
     }
@@ -859,7 +972,7 @@ export async function createProviderConnection(data) {
     }
 
     db.data.providerConnections.push(connection);
-    await persistDbWrite(db);
+    await persistCollectionEntityWrite(db, "providerConnections", connection);
     result = connection;
   });
 
@@ -896,7 +1009,7 @@ export async function updateProviderConnection(id, data) {
       updatedAt: new Date().toISOString(),
     });
 
-    await safeWrite(db);
+    await persistCollectionEntityWrite(db, "providerConnections", db.data.providerConnections[index]);
 
     if (data.priority !== undefined) await reorderProviderConnections(providerId);
 
@@ -918,7 +1031,7 @@ export async function updateProviderConnection(id, data) {
   }
 
   if (!canUseRedisForHotState) {
-    await safeWrite(db);
+    await persistCollectionEntityWrite(db, "providerConnections", db.data.providerConnections[index]);
   }
   if (data.priority !== undefined) await reorderProviderConnections(providerId);
 
@@ -1014,7 +1127,7 @@ export async function deleteProviderConnection(id) {
 
   const providerId = db.data.providerConnections[index].provider;
   db.data.providerConnections.splice(index, 1);
-  await safeWrite(db);
+  await persistCollectionEntityDelete(db, "providerConnections", id);
   await reorderProviderConnections(providerId);
   await deleteConnectionHotState(id, providerId);
 
@@ -1037,7 +1150,7 @@ export async function reorderProviderConnections(providerId) {
     conn.priority = index + 1;
   });
 
-  await safeWrite(db);
+  await persistCollectionEntitiesWrite(db, "providerConnections", providerConnections);
 }
 
 export async function getModelAliases() {
@@ -1093,9 +1206,12 @@ export async function getMitmAlias(toolName) {
 
 export async function setMitmAliasAll(toolName, mappings) {
   const db = await getDb();
-  if (!db.data.mitmAlias) db.data.mitmAlias = {};
-  db.data.mitmAlias[toolName] = mappings || {};
-  await safeWrite(db);
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    if (!db.data.mitmAlias) db.data.mitmAlias = {};
+    db.data.mitmAlias[toolName] = mappings || {};
+    await persistSingletonWrite(db, "mitmAlias");
+  });
 }
 
 export async function setMitmAlias(toolName, mappings) {
@@ -1104,9 +1220,12 @@ export async function setMitmAlias(toolName, mappings) {
 
 export async function deleteMitmAlias(toolName) {
   const db = await getDb();
-  if (!db.data.mitmAlias) db.data.mitmAlias = {};
-  delete db.data.mitmAlias[toolName];
-  await safeWrite(db);
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    if (!db.data.mitmAlias) db.data.mitmAlias = {};
+    delete db.data.mitmAlias[toolName];
+    await persistSingletonWrite(db, "mitmAlias");
+  });
 }
 
 export async function getCombos() {

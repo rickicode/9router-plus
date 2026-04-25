@@ -75,6 +75,56 @@ let writeBuffer = [];
 let flushTimer = null;
 let isFlushing = false;
 let activeFlushPromise = null;
+let activeFlushItems = [];
+
+function buildVisibleRecord(detail) {
+  const record = {
+    id: detail.id || null,
+    provider: detail.provider || null,
+    model: detail.model || null,
+    connectionId: detail.connectionId || null,
+    timestamp: detail.timestamp || null,
+    status: detail.status || null,
+    latency: detail.latency || {},
+    tokens: detail.tokens || {},
+    request: detail.request || {},
+    providerRequest: detail.providerRequest || {},
+    providerResponse: detail.providerResponse || {},
+    response: detail.response || {},
+  };
+
+  if (record.request?.headers) {
+    record.request = {
+      ...record.request,
+      headers: sanitizeHeaders(record.request.headers),
+    };
+  }
+
+  return record;
+}
+
+function getMergedRecords(persistedRecords = []) {
+  const merged = new Map();
+
+  for (const record of persistedRecords) {
+    if (record?.id) {
+      merged.set(record.id, record);
+      continue;
+    }
+    merged.set(Symbol("persisted-record"), record);
+  }
+
+  for (const detail of [...activeFlushItems, ...writeBuffer]) {
+    const record = buildVisibleRecord(detail);
+    if (record.id) {
+      merged.set(record.id, record);
+      continue;
+    }
+    merged.set(Symbol("buffered-record"), record);
+  }
+
+  return Array.from(merged.values());
+}
 
 function safeJsonStringify(obj, maxSize) {
   try {
@@ -114,6 +164,7 @@ async function runFlush(options = {}) {
   try {
     const itemsToSave = [...writeBuffer];
     writeBuffer = [];
+    activeFlushItems = itemsToSave;
 
     const db = await getDb();
     const config = await getObservabilityConfig();
@@ -124,20 +175,7 @@ async function runFlush(options = {}) {
       if (item.request?.headers) item.request.headers = sanitizeHeaders(item.request.headers);
 
       // Serialize large fields
-      const record = {
-        id: item.id,
-        provider: item.provider || null,
-        model: item.model || null,
-        connectionId: item.connectionId || null,
-        timestamp: item.timestamp,
-        status: item.status || null,
-        latency: item.latency || {},
-        tokens: item.tokens || {},
-        request: item.request || {},
-        providerRequest: item.providerRequest || {},
-        providerResponse: item.providerResponse || {},
-        response: item.response || {},
-      };
+      const record = buildVisibleRecord(item);
 
       // Truncate oversized JSON fields
       const maxSize = config.maxJsonSize;
@@ -177,6 +215,7 @@ async function runFlush(options = {}) {
       throw error;
     }
   } finally {
+    activeFlushItems = [];
     isFlushing = false;
   }
 }
@@ -206,10 +245,9 @@ export async function saveRequestDetail(detail, options = {}) {
 
   writeBuffer.push(detail);
 
-  if (writeBuffer.length >= config.batchSize) {
-    await flushToDatabase(options);
-    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
-  } else if (options.propagateError) {
+  const shouldForceFlush = options.forceFlush ?? options.propagateError === true;
+
+  if (writeBuffer.length >= config.batchSize || shouldForceFlush) {
     await flushToDatabase(options);
     if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
   } else if (!flushTimer) {
@@ -226,7 +264,7 @@ export async function getRequestDetails(filter = {}) {
   }
 
   const db = await getDb();
-  let records = [...db.data.records];
+  let records = getMergedRecords(db.data.records);
 
   // Apply filters
   if (filter.provider) records = records.filter(r => r.provider === filter.provider);
@@ -251,32 +289,89 @@ export async function getRequestDetails(filter = {}) {
   };
 }
 
+export async function getKnownProviders() {
+  if (isCloud) {
+    return [];
+  }
+
+  const db = await getDb();
+  const providerIds = new Set();
+
+  for (const record of getMergedRecords(db.data.records)) {
+    if (record?.provider) {
+      providerIds.add(record.provider);
+    }
+  }
+
+  return [...providerIds].sort();
+}
+
 export async function getRequestDetailById(id) {
   if (isCloud) return null;
 
   const db = await getDb();
-  return db.data.records.find(r => r.id === id) || null;
+  return getMergedRecords(db.data.records).find(r => r.id === id) || null;
 }
 
-// Graceful shutdown — use named handler so we can remove it on re-registration
+// Graceful shutdown — use named handlers so we can remove them on re-registration
 const _shutdownHandler = async () => {
   if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
-  if (writeBuffer.length > 0) await flushToDatabase();
+  if (writeBuffer.length > 0 || activeFlushPromise) await flushToDatabase();
+};
+
+const SIGNAL_EXIT_CODES = {
+  SIGINT: 130,
+  SIGTERM: 143,
+};
+
+const SHUTDOWN_HANDLER_REGISTRY_KEY = Symbol.for("9routerPlus.requestDetailsDb.shutdownHandlers");
+
+function getShutdownHandlerRegistry() {
+  if (!globalThis[SHUTDOWN_HANDLER_REGISTRY_KEY]) {
+    globalThis[SHUTDOWN_HANDLER_REGISTRY_KEY] = {
+      beforeExit: null,
+      SIGINT: null,
+      SIGTERM: null,
+    };
+  }
+
+  return globalThis[SHUTDOWN_HANDLER_REGISTRY_KEY];
+}
+
+const _signalHandlers = {
+  SIGINT: async () => {
+    try {
+      await _shutdownHandler();
+    } finally {
+      process.exit(SIGNAL_EXIT_CODES.SIGINT);
+    }
+  },
+  SIGTERM: async () => {
+    try {
+      await _shutdownHandler();
+    } finally {
+      process.exit(SIGNAL_EXIT_CODES.SIGTERM);
+    }
+  },
 };
 
 function ensureShutdownHandler() {
   if (isCloud) return;
 
-  // Remove any previously registered listeners from this module (hot-reload safety)
-  process.off("beforeExit", _shutdownHandler);
-  process.off("SIGINT", _shutdownHandler);
-  process.off("SIGTERM", _shutdownHandler);
-  process.off("exit", _shutdownHandler);
+  const registry = getShutdownHandlerRegistry();
+
+  // Remove any previously registered listeners from this module across reloads.
+  if (registry.beforeExit) process.off("beforeExit", registry.beforeExit);
+  if (registry.SIGINT) process.off("SIGINT", registry.SIGINT);
+  if (registry.SIGTERM) process.off("SIGTERM", registry.SIGTERM);
 
   process.on("beforeExit", _shutdownHandler);
-  process.on("SIGINT", _shutdownHandler);
-  process.on("SIGTERM", _shutdownHandler);
-  process.on("exit", _shutdownHandler);
+  process.on("SIGINT", _signalHandlers.SIGINT);
+  process.on("SIGTERM", _signalHandlers.SIGTERM);
+
+  registry.beforeExit = _shutdownHandler;
+  registry.SIGINT = _signalHandlers.SIGINT;
+  registry.SIGTERM = _signalHandlers.SIGTERM;
 }
 
 ensureShutdownHandler();
