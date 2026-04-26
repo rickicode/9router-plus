@@ -118,6 +118,19 @@ export async function translateRequest(sourceFormat, targetFormat, model, body, 
   // Fix missing tool responses (insert empty tool_result if needed)
   fixMissingToolResponses(result);
 
+  // Some providers and clients both speak Responses API, but clipboard/image payloads
+  // still need request-side normalization before forwarding upstream.
+  if (sourceFormat === FORMATS.OPENAI_RESPONSES && targetFormat === FORMATS.OPENAI_RESPONSES) {
+    const normalizeResponsesRequest = requestRegistry.get(`${FORMATS.OPENAI_RESPONSES}:${FORMATS.OPENAI}`);
+    const restoreResponsesRequest = requestRegistry.get(`${FORMATS.OPENAI}:${FORMATS.OPENAI_RESPONSES}`);
+
+    if (normalizeResponsesRequest && restoreResponsesRequest) {
+      result = normalizeResponsesRequest(model, result, stream, credentials);
+      reqLogger?.logOpenAIRequest?.(result);
+      result = restoreResponsesRequest(model, result, stream, credentials);
+    }
+  }
+
   // If same format, skip translation steps
   if (sourceFormat !== targetFormat) {
     // Step 1: source -> openai (if source is not openai)

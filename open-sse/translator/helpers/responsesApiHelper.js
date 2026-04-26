@@ -21,6 +21,104 @@ export function normalizeResponsesInput(input) {
   return null;
 }
 
+function pickFirstString(...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim() !== "") return value;
+  }
+  return "";
+}
+
+function normalizeImageUrlLike(value) {
+  if (typeof value === "string") return { url: value, detail: undefined };
+  if (value && typeof value === "object") {
+    return {
+      url: pickFirstString(value.url, value.href, value.file_data, value.file?.file_data),
+      detail: pickFirstString(value.detail, value.quality),
+    };
+  }
+  return { url: "", detail: undefined };
+}
+
+function normalizeFileLike(part) {
+  const nestedFile = part.file && typeof part.file === "object" ? part.file : {};
+  const nestedImage = part.image_url && typeof part.image_url === "object" ? part.image_url : {};
+  const nestedMime = nestedFile.mime_type || nestedFile.mimeType || nestedImage.mime_type || nestedImage.mimeType || "";
+
+  return {
+    fileData: pickFirstString(
+      part.file_data,
+      nestedFile.file_data,
+      nestedFile.data,
+      part.data,
+      nestedImage.file_data,
+      nestedImage.data,
+    ),
+    mimeType: pickFirstString(part.mime_type, part.mimeType, nestedMime),
+    filename: pickFirstString(part.filename, nestedFile.filename, nestedFile.name, part.name),
+  };
+}
+
+function normalizeResponsesContentPart(part) {
+  if (!part || typeof part !== "object") return part;
+
+  if (part.type === "input_text") {
+    return { type: "text", text: part.text || "" };
+  }
+
+  if (part.type === "output_text") {
+    return { type: "text", text: part.text || "" };
+  }
+
+  if (part.type === "input_image") {
+    const image = normalizeImageUrlLike(part.image_url);
+    const file = normalizeFileLike(part);
+    const url = pickFirstString(image.url, file.fileData, part.file_id);
+
+    return {
+      type: "image_url",
+      image_url: {
+        url,
+        detail: pickFirstString(part.detail, image.detail, part.image_url?.detail) || "auto"
+      }
+    };
+  }
+
+  if (part.type === "input_file") {
+    const { fileData, mimeType, filename } = normalizeFileLike(part);
+
+    if (typeof fileData === "string" && fileData.startsWith("data:")) {
+      return {
+        type: "image_url",
+        image_url: {
+          url: fileData,
+          detail: part.detail || "auto"
+        }
+      };
+    }
+
+    if (fileData && mimeType.startsWith("image/")) {
+      return {
+        type: "image_url",
+        image_url: {
+          url: `data:${mimeType};base64,${fileData}`,
+          detail: part.detail || "auto"
+        }
+      };
+    }
+
+    return {
+      type: "file",
+      file: {
+        file_data: fileData,
+        filename,
+        mime_type: mimeType,
+      }
+    };
+  }
+
+  return part;
+}
+
 /**
  * Convert OpenAI Responses API format to standard chat completions format
  * Responses API uses: { input: [...], instructions: "..." }
@@ -66,15 +164,7 @@ export function convertResponsesApiFormat(body) {
 
       // Convert content: input_text → text, output_text → text, input_image → image_url
       const content = Array.isArray(item.content)
-        ? item.content.map(c => {
-          if (c.type === "input_text") return { type: "text", text: c.text };
-          if (c.type === "output_text") return { type: "text", text: c.text };
-          if (c.type === "input_image") {
-            const url = c.image_url || c.file_id || "";
-            return { type: "image_url", image_url: { url, detail: c.detail || "auto" } };
-          }
-          return c;
-        })
+        ? item.content.map(normalizeResponsesContentPart)
         : item.content;
       result.messages.push({ role: item.role, content });
     }

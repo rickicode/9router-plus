@@ -4,10 +4,13 @@ vi.mock("stream", async () => await import("node:stream"));
 vi.mock("/workspaces/9router/.claude/worktrees/canonical-status-phase1/stream", async () => await import("node:stream"));
 
 import { FORMATS } from "../../open-sse/translator/formats.js";
+import { detectFormatByEndpoint } from "../../open-sse/translator/formats.js";
 import { translateRequest } from "../../open-sse/translator/index.js";
 import { claudeToOpenAIRequest } from "../../open-sse/translator/request/claude-to-openai.js";
 import { filterToOpenAIFormat } from "../../open-sse/translator/helpers/openaiHelper.js";
 import { parseSSELine } from "../../open-sse/utils/streamHelpers.js";
+import { openaiResponsesToOpenAIRequest, openaiToOpenAIResponsesRequest } from "../../open-sse/translator/request/openai-responses.js";
+import { convertResponsesApiFormat } from "../../open-sse/translator/helpers/responsesApiHelper.js";
 
 describe("request normalization", () => {
   it("claudeToOpenAIRequest flattens text-only content arrays into string", async () => {
@@ -161,5 +164,211 @@ describe("request normalization", () => {
   it("parseSSELine still supports SSE data lines", () => {
     const parsed = parseSSELine('data: {"choices":[{"delta":{"content":"hi"}}]}');
     expect(parsed.choices[0].delta.content).toBe("hi");
+  });
+
+  it("responses -> openai maps input_image to image_url", () => {
+    const body = {
+      input: [
+        {
+          type: "message",
+          role: "user",
+          content: [
+            { type: "input_text", text: "describe" },
+            { type: "input_image", image_url: "https://example.com/cat.png", detail: "high" },
+          ],
+        },
+      ],
+    };
+
+    const result = openaiResponsesToOpenAIRequest("cx/gpt-5.3-codex", body, true);
+    expect(Array.isArray(result.messages[0].content)).toBe(true);
+    expect(result.messages[0].content[1]).toEqual({
+      type: "image_url",
+      image_url: { url: "https://example.com/cat.png", detail: "high" },
+    });
+  });
+
+  it("responses helper maps input_file image payload to image_url data URI", () => {
+    const body = {
+      input: [
+        {
+          type: "message",
+          role: "user",
+          content: [
+            {
+              type: "input_file",
+              file_data: "ZmFrZQ==",
+              mime_type: "image/png",
+              filename: "shot.png",
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = convertResponsesApiFormat(body);
+    expect(result.messages[0].content).toEqual([
+      {
+        type: "image_url",
+        image_url: { url: "data:image/png;base64,ZmFrZQ==", detail: "auto" },
+      },
+    ]);
+  });
+
+  it("responses helper normalizes nested clipboard-style input_image payloads", () => {
+    const body = {
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_image",
+              image_url: {
+                file_data: "data:image/png;base64,ZmFrZQ==",
+                quality: "high",
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = convertResponsesApiFormat(body);
+    expect(result.messages[0].content).toEqual([
+      {
+        type: "image_url",
+        image_url: { url: "data:image/png;base64,ZmFrZQ==", detail: "high" },
+      },
+    ]);
+  });
+
+  it("responses helper normalizes nested input_file image payloads", () => {
+    const body = {
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_file",
+              file: {
+                data: "ZmFrZQ==",
+                mimeType: "image/png",
+                name: "clipboard.png",
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = convertResponsesApiFormat(body);
+    expect(result.messages[0].content).toEqual([
+      {
+        type: "image_url",
+        image_url: { url: "data:image/png;base64,ZmFrZQ==", detail: "auto" },
+      },
+    ]);
+  });
+
+  it("openai -> responses maps file blocks to input_file", () => {
+    const body = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "file",
+              file: {
+                file_data: "ZmFrZQ==",
+                filename: "screen.png",
+                mime_type: "image/png",
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = openaiToOpenAIResponsesRequest("cx/gpt-5.3-codex", body, true);
+    expect(result.input[0].content[0]).toEqual({
+      type: "input_file",
+      file_data: "ZmFrZQ==",
+      filename: "screen.png",
+      mime_type: "image/png",
+    });
+  });
+
+  it("openai -> responses maps string image_url blocks to input_image", () => {
+    const body = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              image_url: "data:image/png;base64,ZmFrZQ==",
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = openaiToOpenAIResponsesRequest("cx/gpt-5.3-codex", body, true);
+    expect(result.input[0].content[0]).toEqual({
+      type: "input_image",
+      image_url: "data:image/png;base64,ZmFrZQ==",
+      detail: "auto",
+    });
+  });
+
+  it("detectFormatByEndpoint treats chat completions input[] as openai-responses", () => {
+    const format = detectFormatByEndpoint("/api/v1/chat/completions", {
+      input: [
+        {
+          type: "message",
+          role: "user",
+          content: [
+            { type: "input_text", text: "describe this" },
+            { type: "input_image", image_url: "data:image/png;base64,ZmFrZQ==" },
+          ],
+        },
+      ],
+    });
+
+    expect(format).toBe(FORMATS.OPENAI_RESPONSES);
+  });
+
+  it("translateRequest normalizes openai-responses requests even when target stays openai-responses", async () => {
+    const body = {
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_file",
+              file: {
+                data: "ZmFrZQ==",
+                mimeType: "image/png",
+                name: "clipboard.png",
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = await translateRequest(
+      FORMATS.OPENAI_RESPONSES,
+      FORMATS.OPENAI_RESPONSES,
+      "cx/gpt-5.3-codex",
+      JSON.parse(JSON.stringify(body)),
+      true,
+    );
+
+    expect(result.input[0].content[0]).toEqual({
+      type: "input_image",
+      image_url: "data:image/png;base64,ZmFrZQ==",
+      detail: "auto",
+    });
   });
 });
