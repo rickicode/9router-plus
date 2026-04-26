@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Badge, Button, Select } from "@/shared/components";
+import { Badge, Button, Select, ModelSelectModal } from "@/shared/components";
 import { cn } from "@/shared/utils/cn";
 
 // Agent roles for Oh My Open Agent
@@ -37,34 +37,27 @@ const SLIM_CATEGORY_ROLES = {
   "low-latency": "Low Latency",
 };
 
-function ModelAssignmentRow({ name, label, currentModel, availableModels, isOverride, onModelChange, onClear }) {
+function ModelAssignmentRow({ name, label, currentModel, isOverride, onSelectClick, onClear }) {
   return (
-    <div className="flex flex-col gap-2 rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] p-2.5 sm:flex-row sm:items-center sm:justify-between text-[#fdfcfc]">
+    <div className="flex flex-col gap-2 rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-2.5 sm:flex-row sm:items-center sm:justify-between text-[var(--color-text-main)]">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <p className="truncate text-[14px] font-bold text-[#fdfcfc]">{name}</p>
+          <p className="truncate text-[14px] font-bold text-[var(--color-text-main)]">{name}</p>
           {isOverride && (
-            <span className="rounded border border-[rgba(15,0,0,0.12)] bg-[#ec4899]/10 px-2 py-0.5 text-[12px] text-[#ec4899]">Custom</span>
+            <span className="rounded border border-[var(--color-border)] bg-[var(--color-primary)]/10 px-2 py-0.5 text-[12px] text-[var(--color-primary)]">Custom</span>
           )}
         </div>
-        <p className="truncate text-[12px] text-[#9a9898]">{label}</p>
+        <p className="truncate text-[12px] text-[var(--color-text-muted)]">{label}</p>
       </div>
       <div className="flex items-center gap-2">
-        <select
-          value={currentModel || ""}
-          onChange={(e) => onModelChange(e.target.value || undefined)}
-          className="rounded border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-3 py-2 text-[14px] text-[#201d1d] focus:outline-none focus:ring-1 focus:ring-[#ec4899]"
-        >
-          <option value="">Auto (from chain)</option>
-          {availableModels.map(id => (
-            <option key={id} value={id}>{id}</option>
-          ))}
-        </select>
+        <Button variant="secondary" size="sm" onClick={onSelectClick}>
+          {currentModel || "Auto (from chain)"}
+        </Button>
         {isOverride && (
           <button
             type="button"
             onClick={onClear}
-            className="rounded p-1 text-[#9a9898] hover:text-[#ff3b30] transition-colors cursor-pointer"
+            className="rounded p-1 text-[var(--color-text-muted)] hover:text-[var(--color-danger)] transition-colors cursor-pointer"
             title="Clear override"
           >
             <span className="material-symbols-outlined text-[16px]">close</span>
@@ -75,8 +68,10 @@ function ModelAssignmentRow({ name, label, currentModel, availableModels, isOver
   );
 }
 
-export default function AdvancedConfigEditor({ variant, preferences, availableModels, onSave, saving }) {
+export default function AdvancedConfigEditor({ variant, preferences, availableModels, onSave, saving, activeProviders = [], modelAliases = {} }) {
   const [activeTab, setActiveTab] = useState("agents");
+  const [showModelSelect, setShowModelSelect] = useState(false);
+  const [pendingAssignment, setPendingAssignment] = useState(null);
   
   const isSlim = variant === "slim";
   const agentRoles = isSlim ? SLIM_AGENT_ROLES : AGENT_ROLES;
@@ -118,26 +113,43 @@ export default function AdvancedConfigEditor({ variant, preferences, availableMo
     onSave({ advancedOverrides: { ...preferences.advancedOverrides, [variant]: newOverrides } });
   };
 
+  const handleOpenModelSelect = (type, key) => {
+    setPendingAssignment({ type, key });
+    setShowModelSelect(true);
+  };
+
+  const handleModelSelected = (model) => {
+    if (!pendingAssignment) return;
+    const { type, key } = pendingAssignment;
+    if (type === "agent") {
+      handleAgentModelChange(key, model.value);
+    } else {
+      handleCategoryModelChange(key, model.value);
+    }
+    setShowModelSelect(false);
+    setPendingAssignment(null);
+  };
+
   const agentOverrideCount = Object.keys(agentAssignments).length;
   const categoryOverrideCount = Object.keys(categoryAssignments).length;
 
   return (
     <div className="space-y-4">
       {/* Tab Navigation */}
-      <div className="flex items-center gap-2 border-b border-[rgba(15,0,0,0.12)]">
+      <div className="flex items-center gap-2 border-b border-[var(--color-border)]">
         <button
           type="button"
           onClick={() => setActiveTab("agents")}
           className={cn(
             "px-4 py-2 text-[16px] font-medium transition-colors cursor-pointer leading-[1.00]",
             activeTab === "agents"
-              ? "border-b-2 border-[#9a9898] text-[#fdfcfc]"
-              : "text-[#9a9898] hover:text-[#fdfcfc]"
+              ? "border-b-2 border-[var(--color-text-muted)] text-[var(--color-text-main)]"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text-main)]"
           )}
         >
           Agent Assignments
           {agentOverrideCount > 0 && (
-            <span className="ml-2 rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-2 py-0.5 text-[14px] text-[#9a9898]">{agentOverrideCount}</span>
+            <span className="ml-2 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[14px] text-[var(--color-text-muted)]">{agentOverrideCount}</span>
           )}
         </button>
         <button
@@ -146,29 +158,29 @@ export default function AdvancedConfigEditor({ variant, preferences, availableMo
           className={cn(
             "px-4 py-2 text-[16px] font-medium transition-colors cursor-pointer leading-[1.00]",
             activeTab === "categories"
-              ? "border-b-2 border-[#9a9898] text-[#fdfcfc]"
-              : "text-[#9a9898] hover:text-[#fdfcfc]"
+              ? "border-b-2 border-[var(--color-text-muted)] text-[var(--color-text-main)]"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text-main)]"
           )}
         >
           Category Assignments
           {categoryOverrideCount > 0 && (
-            <span className="ml-2 rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-2 py-0.5 text-[14px] text-[#9a9898]">{categoryOverrideCount}</span>
+            <span className="ml-2 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[14px] text-[var(--color-text-muted)]">{categoryOverrideCount}</span>
           )}
         </button>
       </div>
 
       {/* Agent Assignments */}
       {activeTab === "agents" && (
-        <div className="space-y-3 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] p-4 text-[#fdfcfc]">
+        <div className="space-y-3 rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4 text-[var(--color-text-main)]">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[16px] font-bold text-[#fdfcfc]">Agent Model Assignments</p>
-              <p className="text-[14px] text-[#9a9898] mt-0.5 leading-[2.00]">
+              <p className="text-[16px] font-bold text-[var(--color-text-main)]">Agent Model Assignments</p>
+              <p className="text-[14px] text-[var(--color-text-muted)] mt-0.5 leading-[2.00]">
                 Override which model each agent uses. Leave as "Auto" to use the default chain.
               </p>
             </div>
             {agentOverrideCount > 0 && (
-              <span className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-2 py-0.5 text-[14px] text-[#9a9898]">{agentOverrideCount}/{Object.keys(agentRoles).length} custom</span>
+              <span className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[14px] text-[var(--color-text-muted)]">{agentOverrideCount}/{Object.keys(agentRoles).length} custom</span>
             )}
           </div>
           
@@ -179,32 +191,31 @@ export default function AdvancedConfigEditor({ variant, preferences, availableMo
                 name={agent}
                 label={label}
                 currentModel={agentAssignments[agent]}
-                availableModels={availableModels}
                 isOverride={!!agentAssignments[agent]}
-                onModelChange={(model) => handleAgentModelChange(agent, model)}
+                onSelectClick={() => handleOpenModelSelect("agent", agent)}
                 onClear={() => handleAgentModelChange(agent, undefined)}
               />
             ))}
           </div>
 
           {saving && (
-            <p className="text-[14px] text-[#ff9f0a]">Saving...</p>
+            <p className="text-[14px] text-[var(--color-warning)]">Saving...</p>
           )}
         </div>
       )}
 
       {/* Category Assignments */}
       {activeTab === "categories" && (
-        <div className="space-y-3 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] p-4 text-[#fdfcfc]">
+        <div className="space-y-3 rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4 text-[var(--color-text-main)]">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[16px] font-bold text-[#fdfcfc]">Category Model Assignments</p>
-              <p className="text-[14px] text-[#9a9898] mt-0.5 leading-[2.00]">
+              <p className="text-[16px] font-bold text-[var(--color-text-main)]">Category Model Assignments</p>
+              <p className="text-[14px] text-[var(--color-text-muted)] mt-0.5 leading-[2.00]">
                 Override which model each task category uses. Leave as "Auto" to use the default chain.
               </p>
             </div>
             {categoryOverrideCount > 0 && (
-              <span className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-2 py-0.5 text-[14px] text-[#9a9898]">{categoryOverrideCount}/{Object.keys(categoryRoles).length} custom</span>
+              <span className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[14px] text-[var(--color-text-muted)]">{categoryOverrideCount}/{Object.keys(categoryRoles).length} custom</span>
             )}
           </div>
           
@@ -215,30 +226,39 @@ export default function AdvancedConfigEditor({ variant, preferences, availableMo
                 name={category}
                 label={label}
                 currentModel={categoryAssignments[category]}
-                availableModels={availableModels}
                 isOverride={!!categoryAssignments[category]}
-                onModelChange={(model) => handleCategoryModelChange(category, model)}
+                onSelectClick={() => handleOpenModelSelect("category", category)}
                 onClear={() => handleCategoryModelChange(category, undefined)}
               />
             ))}
           </div>
 
           {saving && (
-            <p className="text-[14px] text-[#ff9f0a]">Saving...</p>
+            <p className="text-[14px] text-[var(--color-warning)]">Saving...</p>
           )}
         </div>
       )}
 
       {/* Help Text */}
-      <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-3 py-2 text-[14px] text-[#9a9898] space-y-1">
+      <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-3 py-2 text-[14px] text-[var(--color-text-muted)] space-y-1">
         <p className="font-bold">💡 Tips:</p>
         <ul className="list-disc list-inside space-y-0.5 ml-2">
           <li>Use "Auto" to let the system choose the best model from the chain</li>
           <li>Override specific agents/categories when you need more control</li>
-          <li>Model format: <code className="text-[#ec4899]">cx/gpt-5.3-codex</code> (with provider prefix)</li>
+          <li>Model format: <code className="text-[var(--color-primary)]">cx/gpt-5.3-codex</code> (with provider prefix)</li>
           <li>Changes are saved automatically</li>
         </ul>
       </div>
+
+      {/* Model Select Modal */}
+      <ModelSelectModal
+        isOpen={showModelSelect}
+        onClose={() => { setShowModelSelect(false); setPendingAssignment(null); }}
+        onSelect={handleModelSelected}
+        activeProviders={activeProviders}
+        modelAliases={modelAliases}
+        title={pendingAssignment ? `Select model for ${pendingAssignment.key}` : "Select Model"}
+      />
     </div>
   );
 }
