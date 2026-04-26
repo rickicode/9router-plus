@@ -1,11 +1,16 @@
 import { getSettings } from "./localDb.js";
 import { uploadSqliteBackupToAll, backupUsageToAll } from "./r2BackupClient.js";
 
-const SQLITE_BACKUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const SCHEDULE_INTERVALS_MS = {
+  daily: 24 * 60 * 60 * 1000,
+  weekly: 7 * 24 * 60 * 60 * 1000,
+  monthly: 30 * 24 * 60 * 60 * 1000,
+};
 const USAGE_BACKUP_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 
 let sqliteBackupTimer = null;
 let usageBackupTimer = null;
+let currentSchedule = null;
 let initialized = false;
 
 async function isR2BackupEnabled() {
@@ -14,6 +19,16 @@ async function isR2BackupEnabled() {
     return settings.r2BackupEnabled === true;
   } catch {
     return false;
+  }
+}
+
+async function getSqliteBackupIntervalMs() {
+  try {
+    const settings = await getSettings();
+    const schedule = settings.r2SqliteBackupSchedule || "daily";
+    return SCHEDULE_INTERVALS_MS[schedule] || SCHEDULE_INTERVALS_MS.daily;
+  } catch {
+    return SCHEDULE_INTERVALS_MS.daily;
   }
 }
 
@@ -35,7 +50,6 @@ async function runUsageBackup() {
   if (!await isR2BackupEnabled()) return;
 
   try {
-    // Dynamically import to avoid circular deps
     const { getUsageDb } = await import("./usageDb.js");
     const db = await getUsageDb();
     if (!db?.data) return;
@@ -53,7 +67,24 @@ async function runUsageBackup() {
   }
 }
 
-export function startR2BackupScheduler() {
+function clearSqliteTimer() {
+  if (sqliteBackupTimer) {
+    clearInterval(sqliteBackupTimer);
+    sqliteBackupTimer = null;
+  }
+}
+
+async function scheduleSqliteBackup() {
+  clearSqliteTimer();
+  const intervalMs = await getSqliteBackupIntervalMs();
+  sqliteBackupTimer = setInterval(runSqliteBackup, intervalMs);
+
+  const settings = await getSettings().catch(() => ({}));
+  currentSchedule = settings.r2SqliteBackupSchedule || "daily";
+  console.log(`[R2Backup] SQLite backup scheduled: ${currentSchedule} (${intervalMs / 3600000}h)`);
+}
+
+export async function startR2BackupScheduler() {
   if (initialized) return;
   initialized = true;
 
@@ -66,23 +97,29 @@ export function startR2BackupScheduler() {
   }, 2 * 60 * 1000);
 
   // Schedule periodic backups
-  sqliteBackupTimer = setInterval(runSqliteBackup, SQLITE_BACKUP_INTERVAL_MS);
+  await scheduleSqliteBackup();
   usageBackupTimer = setInterval(runUsageBackup, USAGE_BACKUP_INTERVAL_MS);
 
   console.log("[R2Backup] Scheduler started");
 }
 
 export function stopR2BackupScheduler() {
-  if (sqliteBackupTimer) {
-    clearInterval(sqliteBackupTimer);
-    sqliteBackupTimer = null;
-  }
+  clearSqliteTimer();
   if (usageBackupTimer) {
     clearInterval(usageBackupTimer);
     usageBackupTimer = null;
   }
   initialized = false;
+  currentSchedule = null;
   console.log("[R2Backup] Scheduler stopped");
+}
+
+/**
+ * Call after changing the schedule setting to re-schedule the timer.
+ */
+export async function updateSqliteBackupSchedule() {
+  if (!initialized) return;
+  await scheduleSqliteBackup();
 }
 
 export async function triggerSqliteBackupNow() {

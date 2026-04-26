@@ -85,7 +85,7 @@ const DEFAULT_SETTINGS = {
 
   // R2 backup settings
   r2BackupEnabled: false,
-  r2BackupIntervalHours: 6,
+  r2SqliteBackupSchedule: "daily", // "daily", "weekly", "monthly"
   r2LastBackupAt: null,
   r2LastRestoreAt: null,
 };

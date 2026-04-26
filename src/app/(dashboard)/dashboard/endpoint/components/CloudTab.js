@@ -77,6 +77,7 @@ export default function CloudTab() {
 
   // R2 backup/restore state
   const [r2BackupEnabled, setR2BackupEnabled] = useState(false);
+  const [r2SqliteBackupSchedule, setR2SqliteBackupSchedule] = useState("daily");
   const [r2Info, setR2Info] = useState(null);
   const [r2Backups, setR2Backups] = useState([]);
   const [r2Loading, setR2Loading] = useState(false);
@@ -122,6 +123,7 @@ export default function CloudTab() {
       if (r2Res.ok) {
         const data = await r2Res.json();
         setR2BackupEnabled(data.r2BackupEnabled || false);
+        setR2SqliteBackupSchedule(data.r2SqliteBackupSchedule || "daily");
         setR2LastBackupAt(data.r2LastBackupAt || null);
       }
     } catch (e) {
@@ -287,6 +289,26 @@ export default function CloudTab() {
     } catch (e) {
       setR2Error(e.message);
       setR2BackupEnabled(!enabled);
+    }
+  };
+
+  const handleR2ScheduleChange = async (schedule) => {
+    setR2SqliteBackupSchedule(schedule);
+    setR2Error("");
+    setR2Info2("");
+    try {
+      const res = await fetch("/api/r2", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ r2SqliteBackupSchedule: schedule }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to update schedule");
+      }
+      setR2Info2(`SQLite backup schedule set to ${schedule}.`);
+    } catch (e) {
+      setR2Error(e.message);
     }
   };
 
@@ -588,10 +610,30 @@ export default function CloudTab() {
         <div className="space-y-4 mt-4">
           <ToggleRow
             label="Auto Backup"
-            description="Automatically backup SQLite database and usage data to R2 every 6 hours"
+            description="Automatically backup SQLite database and usage data to R2"
             checked={r2BackupEnabled}
             onChange={handleToggleR2Backup}
           />
+
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-[var(--color-text-muted)] whitespace-nowrap">SQLite Backup Schedule</label>
+            <div className="flex gap-1">
+              {["daily", "weekly", "monthly"].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => handleR2ScheduleChange(s)}
+                  className="px-3 py-1 rounded text-xs font-medium transition-colors"
+                  style={{
+                    background: r2SqliteBackupSchedule === s ? "var(--color-primary)" : "var(--color-bg-alt)",
+                    color: r2SqliteBackupSchedule === s ? "#fff" : "var(--color-text-muted)",
+                    border: `1px solid ${r2SqliteBackupSchedule === s ? "var(--color-primary)" : "var(--color-border)"}`,
+                  }}
+                >
+                  {s.charAt(0).toUpperCase() + s.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
 
           {r2LastBackupAt && (
             <div className="text-xs text-[var(--color-text-muted)]">

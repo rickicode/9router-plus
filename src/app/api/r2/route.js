@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSettings, updateSettings } from "@/lib/localDb";
 
+const VALID_SCHEDULES = ["daily", "weekly", "monthly"];
+
 /**
  * GET /api/r2 - Get R2 backup configuration
  */
@@ -9,7 +11,7 @@ export async function GET() {
     const settings = await getSettings();
     return NextResponse.json({
       r2BackupEnabled: settings.r2BackupEnabled || false,
-      r2BackupIntervalHours: settings.r2BackupIntervalHours || 6,
+      r2SqliteBackupSchedule: settings.r2SqliteBackupSchedule || "daily",
       r2LastBackupAt: settings.r2LastBackupAt || null,
       r2LastRestoreAt: settings.r2LastRestoreAt || null,
     });
@@ -30,15 +32,24 @@ export async function PATCH(request) {
       updates.r2BackupEnabled = body.r2BackupEnabled;
     }
 
-    if (typeof body.r2BackupIntervalHours === "number") {
-      updates.r2BackupIntervalHours = Math.max(1, Math.min(24, body.r2BackupIntervalHours));
+    if (typeof body.r2SqliteBackupSchedule === "string" && VALID_SCHEDULES.includes(body.r2SqliteBackupSchedule)) {
+      updates.r2SqliteBackupSchedule = body.r2SqliteBackupSchedule;
     }
 
     const settings = await updateSettings(updates);
+
+    // Re-schedule the backup timer if schedule changed
+    if (updates.r2SqliteBackupSchedule) {
+      try {
+        const { updateSqliteBackupSchedule } = await import("@/lib/r2BackupScheduler");
+        await updateSqliteBackupSchedule();
+      } catch { /* scheduler may not be running */ }
+    }
+
     return NextResponse.json({
       success: true,
       r2BackupEnabled: settings.r2BackupEnabled || false,
-      r2BackupIntervalHours: settings.r2BackupIntervalHours || 6,
+      r2SqliteBackupSchedule: settings.r2SqliteBackupSchedule || "daily",
     });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
