@@ -4,10 +4,12 @@ import { useState, useEffect, useRef } from "react";
 import { Card, Button, ModelSelectModal, ManualConfigModal, Tooltip } from "@/shared/components";
 import Image from "next/image";
 
-const CLOUD_URL = process.env.NEXT_PUBLIC_CLOUD_URL;
+// `cloudUrl` is now passed in as a prop sourced from settings.cloudUrls
+// instead of being read from process.env at build time.
 
 export default function ClaudeToolCard({
   tool,
+  cloudUrl,
   isExpanded,
   onToggle,
   activeProviders,
@@ -39,7 +41,7 @@ export default function ClaudeToolCard({
     const currentUrl = claudeStatus.settings?.env?.ANTHROPIC_BASE_URL;
     if (!currentUrl) return "not_configured";
     const localMatch = currentUrl.includes("localhost") || currentUrl.includes("127.0.0.1");
-    const cloudMatch = cloudEnabled && CLOUD_URL && currentUrl.startsWith(CLOUD_URL);
+    const cloudMatch = cloudEnabled && cloudUrl && currentUrl.startsWith(cloudUrl);
     const tunnelMatch = baseUrl && currentUrl.startsWith(baseUrl);
     if (localMatch || cloudMatch || tunnelMatch) return "configured";
     return "other";
