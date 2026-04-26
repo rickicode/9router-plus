@@ -227,3 +227,147 @@ export function convertResponsesApiFormat(body) {
 
   return result;
 }
+
+/**
+ * Inline copy of openai-responses.js#normalizeToolParameters so we can avoid
+ * a circular import. Kept identical in shape so behavior is preserved.
+ */
+function normalizeToolParametersInline(params) {
+  if (!params) return { type: "object", properties: {} };
+  if (params.type === "object" && !params.properties) return { ...params, properties: {} };
+  return params;
+}
+
+/**
+ * Normalize a single Responses-API content part in place. input_image gets a
+ * plain-string image_url + detail, input_file with image data/mime is
+ * promoted to input_image, Anthropic-style image blocks are converted to
+ * input_image. Returns the same reference if nothing changed.
+ */
+function normalizeResponsesContentPartInPlace(part) {
+  if (!part || typeof part !== "object") return part;
+
+  if (part.type === "input_image") {
+    const image = normalizeImageUrlLike(part.image_url);
+    const file = normalizeFileLike(part);
+    const url = pickFirstString(image.url, file.fileData, part.file_id);
+    const detail = pickFirstString(part.detail, image.detail, part.image_url?.detail) || "auto";
+    if (!url) return part;
+    if (typeof part.image_url === "string" && part.image_url === url && part.detail === detail) {
+      return part;
+    }
+    return { type: "input_image", image_url: url, detail };
+  }
+
+  if (part.type === "input_file") {
+    const { fileData, mimeType, filename } = normalizeFileLike(part);
+    const detail = part.detail || "auto";
+    if (typeof fileData === "string" && fileData.startsWith("data:")) {
+      return { type: "input_image", image_url: fileData, detail };
+    }
+    if (fileData && mimeType.startsWith("image/")) {
+      return { type: "input_image", image_url: `data:${mimeType};base64,${fileData}`, detail };
+    }
+    if (
+      part.file_data === fileData &&
+      part.filename === filename &&
+      part.mime_type === mimeType
+    ) {
+      return part;
+    }
+    return { type: "input_file", file_data: fileData, filename, mime_type: mimeType };
+  }
+
+  if (part.type === "image" && part.source && typeof part.source === "object") {
+    const src = part.source;
+    if (src.type === "url" && typeof src.url === "string") {
+      return { type: "input_image", image_url: src.url, detail: part.detail || "auto" };
+    }
+    const data = typeof src.data === "string" ? src.data : "";
+    const mt = typeof src.media_type === "string" ? src.media_type : "image/png";
+    if (data) {
+      const url = data.startsWith("data:") ? data : `data:${mt};base64,${data}`;
+      return { type: "input_image", image_url: url, detail: part.detail || "auto" };
+    }
+  }
+
+  return part;
+}
+
+/**
+ * In-place equivalent of `responses → openai → responses` round-trip used
+ * when both source and target formats are OPENAI_RESPONSES (e.g. codex-cli
+ * client → codex backend). Applies the same image-shape normalization, role
+ * coercion, default-injection, and field-drop contract the round-trip
+ * applied — without materializing a chat-completions intermediate.
+ *
+ * Behavior contract preserved against the prior round-trip:
+ *   - body.input items get content parts normalized
+ *   - role "system" is rewritten to "developer"
+ *   - tools[].parameters get `properties: {}` injected when missing
+ *   - chat-style tools (with .function wrapper) are unwrapped to responses shape
+ *   - body.instructions defaults to "" (caller-supplied string honored)
+ *   - body.parallel_tool_calls defaults to true (caller value honored)
+ *   - body.store forced to false; body.stream forced to true
+ *   - body.include / prompt_cache_key / reasoning fields are dropped to
+ *     match what the round-trip silently dropped
+ */
+export function normalizeOpenAIResponsesInPlace(model, body, _stream) {
+  if (!body || typeof body !== "object") return body;
+
+  const inputItems = normalizeResponsesInput(body.input);
+  if (inputItems) {
+    if (inputItems !== body.input) body.input = inputItems;
+    for (const item of body.input) {
+      if (!item || typeof item !== "object") continue;
+      if (item.role === "system") item.role = "developer";
+      if (Array.isArray(item.content)) {
+        let changed = false;
+        const next = item.content.map((part) => {
+          const mapped = normalizeResponsesContentPartInPlace(part);
+          if (mapped !== part) changed = true;
+          return mapped;
+        });
+        if (changed) item.content = next;
+      }
+    }
+  }
+
+  if (Array.isArray(body.tools)) {
+    for (const tool of body.tools) {
+      if (!tool || typeof tool !== "object") continue;
+      if (tool.type === "function" && tool.parameters) {
+        const normalized = normalizeToolParametersInline(tool.parameters);
+        if (normalized !== tool.parameters) tool.parameters = normalized;
+      } else if (tool.function && typeof tool.function === "object") {
+        const fn = tool.function;
+        const name = fn.name;
+        if (name && typeof name === "string" && name.trim() !== "") {
+          const replacement = {
+            type: "function",
+            name,
+            description: String(fn.description || ""),
+            parameters: normalizeToolParametersInline(fn.parameters),
+          };
+          if (fn.strict !== undefined) replacement.strict = fn.strict;
+          for (const key of Object.keys(tool)) delete tool[key];
+          Object.assign(tool, replacement);
+        }
+      }
+    }
+  }
+
+  if (typeof body.instructions !== "string") body.instructions = "";
+  if (body.parallel_tool_calls === undefined) body.parallel_tool_calls = true;
+
+  body.stream = true;
+  body.store = false;
+
+  delete body.include;
+  delete body.prompt_cache_key;
+  delete body.reasoning;
+
+  if (model) body.model = model;
+
+  return body;
+}

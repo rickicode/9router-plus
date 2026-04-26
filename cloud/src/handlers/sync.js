@@ -158,7 +158,7 @@ async function handlePost(request, machineId, env) {
     updatedAt: now
   };
 
-  // Store in D1 + invalidate cache
+  // Store in R2 + invalidate cache
   await saveMachineData(machineId, finalData, env);
 
   // Update state last sync timestamp

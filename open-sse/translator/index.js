@@ -5,6 +5,7 @@ import { cloakClaudeTools } from "../utils/claudeCloaking.js";
 import { filterToOpenAIFormat } from "./helpers/openaiHelper.js";
 import { normalizeThinkingConfig } from "../services/provider.js";
 import { AntigravityExecutor } from "../executors/antigravity.js";
+import { normalizeOpenAIResponsesInPlace } from "./helpers/responsesApiHelper.js";
 
 // Registry for translators
 const requestRegistry = new Map();
@@ -118,16 +119,26 @@ export async function translateRequest(sourceFormat, targetFormat, model, body, 
   // Fix missing tool responses (insert empty tool_result if needed)
   fixMissingToolResponses(result);
 
-  // Some providers and clients both speak Responses API, but clipboard/image payloads
-  // still need request-side normalization before forwarding upstream.
+  // Some providers and clients both speak Responses API, but clipboard/image
+  // payloads still need request-side normalization before forwarding upstream.
+  // Previously this was implemented as a `responses → openai → responses`
+  // round-trip; now it's an in-place normalizer that applies the same
+  // image-shape normalization, role coercion, default-injection and
+  // field-drop contract without materializing the chat-completions
+  // intermediate. When request logging is on, we still surface the
+  // intermediate via the legacy round-trip for log fidelity.
   if (sourceFormat === FORMATS.OPENAI_RESPONSES && targetFormat === FORMATS.OPENAI_RESPONSES) {
-    const normalizeResponsesRequest = requestRegistry.get(`${FORMATS.OPENAI_RESPONSES}:${FORMATS.OPENAI}`);
-    const restoreResponsesRequest = requestRegistry.get(`${FORMATS.OPENAI}:${FORMATS.OPENAI_RESPONSES}`);
+    if (reqLogger?.logOpenAIRequest) {
+      const normalizeResponsesRequest = requestRegistry.get(`${FORMATS.OPENAI_RESPONSES}:${FORMATS.OPENAI}`);
+      const restoreResponsesRequest = requestRegistry.get(`${FORMATS.OPENAI}:${FORMATS.OPENAI_RESPONSES}`);
 
-    if (normalizeResponsesRequest && restoreResponsesRequest) {
-      result = normalizeResponsesRequest(model, result, stream, credentials);
-      reqLogger?.logOpenAIRequest?.(result);
-      result = restoreResponsesRequest(model, result, stream, credentials);
+      if (normalizeResponsesRequest && restoreResponsesRequest) {
+        result = normalizeResponsesRequest(model, result, stream, credentials);
+        reqLogger.logOpenAIRequest(result);
+        result = restoreResponsesRequest(model, result, stream, credentials);
+      }
+    } else {
+      result = normalizeOpenAIResponsesInPlace(model, result, stream);
     }
   }
 

@@ -3,14 +3,12 @@ import { FORMATS } from "../formats.js";
 import { CLAUDE_SYSTEM_PROMPT } from "../../config/appConstants.js";
 import { adjustMaxTokens } from "../helpers/maxTokensHelper.js";
 
-// Empty prefix matches real Claude Code behavior (no tool name prefix).
-// Previously "proxy_" was used but this is a detectable fingerprint difference.
-const CLAUDE_OAUTH_TOOL_PREFIX = "";
-
-// Convert OpenAI request to Claude format
+// Convert OpenAI request to Claude format. Tool names are passed through 1:1
+// to mirror real Claude Code behavior (no tool-name prefix). Any cloaking
+// (suffixing client tools, decoy injection) is applied later by
+// cloakClaudeTools() for OAuth requests; that step builds its own
+// toolNameMap which is the only one that matters downstream.
 export function openaiToClaudeRequest(model, body, stream) {
-  // Tool name mapping for Claude OAuth (capitalizedName → originalName)
-  const toolNameMap = new Map();
   const result = {
     model: model,
     max_tokens: adjustMaxTokens(body),
@@ -27,15 +25,17 @@ export function openaiToClaudeRequest(model, body, stream) {
   const systemParts = [];
 
   if (body.messages && Array.isArray(body.messages)) {
-    // Extract system messages
+    // Single-pass: extract system parts AND collect non-system messages.
+    // Replaces a `for ... if system push` followed by `body.messages.filter(...)`,
+    // halving the iteration count.
+    const nonSystemMessages = [];
     for (const msg of body.messages) {
       if (msg.role === "system") {
         systemParts.push(typeof msg.content === "string" ? msg.content : extractTextContent(msg.content));
+      } else {
+        nonSystemMessages.push(msg);
       }
     }
-
-    // Filter out system messages for separate processing
-    const nonSystemMessages = body.messages.filter(m => m.role !== "system");
 
     // Process messages with merging logic
     // CRITICAL: tool_result must be in separate message immediately after tool_use
@@ -51,15 +51,26 @@ export function openaiToClaudeRequest(model, body, stream) {
 
     for (const msg of nonSystemMessages) {
       const newRole = (msg.role === "user" || msg.role === "tool") ? "user" : "assistant";
-      const blocks = getContentBlocksFromMessage(msg, toolNameMap);
-      const hasToolUse = blocks.some(b => b.type === "tool_use");
-      const hasToolResult = blocks.some(b => b.type === "tool_result");
+      const blocks = getContentBlocksFromMessage(msg);
+      // Single pass over `blocks`: detect tool_use, partition tool_result vs
+      // other blocks. Replaces an earlier 4-pass version (2 .some + 2 .filter
+      // over the same array) with one bounded loop.
+      let hasToolUse = false;
+      let hasToolResult = false;
+      const toolResultBlocks = [];
+      const otherBlocks = [];
+      for (const b of blocks) {
+        if (b.type === "tool_use") hasToolUse = true;
+        if (b.type === "tool_result") {
+          hasToolResult = true;
+          toolResultBlocks.push(b);
+        } else {
+          otherBlocks.push(b);
+        }
+      }
 
       // Separate tool_result from other content
       if (hasToolResult) {
-        const toolResultBlocks = blocks.filter(b => b.type === "tool_result");
-        const otherBlocks = blocks.filter(b => b.type !== "tool_result");
-
         flushCurrentMessage();
 
         if (toolResultBlocks.length > 0) {
@@ -133,11 +144,11 @@ Respond ONLY with the JSON object, no other text.`);
     result.system = [claudeCodePrompt];
   }
 
-  // Tools - convert from OpenAI format to Claude format with prefix for OAuth
+  // Tools - convert from OpenAI Chat Completions format to Claude format.
   if (body.tools && Array.isArray(body.tools)) {
     result.tools = [];
     for (const tool of body.tools) {
-      // Pass-through built-in tools (e.g. web_search_20250305) without prefix or conversion
+      // Pass-through built-in tools (e.g. web_search_20250305) without conversion
       const toolType = tool.type;
       if (toolType && toolType !== "function") {
         result.tools.push(tool);
@@ -145,16 +156,9 @@ Respond ONLY with the JSON object, no other text.`);
       }
 
       const toolData = toolType === "function" && tool.function ? tool.function : tool;
-      const originalName = toolData.name;
-
-      // Claude OAuth requires prefixed tool names to avoid conflicts
-      const toolName = CLAUDE_OAUTH_TOOL_PREFIX + originalName;
-
-      // Store mapping for response translation (prefixed → original)
-      toolNameMap.set(toolName, originalName);
 
       result.tools.push({
-        name: toolName,
+        name: toolData.name,
         description: toolData.description || "",
         input_schema: toolData.parameters || toolData.input_schema || { type: "object", properties: {}, required: [] }
       });
@@ -179,16 +183,14 @@ Respond ONLY with the JSON object, no other text.`);
     };
   }
 
-  // Attach toolNameMap to result for response translation
-  if (toolNameMap.size > 0) {
-    result._toolNameMap = toolNameMap;
-  }
+  // No request-level toolNameMap is needed: tool names are passed through 1:1.
+  // Cloaking (sk-ant-oat OAuth path) installs its own _toolNameMap downstream.
 
   return result;
 }
 
 // Get content blocks from single message
-function getContentBlocksFromMessage(msg, toolNameMap = new Map()) {
+function getContentBlocksFromMessage(msg) {
   const blocks = [];
 
   if (msg.role === "tool") {
@@ -256,12 +258,10 @@ function getContentBlocksFromMessage(msg, toolNameMap = new Map()) {
     if (msg.tool_calls && Array.isArray(msg.tool_calls)) {
       for (const tc of msg.tool_calls) {
         if (tc.type === "function") {
-          // Apply prefix to tool name
-          const toolName = CLAUDE_OAUTH_TOOL_PREFIX + tc.function.name;
           blocks.push({
             type: "tool_use",
             id: tc.id,
-            name: toolName,
+            name: tc.function.name,
             input: tryParseJSON(tc.function.arguments)
           });
         }
@@ -303,7 +303,9 @@ function tryParseJSON(str) {
   }
 }
 
-// OpenAI -> Claude format for Antigravity (without system prompt modifications)
+// OpenAI -> Claude format for Antigravity (without Claude Code system prompt).
+// Tool names already pass through 1:1 in openaiToClaudeRequest, so no
+// per-tool / per-block name rewriting is needed here.
 function openaiToClaudeRequestForAntigravity(model, body, stream) {
   const result = openaiToClaudeRequest(model, body, stream);
 
@@ -315,40 +317,6 @@ function openaiToClaudeRequestForAntigravity(model, body, stream) {
     if (result.system.length === 0) {
       delete result.system;
     }
-  }
-
-  // Strip prefix from tool names for Antigravity (doesn't use Claude OAuth)
-  if (result.tools && Array.isArray(result.tools)) {
-    result.tools = result.tools.map(tool => {
-      if (tool.name && tool.name.startsWith(CLAUDE_OAUTH_TOOL_PREFIX)) {
-        return {
-          ...tool,
-          name: tool.name.slice(CLAUDE_OAUTH_TOOL_PREFIX.length)
-        };
-      }
-      return tool;
-    });
-  }
-
-  // Strip prefix from tool_use in messages
-  if (result.messages && Array.isArray(result.messages)) {
-    result.messages = result.messages.map(msg => {
-      if (!msg.content || !Array.isArray(msg.content)) {
-        return msg;
-      }
-
-      const updatedContent = msg.content.map(block => {
-        if (block.type === "tool_use" && block.name && block.name.startsWith(CLAUDE_OAUTH_TOOL_PREFIX)) {
-          return {
-            ...block,
-            name: block.name.slice(CLAUDE_OAUTH_TOOL_PREFIX.length)
-          };
-        }
-        return block;
-      });
-
-      return { ...msg, content: updatedContent };
-    });
   }
 
   return result;

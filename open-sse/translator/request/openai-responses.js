@@ -6,7 +6,13 @@
  */
 import { register } from "../index.js";
 import { FORMATS } from "../formats.js";
-import { normalizeResponsesInput } from "../helpers/responsesApiHelper.js";
+import {
+  normalizeResponsesInput,
+  normalizeOpenAIResponsesInPlace,
+} from "../helpers/responsesApiHelper.js";
+
+// Re-export so callers that already import from this module continue to work.
+export { normalizeOpenAIResponsesInPlace };
 
 // Responses API enforces max 64 chars on call_id (#393)
 const MAX_CALL_ID_LEN = 64;
@@ -258,6 +264,8 @@ function normalizeToolParameters(params) {
   if (params.type === "object" && !params.properties) return { ...params, properties: {} };
   return params;
 }
+
+
 
 /**
  * Convert OpenAI Chat Completions to OpenAI Responses API format

@@ -21,6 +21,15 @@ import {
   handleAdminStatusJson,
   handleAdminStatusHtml
 } from "./handlers/admin.js";
+import {
+  handleSqliteBackupUpload,
+  handleSqliteBackupList,
+  handleSqliteBackupDownload,
+  handleExportData,
+  handleUsageBackup,
+  handleRequestLogBackup,
+  handleR2Info
+} from "./handlers/r2backup.js";
 import { createLandingPageResponse } from "./services/landingPage.js";
 import { cleanupExpiredSessions, limitUsageMapSize } from "./services/state.js";
 
@@ -285,6 +294,57 @@ const worker = {
         const response = await handleForwardRaw(request);
         log.response(response.status, Date.now() - startTime);
         return response;
+      }
+
+      // ========== R2 BACKUP/RESTORE ENDPOINTS ==========
+
+      // R2 info (storage status)
+      if (path === "/r2/info" && request.method === "GET") {
+        const response = await handleR2Info(request, env);
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
+      }
+
+      // SQLite backup upload
+      if (path.match(/^\/r2\/backup\/sqlite\/[^/]+$/) && request.method === "POST") {
+        const response = await handleSqliteBackupUpload(request, env);
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
+      }
+
+      // SQLite backup list
+      if (path === "/r2/backup/sqlite" && request.method === "GET") {
+        const response = await handleSqliteBackupList(request, env);
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
+      }
+
+      // SQLite backup download
+      if (path === "/r2/backup/sqlite/download" && request.method === "GET") {
+        const response = await handleSqliteBackupDownload(request, env);
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
+      }
+
+      // Export all data for restore/rollback
+      if (path.match(/^\/r2\/export\/[^/]+$/) && request.method === "GET") {
+        const response = await handleExportData(request, env);
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
+      }
+
+      // Usage data backup
+      if (path.match(/^\/r2\/usage\/[^/]+$/) && request.method === "POST") {
+        const response = await handleUsageBackup(request, env);
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
+      }
+
+      // Request log backup
+      if (path.match(/^\/r2\/requests\/[^/]+$/) && request.method === "POST") {
+        const response = await handleRequestLogBackup(request, env);
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
       }
 
       log.warn("ROUTER", "Not found", { path });
