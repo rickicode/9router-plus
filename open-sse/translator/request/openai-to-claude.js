@@ -27,15 +27,17 @@ export function openaiToClaudeRequest(model, body, stream) {
   const systemParts = [];
 
   if (body.messages && Array.isArray(body.messages)) {
-    // Extract system messages
+    // Single-pass: extract system parts AND collect non-system messages.
+    // Replaces a `for ... if system push` followed by `body.messages.filter(...)`,
+    // halving the iteration count.
+    const nonSystemMessages = [];
     for (const msg of body.messages) {
       if (msg.role === "system") {
         systemParts.push(typeof msg.content === "string" ? msg.content : extractTextContent(msg.content));
+      } else {
+        nonSystemMessages.push(msg);
       }
     }
-
-    // Filter out system messages for separate processing
-    const nonSystemMessages = body.messages.filter(m => m.role !== "system");
 
     // Process messages with merging logic
     // CRITICAL: tool_result must be in separate message immediately after tool_use
