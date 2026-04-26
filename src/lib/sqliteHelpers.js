@@ -352,7 +352,19 @@ export function loadProviderHotStateMetadata(provider) {
 
 export function closeSqliteDb() {
   if (sqliteDb) {
-    sqliteDb.close();
+    // Checkpoint the WAL into the main DB and truncate the WAL file before
+    // closing so it doesn't grow unbounded across restarts. Best-effort —
+    // never let a checkpoint failure block process shutdown.
+    try {
+      sqliteDb.pragma('wal_checkpoint(TRUNCATE)');
+    } catch (error) {
+      logSafeError('[DB] WAL checkpoint on close failed', error);
+    }
+    try {
+      sqliteDb.close();
+    } catch (error) {
+      logSafeError('[DB] close failed', error);
+    }
     sqliteDb = null;
   }
 }

@@ -1635,16 +1635,24 @@ function stripHotStateFromConnection(connection) {
 
 export async function exportDb() {
   const db = await getDb();
-  const data = db.data || cloneDefaultData();
-  const sanitizedConnections = Array.isArray(data.providerConnections)
-    ? data.providerConnections.map(stripHotStateFromConnection)
-    : [];
-  return {
-    format: DB_BACKUP_FORMAT,
-    schemaVersion: DB_BACKUP_SCHEMA_VERSION,
-    ...data,
-    providerConnections: sanitizedConnections,
-  };
+  let snapshot = null;
+  // Take the snapshot under the mutex so the array we walk over can't be
+  // mutated mid-iteration by a concurrent createProviderConnection /
+  // deleteProviderConnection / importDb.
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    const data = db.data || cloneDefaultData();
+    const sanitizedConnections = Array.isArray(data.providerConnections)
+      ? data.providerConnections.map(stripHotStateFromConnection)
+      : [];
+    snapshot = {
+      format: DB_BACKUP_FORMAT,
+      schemaVersion: DB_BACKUP_SCHEMA_VERSION,
+      ...data,
+      providerConnections: sanitizedConnections,
+    };
+  });
+  return snapshot;
 }
 
 export async function importDb(payload) {
@@ -1668,6 +1676,8 @@ export async function importDb(payload) {
   const { data: normalized } = ensureDbShape(nextData);
   const db = await getDb();
   const invalidatedProviders = new Set();
+  let connectionsForRebuild = [];
+  let resultData = null;
   await withLocalDbMutex(async () => {
     await safeRead(db);
     for (const conn of db.data.providerConnections || []) {
@@ -1678,13 +1688,20 @@ export async function importDb(payload) {
     }
     db.data = normalized;
     await persistDbWrite(db);
+    // Snapshot the post-import connections under the lock so a concurrent
+    // mutator running between mutex release and the hot-state rebuild below
+    // can't change what we rebuild from.
+    connectionsForRebuild = Array.isArray(db.data.providerConnections)
+      ? db.data.providerConnections.map((c) => ({ ...c }))
+      : [];
+    resultData = db.data;
   });
   await clearAllHotState();
-  rebuildHotStateFromConnections(db.data.providerConnections || []);
+  rebuildHotStateFromConnections(connectionsForRebuild);
   for (const providerId of invalidatedProviders) {
     markProviderHotStateInvalidated(providerId);
   }
-  return db.data;
+  return resultData;
 }
 
 export async function isCloudEnabled() {
