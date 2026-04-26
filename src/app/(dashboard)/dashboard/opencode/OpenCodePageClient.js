@@ -514,61 +514,54 @@ function ConfigPreview({ preview, variant, loading, error, onRefresh, selectedAp
   };
 
   if (loading) {
-  return (
-    <div className="space-y-3 font-['Berkeley_Mono'] text-[#fdfcfc]">
-      <div className="flex items-start gap-3 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] p-3">
-        <p className="text-[14px] text-[#9a9898] leading-[1.50]">
-          The opencode.json config file uses the OpenCode schema.
-          <code className="rounded bg-[#201d1d] px-1.5 py-0.5 font-bold text-[12px] text-[#ec4899] ml-1">
-            opencode-9router-sync
-          </code>
-          is included automatically.
-        </p>
-      </div>
-
-      <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] overflow-hidden">
-        <div className="flex items-center justify-between border-b border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-4 py-2.5">
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-[16px] text-[#ec4899]">data_object</span>
-            <span className="text-[14px] font-bold text-[#fdfcfc]">opencode.json</span>
-          </div>
-          <div className="flex items-center gap-2">
-            {requireApiKey && (
-              <span className="flex items-center gap-1 rounded border border-[#ff9f0a]/30 bg-[#ff9f0a]/10 px-2 py-0.5 text-[12px] text-[#ff9f0a]">
-                <span className="material-symbols-outlined text-[12px]">key</span>
-                Requires valid API key
-              </span>
-            )}
-            <button
-              onClick={() => {
-                downloadFile(prettyJson(opencodeConfig), "opencode.json");
-              }}
-              className="flex items-center gap-1 rounded px-2 py-1 text-[12px] text-[#9a9898] hover:text-[#fdfcfc] transition-colors cursor-pointer"
-            >
-              <span className="material-symbols-outlined text-[16px]">download</span>
-              Download
-            </button>
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(prettyJson(opencodeConfig));
-                setCopied(true);
-                setTimeout(() => setCopied(false), 2000);
-              }}
-              className="flex items-center gap-1 rounded px-2 py-1 text-[12px] text-[#9a9898] hover:text-[#fdfcfc] transition-colors cursor-pointer"
-            >
-              <span className={cn(
-                "material-symbols-outlined text-[16px]",
-                copied ? "text-[#30d158]" : ""
-              )}>
-                {copied ? "check" : "content_copy"}
-              </span>
-              {copied ? "Copied" : "Copy"}
-            </button>
-          </div>
+    return (
+      <div className="space-y-3 font-['Berkeley_Mono'] text-[#fdfcfc]">
+        <div className="flex items-start gap-3 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] p-3">
+          <p className="text-[14px] text-[#9a9898] leading-[1.50]">
+            The opencode.json config file uses the OpenCode schema.
+            <code className="rounded bg-[#201d1d] px-1.5 py-0.5 font-bold text-[12px] text-[#ec4899] ml-1">
+              opencode-9router-sync
+            </code>
+            is included automatically.
+          </p>
         </div>
-        <pre className="max-h-[32rem] overflow-auto bg-[#201d1d] px-4 py-4 text-[13px] leading-[1.60] text-[#fdfcfc] custom-scrollbar">
-          <code>{prettyJson(opencodeConfig)}</code>
-        </pre>
+
+        <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] overflow-hidden">
+          <div className="flex items-center justify-between border-b border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-4 py-2.5">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-[16px] text-[#ec4899]">data_object</span>
+              <span className="text-[14px] font-bold text-[#fdfcfc]">opencode.json</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {requireApiKey && (
+                <span className="flex items-center gap-1 rounded border border-[#ff9f0a]/30 bg-[#ff9f0a]/10 px-2 py-0.5 text-[12px] text-[#ff9f0a]">
+                  <span className="material-symbols-outlined text-[12px]">key</span>
+                  Requires valid API key
+                </span>
+              )}
+              <button
+                className="flex items-center gap-1 rounded px-2 py-1 text-[12px] text-[#9a9898] hover:text-[#fdfcfc] transition-colors cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[16px]">download</span>
+                Download
+              </button>
+              <button
+                className="flex items-center gap-1 rounded px-2 py-1 text-[12px] text-[#9a9898] hover:text-[#fdfcfc] transition-colors cursor-pointer"
+              >
+                <span className={cn(
+                  "material-symbols-outlined text-[16px]",
+                  copied ? "text-[#30d158]" : ""
+                )}>
+                  {copied ? "check" : "content_copy"}
+                </span>
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </div>
+          </div>
+          <pre className="max-h-[32rem] overflow-auto bg-[#201d1d] px-4 py-4 text-[13px] leading-[1.60] text-[#fdfcfc] custom-scrollbar">
+            <code>Loading...</code>
+          </pre>
+        </div>
       </div>
     );
   }
@@ -874,10 +867,14 @@ function AdvancedOverridesCollapsible({ preferences, preview, modelCatalog, savi
                     onClick={handleCancelEdit}
                   >
                     Cancel
-                  </Button>
-                  <Button size="sm" onClick={handleSaveOverrides} loading={saving}>
-                    Save JSON
-                  </Button>
+                  </button>
+                  <button 
+                    className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer"
+                    onClick={handleSaveOverrides} 
+                    disabled={saving}
+                  >
+                    {saving ? "Saving..." : "Save JSON"}
+                  </button>
                 </div>
               </>
             ) : (
@@ -1420,6 +1417,7 @@ export default function OpenCodePageClient() {
                 selectedApiKey={selectedApiKey}
                 requireApiKey={requireApiKey}
               />
+              </div>
             </div>
           </div>
         </section>
