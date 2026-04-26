@@ -316,6 +316,19 @@ export function openaiToOpenAIResponsesRequest(model, body, stream, credentials)
                 mime_type: mimeType,
               };
             }
+            // Anthropic Messages-style image block: { type: "image", source: { type, media_type, data } | { type: "url", url } }
+            if (c.type === "image" && c.source && typeof c.source === "object") {
+              const src = c.source;
+              if (src.type === "url" && typeof src.url === "string") {
+                return { type: "input_image", image_url: src.url, detail: c.detail || "auto" };
+              }
+              const data = typeof src.data === "string" ? src.data : "";
+              const mt = typeof src.media_type === "string" ? src.media_type : "image/png";
+              if (data) {
+                const url = data.startsWith("data:") ? data : `data:${mt};base64,${data}`;
+                return { type: "input_image", image_url: url, detail: c.detail || "auto" };
+              }
+            }
             // Serialize any unknown type (tool_use, tool_result, thinking, etc.) as text
             const text = c.text || c.content || JSON.stringify(c);
             return { type: contentType, text: typeof text === "string" ? text : JSON.stringify(text) };

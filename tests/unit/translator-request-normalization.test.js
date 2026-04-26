@@ -298,6 +298,58 @@ describe("request normalization", () => {
     });
   });
 
+  it("openai -> responses converts Anthropic image blocks to input_image", () => {
+    const body = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "what is this?" },
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: "image/png",
+                data: "iVBORw0KGgo=",
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = openaiToOpenAIResponsesRequest("cx/gpt-5.3-codex", body, true);
+    expect(result.input[0].content).toEqual([
+      { type: "input_text", text: "what is this?" },
+      {
+        type: "input_image",
+        image_url: "data:image/png;base64,iVBORw0KGgo=",
+        detail: "auto",
+      },
+    ]);
+  });
+
+  it("openai -> responses converts Anthropic image url-source blocks to input_image", () => {
+    const body = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: { type: "url", url: "https://example.com/cat.png" },
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = openaiToOpenAIResponsesRequest("cx/gpt-5.3-codex", body, true);
+    expect(result.input[0].content).toEqual([
+      { type: "input_image", image_url: "https://example.com/cat.png", detail: "auto" },
+    ]);
+  });
+
   it("openai -> responses maps string image_url blocks to input_image", () => {
     const body = {
       messages: [
