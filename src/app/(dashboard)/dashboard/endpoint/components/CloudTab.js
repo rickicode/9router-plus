@@ -75,14 +75,26 @@ export default function CloudTab() {
   const [tsEnabled, setTsEnabled] = useState(false);
   const [tsUrl, setTsUrl] = useState("");
 
+  // R2 backup/restore state
+  const [r2BackupEnabled, setR2BackupEnabled] = useState(false);
+  const [r2Info, setR2Info] = useState(null);
+  const [r2Backups, setR2Backups] = useState([]);
+  const [r2Loading, setR2Loading] = useState(false);
+  const [r2Backing, setR2Backing] = useState(false);
+  const [r2Restoring, setR2Restoring] = useState(false);
+  const [r2LastBackupAt, setR2LastBackupAt] = useState(null);
+  const [r2Error, setR2Error] = useState("");
+  const [r2Info2, setR2Info2] = useState("");
+
   const pollTimerRef = useRef(null);
 
   const loadSettings = useCallback(async () => {
     try {
-      const [settingsRes, tunnelRes, cloudUrlsRes] = await Promise.all([
+      const [settingsRes, tunnelRes, cloudUrlsRes, r2Res] = await Promise.all([
         fetch("/api/settings"),
         fetch("/api/tunnel/status"),
         fetch("/api/cloud-urls"),
+        fetch("/api/r2"),
       ]);
 
       if (settingsRes.ok) {
@@ -105,6 +117,12 @@ export default function CloudTab() {
       if (cloudUrlsRes.ok) {
         const data = await cloudUrlsRes.json();
         setCloudUrls(Array.isArray(data.cloudUrls) ? data.cloudUrls : []);
+      }
+
+      if (r2Res.ok) {
+        const data = await r2Res.json();
+        setR2BackupEnabled(data.r2BackupEnabled || false);
+        setR2LastBackupAt(data.r2LastBackupAt || null);
       }
     } catch (e) {
       console.error("Failed to load settings:", e);
@@ -247,6 +265,85 @@ export default function CloudTab() {
       }
     } catch (e) {
       setError(e.message);
+    }
+  };
+
+  // R2 Backup/Restore handlers
+  const handleToggleR2Backup = async (enabled) => {
+    setR2BackupEnabled(enabled);
+    setR2Error("");
+    setR2Info2("");
+    try {
+      const res = await fetch("/api/r2", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ r2BackupEnabled: enabled }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to update R2 settings");
+      }
+      setR2Info2(enabled ? "R2 auto-backup enabled." : "R2 auto-backup disabled.");
+    } catch (e) {
+      setR2Error(e.message);
+      setR2BackupEnabled(!enabled);
+    }
+  };
+
+  const handleR2BackupNow = async () => {
+    setR2Backing(true);
+    setR2Error("");
+    setR2Info2("");
+    try {
+      const res = await fetch("/api/r2/backup", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Backup failed");
+      setR2Info2(`Backup completed: ${data.successes}/${data.total} workers.`);
+      setR2LastBackupAt(new Date().toISOString());
+    } catch (e) {
+      setR2Error(e.message);
+    } finally {
+      setR2Backing(false);
+    }
+  };
+
+  const handleLoadR2Info = async () => {
+    setR2Loading(true);
+    setR2Error("");
+    try {
+      const [infoRes, backupsRes] = await Promise.all([
+        fetch("/api/r2/info"),
+        fetch("/api/r2/restore"),
+      ]);
+      if (infoRes.ok) {
+        const data = await infoRes.json();
+        setR2Info(data);
+      }
+      if (backupsRes.ok) {
+        const data = await backupsRes.json();
+        setR2Backups(data.backups || []);
+      }
+    } catch (e) {
+      setR2Error(e.message);
+    } finally {
+      setR2Loading(false);
+    }
+  };
+
+  const handleR2Restore = async () => {
+    if (!confirm("Restore will replace your current database with the latest R2 backup. A local backup will be created first. Continue?")) return;
+    setR2Restoring(true);
+    setR2Error("");
+    setR2Info2("");
+    try {
+      const res = await fetch("/api/r2/restore", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Restore failed");
+      setR2Info2(`Restored from ${data.restoredBackup}. Restart 9Router to apply changes.`);
+    } catch (e) {
+      setR2Error(e.message);
+    } finally {
+      setR2Restoring(false);
     }
   };
 
@@ -464,6 +561,119 @@ export default function CloudTab() {
               {saving ? "Saving..." : "Save Settings"}
             </Button>
           </div>
+        </div>
+      </GlassCard>
+
+      <GlassCard>
+        <SectionHeader
+          label="R2 STORAGE"
+          title="R2 Backup & Restore"
+          subtitle="Backup your 9Router data to Cloudflare R2 for disaster recovery and easy migration. All cloud workers share the same R2 bucket for provider data, usage, and SQLite backups."
+          badge={<StatusBadge status={r2BackupEnabled ? "Enabled" : "Disabled"} />}
+        />
+
+        {(r2Error || r2Info2) && (
+          <div
+            className="mt-4 rounded border p-3 text-xs"
+            style={{
+              borderColor: r2Error ? "#ef4444" : "#10b981",
+              background: r2Error ? "#ef44441a" : "#10b9811a",
+              color: r2Error ? "#fca5a5" : "#86efac",
+            }}
+          >
+            {r2Error || r2Info2}
+          </div>
+        )}
+
+        <div className="space-y-4 mt-4">
+          <ToggleRow
+            label="Auto Backup"
+            description="Automatically backup SQLite database and usage data to R2 every 6 hours"
+            checked={r2BackupEnabled}
+            onChange={handleToggleR2Backup}
+          />
+
+          {r2LastBackupAt && (
+            <div className="text-xs text-[var(--color-text-muted)]">
+              Last backup: {formatRelative(r2LastBackupAt)}
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2 border-t border-[var(--color-border)] pt-3">
+            <Button size="sm" variant="secondary" onClick={handleR2BackupNow} disabled={r2Backing || cloudUrls.length === 0}>
+              {r2Backing ? "Backing up…" : "Backup Now"}
+            </Button>
+            <Button size="sm" variant="secondary" onClick={handleLoadR2Info} disabled={r2Loading || cloudUrls.length === 0}>
+              {r2Loading ? "Loading…" : "View R2 Status"}
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleR2Restore}
+              disabled={r2Restoring || cloudUrls.length === 0}
+              className="bg-[var(--color-warning)] text-black hover:opacity-90"
+            >
+              {r2Restoring ? "Restoring…" : "Restore from R2"}
+            </Button>
+          </div>
+
+          {cloudUrls.length === 0 && (
+            <div className="text-xs text-[var(--color-text-muted)]">
+              Add a cloud worker above to enable R2 backup/restore.
+            </div>
+          )}
+
+          {r2Info && (
+            <div className="mt-3 space-y-2">
+              <div className="text-xs font-semibold text-[var(--color-text-main)]">R2 Storage Status</div>
+              {r2Info.workers?.map((w, i) => (
+                <div key={i} className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-3">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm text-[var(--color-text-main)]">{w.name}</span>
+                    <StatusPill status={w.status === "ok" ? "online" : "error"} />
+                  </div>
+                  <div className="mt-1 text-xs text-[var(--color-text-muted)]">{w.url}</div>
+                  {w.status === "ok" && (
+                    <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[var(--color-text-muted)] sm:grid-cols-3">
+                      <div>
+                        <span className="opacity-70">Machines</span>
+                        <div>{w.machineCount ?? "—"}</div>
+                      </div>
+                      <div>
+                        <span className="opacity-70">Backups</span>
+                        <div>{w.backupCount ?? "—"}</div>
+                      </div>
+                      <div>
+                        <span className="opacity-70">Latest</span>
+                        <div>{w.latestBackup ? formatRelative(w.latestBackup.uploaded) : "none"}</div>
+                      </div>
+                    </div>
+                  )}
+                  {w.error && (
+                    <div className="mt-1 text-xs" style={{ color: "#fca5a5" }}>{w.error}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {r2Backups.length > 0 && (
+            <div className="mt-3">
+              <div className="text-xs font-semibold text-[var(--color-text-main)] mb-2">Available Backups</div>
+              <div className="max-h-40 overflow-y-auto space-y-1">
+                {r2Backups.map((b, i) => (
+                  <div key={i} className="flex items-center justify-between rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-3 py-2 text-xs">
+                    <div>
+                      <span className="font-mono text-[var(--color-text-main)]">{b.key}</span>
+                      <span className="ml-2 text-[var(--color-text-muted)]">
+                        {b.size ? `${(b.size / 1024).toFixed(1)} KB` : ""}
+                      </span>
+                    </div>
+                    <span className="text-[var(--color-text-muted)]">{formatRelative(b.uploaded)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </GlassCard>
     </div>

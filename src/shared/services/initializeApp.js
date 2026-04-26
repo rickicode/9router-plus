@@ -126,6 +126,17 @@ export async function initializeApp() {
       }
     }
 
+    // Start R2 backup scheduler if enabled
+    if (settings.r2BackupEnabled) {
+      try {
+        const { startR2BackupScheduler } = await import("@/lib/r2BackupScheduler");
+        startR2BackupScheduler();
+        console.log('[INIT] R2 backup scheduler started');
+      } catch (error) {
+        console.error('[INIT] Failed to start R2 backup scheduler:', error);
+      }
+    }
+
     // Auto-start MITM if it was enabled before restart
     autoStartMitm();
   } catch (error) {

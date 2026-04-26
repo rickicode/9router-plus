@@ -5,7 +5,7 @@ import * as log from "../utils/logger.js";
 
 /**
  * Select credential for provider using round-robin/sticky logic
- * @param {Object} machineData - Machine data from D1
+ * @param {Object} machineData - Machine data from R2
  * @param {string} provider - Provider name
  * @param {string} apiKey - Client API key (for sticky sessions)
  * @returns {Object} Selected credential
