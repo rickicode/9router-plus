@@ -247,6 +247,76 @@ describe("CodexExecutor image handling", () => {
     expect(imgBlock.image_url).toBe(REMOTE_URL);
   });
 
+  it("transformRequest registers image_generation tool so Codex enables vision input", async () => {
+    const executor = new CodexExecutor();
+    const body = {
+      input: [
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: "look" },
+            { type: "input_image", image_url: DATA_URI, detail: "auto" },
+          ],
+        },
+      ],
+    };
+    const out = executor.transformRequest("gpt-5.4", body, true, {
+      accessToken: "x",
+      accountId: "y",
+    });
+    expect(Array.isArray(out.tools)).toBe(true);
+    const imgTool = out.tools.find((t) => t?.type === "image_generation");
+    expect(imgTool, "image_generation tool must be present").toBeDefined();
+    expect(imgTool.output_format).toBe("png");
+  });
+
+  it("transformRequest does not duplicate image_generation when caller already provided it", async () => {
+    const executor = new CodexExecutor();
+    const body = {
+      input: [
+        {
+          role: "user",
+          content: [{ type: "input_text", text: "x" }],
+        },
+      ],
+      tools: [
+        { type: "image_generation", output_format: "webp" },
+        { type: "function", name: "do_thing" },
+      ],
+    };
+    const out = executor.transformRequest("gpt-5.4", body, true, {});
+    const imgTools = out.tools.filter((t) => t?.type === "image_generation");
+    expect(imgTools).toHaveLength(1);
+    expect(imgTools[0].output_format).toBe("webp");
+    expect(out.tools.find((t) => t?.type === "function")).toBeDefined();
+  });
+
+  it("transformRequest skips image_generation tool for spark models", async () => {
+    const executor = new CodexExecutor();
+    const body = {
+      input: [{ role: "user", content: [{ type: "input_text", text: "x" }] }],
+    };
+    const out = executor.transformRequest("gpt-5.3-codex-spark", body, true, {});
+    if (Array.isArray(out.tools)) {
+      expect(out.tools.find((t) => t?.type === "image_generation")).toBeUndefined();
+    } else {
+      expect(out.tools).toBeUndefined();
+    }
+  });
+
+  it("transformRequest skips image_generation tool for free-plan credentials", async () => {
+    const executor = new CodexExecutor();
+    const body = {
+      input: [{ role: "user", content: [{ type: "input_text", text: "x" }] }],
+    };
+    const out = executor.transformRequest("gpt-5.4", body, true, { plan_type: "free" });
+    if (Array.isArray(out.tools)) {
+      expect(out.tools.find((t) => t?.type === "image_generation")).toBeUndefined();
+    } else {
+      expect(out.tools).toBeUndefined();
+    }
+  });
+
   it("execute() prefetches images before sending to upstream", async () => {
     global.fetch = vi.fn(async () => mockImageFetch(IMAGE_1MB_BYTES));
 
