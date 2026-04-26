@@ -422,6 +422,25 @@ describe("request normalization", () => {
     expect(result.parallel_tool_calls).toBe(true);
   });
 
+  it("openai -> responses preserves caller-supplied instructions instead of clearing", () => {
+    const body = {
+      instructions: "caller-explicit prompt MARKER_KEEP_ME",
+      messages: [{ role: "user", content: "hi" }],
+    };
+    const result = openaiToOpenAIResponsesRequest("cx/gpt-5.3-codex", body, true);
+    // Caller-provided instructions must NOT be wiped to "" by the translator.
+    expect(result.instructions).toBe("caller-explicit prompt MARKER_KEEP_ME");
+  });
+
+  it("openai -> responses honors explicit caller parallel_tool_calls=false", () => {
+    const body = {
+      parallel_tool_calls: false,
+      messages: [{ role: "user", content: "hi" }],
+    };
+    const result = openaiToOpenAIResponsesRequest("cx/gpt-5.3-codex", body, true);
+    expect(result.parallel_tool_calls).toBe(false);
+  });
+
   it("openai -> responses preserves multiple system messages as separate developer-role items", () => {
     const body = {
       messages: [

@@ -374,15 +374,17 @@ export function openaiToOpenAIResponsesRequest(model, body, stream, credentials)
     }
   }
 
-  // Match CLIProxyAPI: instructions is always an empty string by default; the
-  // backend supplies its own default Codex CLI prompt. The executor's
-  // normalizeCodexInstructions step keeps this contract.
-  result.instructions = "";
+  // Match CLIProxyAPI: instructions defaults to an empty string; the backend
+  // supplies its own default Codex CLI prompt. The executor's
+  // normalizeCodexInstructions step keeps this contract. We DO honor an
+  // explicit caller-provided string so that responses→openai→responses
+  // round-trips don't silently drop a /v1/responses caller's `instructions`.
+  result.instructions = typeof body.instructions === "string" ? body.instructions : "";
 
-  // Match CLIProxyAPI: enable parallel tool calls so the model can dispatch
-  // multiple tools concurrently. Faster wall-clock for tool-heavy turns.
-  // (codex_openai_request.go:62)
-  result.parallel_tool_calls = true;
+  // Match CLIProxyAPI: default to enabling parallel tool calls so the model
+  // can dispatch multiple tools concurrently (codex_openai_request.go:62).
+  // Honor an explicit caller-provided value (including `false`) when present.
+  result.parallel_tool_calls = body.parallel_tool_calls ?? true;
 
   // Convert tools format
   if (body.tools && Array.isArray(body.tools)) {
