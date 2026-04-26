@@ -73,9 +73,9 @@ function ModelSelector({ preferences, modelCatalog, saving, onSave, activeProvid
   };
 
   return (
-    <div className="space-y-3 font-['Berkeley_Mono']">
+    <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9a9898]">
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
           Model selection
         </p>
         <div className="flex gap-2">
@@ -85,8 +85,8 @@ function ModelSelector({ preferences, modelCatalog, saving, onSave, activeProvid
             className={cn(
               "rounded border px-3 py-1.5 text-[14px] font-medium transition-colors cursor-pointer",
               mode === "exclude"
-                ? "border-[#ec4899]/30 bg-[#ec4899]/10 text-[#ec4899]"
-                : "border-[rgba(15,0,0,0.12)] bg-[#302c2c] text-[#9a9898] hover:text-[#fdfcfc]"
+                ? "border-[var(--color-primary)]/30 bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
+                : "border-[var(--color-border)] bg-[var(--color-bg-alt)] text-[var(--color-text-muted)] hover:text-[var(--color-text-main)]"
             )}
           >
             Exclude from catalog
@@ -97,8 +97,8 @@ function ModelSelector({ preferences, modelCatalog, saving, onSave, activeProvid
             className={cn(
               "rounded border px-3 py-1.5 text-[14px] font-medium transition-colors cursor-pointer",
               mode === "include"
-                ? "border-[#ec4899]/30 bg-[#ec4899]/10 text-[#ec4899]"
-                : "border-[rgba(15,0,0,0.12)] bg-[#302c2c] text-[#9a9898] hover:text-[#fdfcfc]"
+                ? "border-[var(--color-primary)]/30 bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
+                : "border-[var(--color-border)] bg-[var(--color-bg-alt)] text-[var(--color-text-muted)] hover:text-[var(--color-text-main)]"
             )}
           >
             Include only
@@ -106,20 +106,20 @@ function ModelSelector({ preferences, modelCatalog, saving, onSave, activeProvid
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] p-3">
+      <div className="flex flex-wrap items-center gap-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-3">
         {selectedModels.length === 0 ? (
-          <p className="text-[14px] text-[#9a9898]">
+          <p className="text-[14px] text-[var(--color-text-muted)]">
             {mode === "include"
               ? "No included models selected yet."
               : "No excluded models. Full catalog will be used."}
           </p>
         ) : (
           selectedModels.map((modelId) => (
-            <span key={modelId} className="flex items-center gap-1.5 pr-1 rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-2 py-0.5 text-[14px] text-[#fdfcfc]">
+            <span key={modelId} className="flex items-center gap-1.5 pr-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[14px] text-[var(--color-text-main)]">
               <span className="max-w-[200px] truncate">{modelId}</span>
               <button
                 type="button"
-                className="rounded-full p-0.5 hover:text-[#ff3b30] cursor-pointer"
+                className="rounded-full p-0.5 hover:text-[var(--color-danger)] cursor-pointer"
                 onClick={() => removeModel(modelId)}
               >
                 <span className="material-symbols-outlined text-[14px]">close</span>
@@ -128,7 +128,7 @@ function ModelSelector({ preferences, modelCatalog, saving, onSave, activeProvid
           ))
         )}
         <button
-          className="rounded bg-transparent px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#201d1d] transition-colors border border-transparent hover:border-[rgba(15,0,0,0.12)] cursor-pointer disabled:opacity-50"
+          className="rounded bg-transparent px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[var(--color-text-main)] hover:bg-[var(--color-surface)] transition-colors border border-transparent hover:border-[var(--color-border)] cursor-pointer disabled:opacity-50"
           onClick={() => setPickerOpen(true)}
           disabled={availableOptions.length === 0 || saving}
         >
@@ -150,8 +150,8 @@ function ModelSelector({ preferences, modelCatalog, saving, onSave, activeProvid
 
 function VariantToggle({ variant, onVariantChange }) {
   return (
-    <div className="space-y-2 font-['Berkeley_Mono']">
-      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9a9898]">
+    <div className="space-y-2">
+      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
         Variant
       </p>
       <div className="flex gap-2">
@@ -161,8 +161,8 @@ function VariantToggle({ variant, onVariantChange }) {
           className={cn(
             "flex-1 rounded border px-3 py-2 text-[14px] font-medium transition-colors cursor-pointer text-left",
             variant === "openagent"
-              ? "border-[#ec4899] bg-[#302c2c] text-[#fdfcfc]"
-              : "border-[rgba(15,0,0,0.12)] bg-[#201d1d] text-[#9a9898] hover:text-[#fdfcfc] hover:border-[#ec4899]/50"
+              ? "border-[var(--color-primary)] bg-[var(--color-bg-alt)] text-[var(--color-text-main)]"
+              : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text-main)] hover:border-[var(--color-primary)]/50"
           )}
         >
           <div className="font-bold">Oh My Open Agent</div>
@@ -174,8 +174,8 @@ function VariantToggle({ variant, onVariantChange }) {
           className={cn(
             "flex-1 rounded border px-3 py-2 text-[14px] font-medium transition-colors cursor-pointer text-left",
             variant === "slim"
-              ? "border-[#ec4899] bg-[#302c2c] text-[#fdfcfc]"
-              : "border-[rgba(15,0,0,0.12)] bg-[#201d1d] text-[#9a9898] hover:text-[#fdfcfc] hover:border-[#ec4899]/50"
+              ? "border-[var(--color-primary)] bg-[var(--color-bg-alt)] text-[var(--color-text-main)]"
+              : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text-main)] hover:border-[var(--color-primary)]/50"
           )}
         >
           <div className="font-bold">Oh My OpenCode Slim</div>
@@ -187,8 +187,8 @@ function VariantToggle({ variant, onVariantChange }) {
           className={cn(
             "flex-1 rounded border px-3 py-2 text-[14px] font-medium transition-colors cursor-pointer text-left",
             variant === "custom"
-              ? "border-[#ec4899] bg-[#302c2c] text-[#fdfcfc]"
-              : "border-[rgba(15,0,0,0.12)] bg-[#201d1d] text-[#9a9898] hover:text-[#fdfcfc] hover:border-[#ec4899]/50"
+              ? "border-[var(--color-primary)] bg-[var(--color-bg-alt)] text-[var(--color-text-main)]"
+              : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text-main)] hover:border-[var(--color-primary)]/50"
           )}
         >
           <div className="font-bold">Custom / No preset</div>
@@ -201,23 +201,23 @@ function VariantToggle({ variant, onVariantChange }) {
 
 function PluginSection({ plugins, pluginInput, onPluginInputChange, onAddPlugin, onRemovePlugin }) {
   return (
-    <div className="space-y-2 font-['Berkeley_Mono']">
-      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9a9898]">
+    <div className="space-y-2">
+      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
         Plugins
       </p>
       <div className="flex flex-wrap gap-2">
         {plugins.map((plugin) => (
           <div
             key={plugin}
-            className="inline-flex items-center gap-1.5 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-2.5 py-1 text-[14px] text-[#fdfcfc]"
+            className="inline-flex items-center gap-1.5 rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-2.5 py-1 text-[14px] text-[var(--color-text-main)]"
           >
-            <span className="material-symbols-outlined text-[14px] text-[#ec4899]">extension</span>
+            <span className="material-symbols-outlined text-[14px] text-[var(--color-primary)]">extension</span>
             {plugin}
             {!DEFAULT_PLUGINS.includes(plugin) && (
               <button
                 type="button"
                 onClick={() => onRemovePlugin(plugin)}
-                className="ml-0.5 rounded-full p-0.5 text-[#9a9898] hover:bg-[#201d1d] hover:text-[#ff3b30] cursor-pointer"
+                className="ml-0.5 rounded-full p-0.5 text-[var(--color-text-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-danger)] cursor-pointer"
                 title="Remove plugin"
               >
                 <span className="material-symbols-outlined text-[14px]">close</span>
@@ -234,20 +234,15 @@ function PluginSection({ plugins, pluginInput, onPluginInputChange, onAddPlugin,
             onAddPlugin();
           }}
         >
-          <input
-            type="text"
+          <Input
             value={pluginInput}
             onChange={(e) => onPluginInputChange(e.target.value)}
             placeholder="e.g. opencode-plugin-name"
-            className="flex-1 rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
+            className="flex-1"
           />
-          <button 
-            type="submit" 
-            disabled={!pluginInput.trim()}
-            className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer disabled:opacity-50 h-[62px]"
-          >
+          <Button type="submit" variant="secondary" size="sm" disabled={!pluginInput.trim()}>
             Add Plugin
-          </button>
+          </Button>
         </form>
       </div>
     </div>
@@ -278,8 +273,8 @@ function McpSection({ mcps, onAddMcp, onRemoveMcp, onToggleMcpEnabled }) {
   };
 
   return (
-    <div className="space-y-2 font-['Berkeley_Mono']">
-      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9a9898]">
+    <div className="space-y-2">
+      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
         MCP Servers
       </p>
       {mcps.length > 0 && (
@@ -287,12 +282,12 @@ function McpSection({ mcps, onAddMcp, onRemoveMcp, onToggleMcpEnabled }) {
           {mcps.map((mcp, idx) => (
             <div
               key={`${mcp.name}-${idx}`}
-              className="flex items-center justify-between gap-2 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-3 py-2 text-[#fdfcfc]"
+              className="flex items-center justify-between gap-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-3 py-2 text-[var(--color-text-main)]"
             >
               <div className="flex items-center gap-2 text-[14px]">
-                <span className="material-symbols-outlined text-[16px] text-[#ec4899]">dns</span>
-                <span className="font-bold text-[#fdfcfc]">{mcp.name}</span>
-                <span className="text-[#9a9898] ml-2">{mcp.type}</span>
+                <span className="material-symbols-outlined text-[16px] text-[var(--color-primary)]">dns</span>
+                <span className="font-bold text-[var(--color-text-main)]">{mcp.name}</span>
+                <span className="text-[var(--color-text-muted)] ml-2">{mcp.type}</span>
               </div>
               <div className="flex items-center gap-1">
                 <Toggle
@@ -302,7 +297,7 @@ function McpSection({ mcps, onAddMcp, onRemoveMcp, onToggleMcpEnabled }) {
                 <button
                   type="button"
                   onClick={() => onRemoveMcp(mcp.name)}
-                  className="rounded p-1 text-[#9a9898] hover:text-[#ff3b30] cursor-pointer transition-colors"
+                  className="rounded p-1 text-[var(--color-text-muted)] hover:text-[var(--color-danger)] cursor-pointer transition-colors"
                   title="Remove MCP server"
                 >
                   <span className="material-symbols-outlined text-[16px]">close</span>
@@ -322,46 +317,42 @@ function McpSection({ mcps, onAddMcp, onRemoveMcp, onToggleMcpEnabled }) {
           setUrl("");
         }}
       >
-        <input
-          type="text"
+        <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Server Name"
-          className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
         />
-        <select
+        <Select
           value={type}
           onChange={(e) => setType(e.target.value)}
-          className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] text-[16px] text-[#201d1d] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
-        >
-          <option value="local">Local Command</option>
-          <option value="sse">SSE URL</option>
-        </select>
+          options={[
+            { value: "local", label: "Local Command" },
+            { value: "sse", label: "SSE URL" },
+          ]}
+        />
         
         {type === "local" ? (
-          <input
-            type="text"
+          <Input
             value={command}
             onChange={(e) => setCommand(e.target.value)}
             placeholder="npx -y some-mcp-server"
-            className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
           />
         ) : (
-          <input
+          <Input
             type="url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="http://localhost:8080/sse"
-            className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
           />
         )}
-        <button 
+        <Button 
           type="submit" 
+          variant="secondary"
+          size="sm"
           disabled={!name.trim() || (type === "local" ? !command.trim() : !url.trim())}
-          className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer disabled:opacity-50 h-[62px]"
         >
           Add MCP
-        </button>
+        </Button>
       </form>
     </div>
   );
@@ -381,8 +372,8 @@ function EnvVarsSection({ envVars, onAddEnvVar, onRemoveEnvVar }) {
   };
 
   return (
-    <div className="space-y-2 font-['Berkeley_Mono']">
-      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9a9898]">
+    <div className="space-y-2">
+      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
         Environment Variables
       </p>
       {envVars.length > 0 && (
@@ -390,19 +381,19 @@ function EnvVarsSection({ envVars, onAddEnvVar, onRemoveEnvVar }) {
           {envVars.map((env, idx) => (
             <div
               key={`${env.key}-${idx}`}
-              className="flex items-center justify-between gap-2 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-3 py-2 text-[#fdfcfc]"
+              className="flex items-center justify-between gap-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-3 py-2 text-[var(--color-text-main)]"
             >
               <div className="flex items-center gap-2 text-[14px]">
-                <span className="material-symbols-outlined text-[16px] text-[#ec4899]">key</span>
-                <span className="font-bold text-[#fdfcfc]">{env.key}</span>
-                <span className="text-[#9a9898] ml-2 truncate max-w-[200px]">
+                <span className="material-symbols-outlined text-[16px] text-[var(--color-primary)]">key</span>
+                <span className="font-bold text-[var(--color-text-main)]">{env.key}</span>
+                <span className="text-[var(--color-text-muted)] ml-2 truncate max-w-[200px]">
                   {env.secret ? "••••••••" : env.value}
                 </span>
               </div>
               <button
                 type="button"
                 onClick={() => onRemoveEnvVar(env.key)}
-                className="rounded p-1 text-[#9a9898] hover:text-[#ff3b30] cursor-pointer transition-colors"
+                className="rounded p-1 text-[var(--color-text-muted)] hover:text-[var(--color-danger)] cursor-pointer transition-colors"
                 title="Remove environment variable"
               >
                 <span className="material-symbols-outlined text-[16px]">close</span>
@@ -421,36 +412,33 @@ function EnvVarsSection({ envVars, onAddEnvVar, onRemoveEnvVar }) {
           setSecret(false);
         }}
       >
-        <input
-          type="text"
+        <Input
           value={key}
           onChange={(e) => setKey(e.target.value)}
           placeholder="VARIABLE_NAME"
-          className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
         />
-        <input
-          type="text"
+        <Input
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder="Value"
-          className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
         />
-        <label className="flex items-center gap-1.5 text-[14px] text-[#9a9898] cursor-pointer pl-2">
+        <label className="flex items-center gap-1.5 text-sm text-[var(--color-text-muted)] cursor-pointer pl-2">
           <input
             type="checkbox"
             checked={secret}
             onChange={(e) => setSecret(e.target.checked)}
-            className="rounded border-[rgba(15,0,0,0.12)] text-[#ec4899] focus:ring-[#ec4899]"
+            className="rounded border-[var(--color-border)] text-[var(--color-primary)] focus:ring-[var(--color-primary)]"
           />
           Secret
         </label>
-        <button 
+        <Button 
           type="submit" 
+          variant="secondary"
+          size="sm"
           disabled={!key.trim() || !value.trim()}
-          className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer disabled:opacity-50 h-[62px]"
         >
           Add Var
-        </button>
+        </Button>
       </form>
     </div>
   );
@@ -515,50 +503,39 @@ function ConfigPreview({ preview, variant, loading, error, onRefresh, selectedAp
 
   if (loading) {
     return (
-      <div className="space-y-3 font-['Berkeley_Mono'] text-[#fdfcfc]">
-        <div className="flex items-start gap-3 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] p-3">
-          <p className="text-[14px] text-[#9a9898] leading-[1.50]">
+      <div className="space-y-3 text-[var(--color-text-main)]">
+        <div className="flex items-start gap-3 rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-3">
+          <p className="text-[14px] text-[var(--color-text-muted)] leading-[1.50]">
             The opencode.json config file uses the OpenCode schema.
-            <code className="rounded bg-[#201d1d] px-1.5 py-0.5 font-bold text-[12px] text-[#ec4899] ml-1">
+            <code className="rounded bg-[var(--color-surface)] px-1.5 py-0.5 font-bold text-[12px] text-[var(--color-primary)] ml-1">
               opencode-9router-sync
             </code>
             is included automatically.
           </p>
         </div>
 
-        <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] overflow-hidden">
-          <div className="flex items-center justify-between border-b border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-4 py-2.5">
+        <div className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden">
+          <div className="flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-bg-alt)] px-4 py-2.5">
             <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-[16px] text-[#ec4899]">data_object</span>
-              <span className="text-[14px] font-bold text-[#fdfcfc]">opencode.json</span>
+              <span className="material-symbols-outlined text-[16px] text-[var(--color-primary)]">data_object</span>
+              <span className="text-[14px] font-bold text-[var(--color-text-main)]">opencode.json</span>
             </div>
             <div className="flex items-center gap-2">
               {requireApiKey && (
-                <span className="flex items-center gap-1 rounded border border-[#ff9f0a]/30 bg-[#ff9f0a]/10 px-2 py-0.5 text-[12px] text-[#ff9f0a]">
+                <span className="flex items-center gap-1 rounded border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/10 px-2 py-0.5 text-[12px] text-[var(--color-warning)]">
                   <span className="material-symbols-outlined text-[12px]">key</span>
                   Requires valid API key
                 </span>
               )}
-              <button
-                className="flex items-center gap-1 rounded px-2 py-1 text-[12px] text-[#9a9898] hover:text-[#fdfcfc] transition-colors cursor-pointer"
-              >
-                <span className="material-symbols-outlined text-[16px]">download</span>
+              <Button variant="ghost" size="sm" icon="download" disabled>
                 Download
-              </button>
-              <button
-                className="flex items-center gap-1 rounded px-2 py-1 text-[12px] text-[#9a9898] hover:text-[#fdfcfc] transition-colors cursor-pointer"
-              >
-                <span className={cn(
-                  "material-symbols-outlined text-[16px]",
-                  copied ? "text-[#30d158]" : ""
-                )}>
-                  {copied ? "check" : "content_copy"}
-                </span>
-                {copied ? "Copied" : "Copy"}
-              </button>
+              </Button>
+              <Button variant="ghost" size="sm" icon="content_copy" disabled>
+                Copy
+              </Button>
             </div>
           </div>
-          <pre className="max-h-[32rem] overflow-auto bg-[#201d1d] px-4 py-4 text-[13px] leading-[1.60] text-[#fdfcfc] custom-scrollbar">
+          <pre className="max-h-[32rem] overflow-auto bg-[var(--color-surface)] px-4 py-4 text-[13px] leading-[1.60] text-[var(--color-text-main)] custom-scrollbar">
             <code>Loading...</code>
           </pre>
         </div>
@@ -568,67 +545,44 @@ function ConfigPreview({ preview, variant, loading, error, onRefresh, selectedAp
 
   if (error) {
     return (
-      <div className="rounded border border-[#ff3b30]/20 bg-[#ff3b30]/10 px-4 py-3 text-[14px] text-[#ff3b30] font-['Berkeley_Mono']">
+      <div className="rounded border border-[var(--color-danger)]/20 bg-[var(--color-danger)]/10 px-4 py-3 text-[14px] text-[var(--color-danger)]">
         {error}
-        <button 
-          className="ml-2 rounded bg-transparent px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#201d1d] transition-colors border border-transparent hover:border-[rgba(15,0,0,0.12)] cursor-pointer"
-          onClick={onRefresh}
-        >
+        <Button variant="ghost" size="sm" className="ml-2" onClick={onRefresh}>
           Retry
-        </button>
+        </Button>
       </div>
     );
   }
 
   if (!preview) {
     return (
-      <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-4 py-6 text-center text-[14px] text-[#9a9898] font-['Berkeley_Mono']">
+      <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-4 py-6 text-center text-[14px] text-[var(--color-text-muted)]">
         Preview not available
-        <button 
-          className="ml-2 rounded bg-[#201d1d] px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer"
-          onClick={onRefresh}
-        >
+        <Button variant="secondary" size="sm" className="ml-2" onClick={onRefresh}>
           Refresh
-        </button>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="rounded border border-[#ff3b30]/20 bg-[#ff3b30]/10 px-4 py-3 text-[14px] text-[#ff3b30] font-['Berkeley_Mono']">
-        {error}
-        <button 
-          className="ml-2 rounded bg-transparent px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#ff3b30] hover:bg-[#ff3b30]/10 transition-colors border border-transparent hover:border-[#ff3b30]/20 cursor-pointer"
-          onClick={onRefresh}
-        >
-          Retry
-        </button>
+        </Button>
       </div>
     );
   }
 
   if (!opencodeConfig) {
     return (
-      <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-4 py-6 text-center text-[14px] text-[#9a9898] font-['Berkeley_Mono']">
+      <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-4 py-6 text-center text-[14px] text-[var(--color-text-muted)]">
         No config preview available yet.
-        <button 
-          className="ml-2 rounded bg-[#201d1d] px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer"
-          onClick={onRefresh}
-        >
+        <Button variant="secondary" size="sm" className="ml-2" onClick={onRefresh}>
           Refresh
-        </button>
+        </Button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-3 font-['Berkeley_Mono']">
+    <div className="space-y-3">
       {/* Sync info banner */}
-      <div className="flex items-start gap-3 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] p-3">
-        <p className="text-[14px] text-[#9a9898] leading-[1.50]">
+      <div className="flex items-start gap-3 rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-3">
+        <p className="text-[14px] text-[var(--color-text-muted)] leading-[1.50]">
           Auto-sync keeps this config updated via{" "}
-          <code className="rounded bg-[#201d1d] px-1.5 py-0.5 font-bold text-[12px] text-[#ec4899]">
+          <code className="rounded bg-[var(--color-surface)] px-1.5 py-0.5 font-bold text-[12px] text-[var(--color-primary)]">
             opencode-9router-sync
           </code>
           .
@@ -637,105 +591,80 @@ function ConfigPreview({ preview, variant, loading, error, onRefresh, selectedAp
 
       {/* Slim first-time setup banner */}
       {variant === "slim" && (
-        <div className="rounded border border-[#ff3b30]/20 bg-[#ff3b30]/10 px-3 py-2 space-y-1">
+        <div className="rounded border border-[var(--color-danger)]/20 bg-[var(--color-danger)]/10 px-3 py-2 space-y-1">
           <div className="flex items-center gap-2">
-            <span className="text-[11px] font-bold text-[#ff3b30] shrink-0">First-time setup:</span>
-            <code className="text-[14px] font-bold select-all truncate text-[#ff3b30]">
+            <span className="text-[11px] font-bold text-[var(--color-danger)] shrink-0">First-time setup:</span>
+            <code className="text-[14px] font-bold select-all truncate text-[var(--color-danger)]">
               npx -y -p @9router/opencode-9router-sync plugin-register --skills=yes
             </code>
-            <span className="text-[12px] text-[#ff3b30]/70 shrink-0">(run once)</span>
+            <span className="text-[12px] text-[var(--color-danger)]/70 shrink-0">(run once)</span>
           </div>
-          <p className="text-[12px] text-[#ff3b30]/60">
-            Registers agents and hooks. Use <code className="text-[#ff3b30]/70">--skills=yes</code> to also install community skills.
+          <p className="text-[12px] text-[var(--color-danger)]/60">
+            Registers agents and hooks. Use <code className="text-[var(--color-danger)]/70">--skills=yes</code> to also install community skills.
           </p>
         </div>
       )}
 
       {/* Main config preview */}
-      <div className="rounded border border-[rgba(15,0,0,0.12)] overflow-hidden font-['Berkeley_Mono'] bg-[#201d1d]">
-        <div className="flex items-center justify-between border-b border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-4 py-2.5">
+      <div className="rounded border border-[var(--color-border)] overflow-hidden bg-[var(--color-surface)]">
+        <div className="flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-bg-alt)] px-4 py-2.5">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-[16px] text-[#ec4899]">data_object</span>
-            <span className="text-[14px] font-bold text-[#fdfcfc]">opencode.json</span>
+            <span className="material-symbols-outlined text-[16px] text-[var(--color-primary)]">data_object</span>
+            <span className="text-[14px] font-bold text-[var(--color-text-main)]">opencode.json</span>
           </div>
           <div className="flex items-center gap-2">
             {requireApiKey && (
-              <span className="flex items-center gap-1 rounded border border-[#ff9f0a]/30 bg-[#ff9f0a]/10 px-2 py-0.5 text-[12px] text-[#ff9f0a]">
+              <span className="flex items-center gap-1 rounded border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/10 px-2 py-0.5 text-[12px] text-[var(--color-warning)]">
                 <span className="material-symbols-outlined text-[12px]">key</span>
                 Requires valid API key
               </span>
             )}
-            <button
-              onClick={() => {
-                downloadFile(prettyJson(opencodeConfig), "opencode.json");
-              }}
-              className="flex items-center gap-1 rounded px-2 py-1 text-[12px] text-[#9a9898] hover:text-[#fdfcfc] transition-colors cursor-pointer"
-            >
-              <span className="material-symbols-outlined text-[16px]">download</span>
+            <Button variant="ghost" size="sm" icon="download" onClick={() => downloadFile(prettyJson(opencodeConfig), "opencode.json")}>
               Download
-            </button>
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(prettyJson(opencodeConfig));
-                setCopied(true);
-                setTimeout(() => setCopied(false), 2000);
-              }}
-              className="flex items-center gap-1 rounded px-2 py-1 text-[12px] text-[#9a9898] hover:text-[#fdfcfc] transition-colors cursor-pointer"
-            >
-              <span className={cn(
-                "material-symbols-outlined text-[16px]",
-                copied ? "text-[#30d158]" : ""
-              )}>
-                {copied ? "check" : "content_copy"}
-              </span>
+            </Button>
+            <Button variant="ghost" size="sm" icon={copied ? "check" : "content_copy"} onClick={() => { navigator.clipboard.writeText(prettyJson(opencodeConfig)); setCopied(true); setTimeout(() => setCopied(false), 2000); }}>
               {copied ? "Copied" : "Copy"}
-            </button>
+            </Button>
           </div>
         </div>
-        <pre className="max-h-[32rem] overflow-auto bg-[#201d1d] px-4 py-4 text-[13px] leading-[1.60] text-[#fdfcfc] custom-scrollbar">
+        <pre className="max-h-[32rem] overflow-auto bg-[var(--color-surface)] px-4 py-4 text-[13px] leading-[1.60] text-[var(--color-text-main)] custom-scrollbar">
           <code>{prettyJson(opencodeConfig)}</code>
         </pre>
       </div>
 
       {/* Variant artifact preview */}
       {variantArtifact && (
-        <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] overflow-hidden font-['Berkeley_Mono']">
-          <div className="flex items-center justify-between border-b border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-4 py-2.5">
+        <div className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden">
+          <div className="flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-bg-alt)] px-4 py-2.5">
             <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-[16px] text-[#ec4899]">tune</span>
-              <span className="text-[14px] font-bold text-[#fdfcfc]">{variantArtifact.filename}</span>
-              <span className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-2 py-0.5 text-[14px] text-[#9a9898]">Preset artifact</span>
+              <span className="material-symbols-outlined text-[16px] text-[var(--color-primary)]">tune</span>
+              <span className="text-[14px] font-bold text-[var(--color-text-main)]">{variantArtifact.filename}</span>
+              <span className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[14px] text-[var(--color-text-muted)]">Preset artifact</span>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                className="rounded bg-transparent px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#201d1d] transition-colors border border-transparent hover:border-[rgba(15,0,0,0.12)] cursor-pointer"
-                onClick={() => handleCopy(prettyJson(variantArtifact.content))}
-              >
+              <Button variant="ghost" size="sm" onClick={() => handleCopy(prettyJson(variantArtifact.content))}>
                 Copy
-              </button>
-              <button
-                className="rounded bg-transparent px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#201d1d] transition-colors border border-transparent hover:border-[rgba(15,0,0,0.12)] cursor-pointer"
-                onClick={() => downloadFile(prettyJson(variantArtifact.content), variantArtifact.filename)}
-              >
+              </Button>
+              <Button variant="ghost" size="sm" icon="download" onClick={() => downloadFile(prettyJson(variantArtifact.content), variantArtifact.filename)}>
                 Download
-              </button>
+              </Button>
             </div>
           </div>
         </div>
       )}
 
       {/* Tips */}
-      <div className="space-y-1.5 text-[14px] text-[#9a9898] font-['Berkeley_Mono']">
+      <div className="space-y-1.5 text-[14px] text-[var(--color-text-muted)]">
         <p className="flex items-start gap-2 leading-[1.50]">
           <span>•</span>
           <span>
-            Set default model: <code className="rounded bg-[#302c2c] px-1.5 py-0.5 font-bold text-[12px] text-[#ff9f0a]">9router/cx/model-name</code>
+            Set default model: <code className="rounded bg-[var(--color-bg-alt)] px-1.5 py-0.5 font-bold text-[12px] text-[var(--color-warning)]">9router/cx/model-name</code>
           </span>
         </p>
         <p className="flex items-start gap-2 leading-[1.50]">
           <span>•</span>
           <span>
-            Place at <code className="break-all rounded bg-[#302c2c] px-1.5 py-0.5 font-bold text-[12px] text-[#ff9f0a]">~/.config/opencode/opencode.json</code>
+            Place at <code className="break-all rounded bg-[var(--color-bg-alt)] px-1.5 py-0.5 font-bold text-[12px] text-[var(--color-warning)]">~/.config/opencode/opencode.json</code>
           </span>
         </p>
       </div>
@@ -745,7 +674,7 @@ function ConfigPreview({ preview, variant, loading, error, onRefresh, selectedAp
 
 /* ── Advanced Overrides Collapsible ────────────────────────────── */
 
-function AdvancedOverridesCollapsible({ preferences, preview, modelCatalog, saving, error, onSave }) {
+function AdvancedOverridesCollapsible({ preferences, preview, modelCatalog, saving, error, onSave, activeProviders, modelAliases }) {
   const variant = preferences?.variant || "openagent";
   const safePreview = sanitizeSensitiveConfig(preview || null);
   const [editMode, setEditMode] = useState(false);
@@ -799,19 +728,19 @@ function AdvancedOverridesCollapsible({ preferences, preview, modelCatalog, savi
   };
 
   return (
-    <details className="group/details rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] font-['Berkeley_Mono']">
+    <details className="group/details rounded border border-[var(--color-border)] bg-[var(--color-surface)]">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
-        <span className="flex items-center gap-3 text-[16px] font-bold text-[#fdfcfc]">
-          <span className="flex h-6 w-6 items-center justify-center rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] text-[14px] text-[#9a9898]" aria-hidden="true">
+        <span className="flex items-center gap-3 text-[16px] font-bold text-[var(--color-text-main)]">
+          <span className="flex h-6 w-6 items-center justify-center rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] text-[14px] text-[var(--color-text-muted)]" aria-hidden="true">
             ▶
           </span>
           {title}
         </span>
-        <span className="material-symbols-outlined text-[18px] text-[#9a9898] transition-transform duration-200 group-open/details:rotate-180">
+        <span className="material-symbols-outlined text-[18px] text-[var(--color-text-muted)] transition-transform duration-200 group-open/details:rotate-180">
           expand_more
         </span>
       </summary>
-      <div className="border-t border-[rgba(15,0,0,0.12)] px-4 py-4 space-y-4">
+      <div className="border-t border-[var(--color-border)] px-4 py-4 space-y-4">
         {/* Advanced Config Editor with Agent/Category Assignments */}
         <AdvancedConfigEditor
           variant={variant}
@@ -819,75 +748,64 @@ function AdvancedOverridesCollapsible({ preferences, preview, modelCatalog, savi
           availableModels={Object.keys(preview?.opencode?.provider?.["9router"]?.models || {})}
           onSave={onSave}
           saving={saving}
+          activeProviders={activeProviders}
+          modelAliases={modelAliases}
         />
 
         {/* Generated artifact preview */}
         {variantArtifact && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3 font-['Berkeley_Mono']">
+            <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-[16px] font-bold text-[#fdfcfc]">{variantArtifact.filename}</p>
-                <p className="mt-1 text-[14px] text-[#9a9898] leading-[2.00]">
+                <p className="text-[16px] font-bold text-[var(--color-text-main)]">{variantArtifact.filename}</p>
+                <p className="mt-1 text-[14px] text-[var(--color-text-muted)] leading-[2.00]">
                   Generated advanced config for the selected variant.
                 </p>
               </div>
-              <button
-                className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer"
-                onClick={() => downloadFile(prettyJson(variantArtifact.content), variantArtifact.filename)}
-              >
+              <Button variant="secondary" size="sm" icon="download" onClick={() => downloadFile(prettyJson(variantArtifact.content), variantArtifact.filename)}>
                 Download
-              </button>
+              </Button>
             </div>
-            <pre className="max-h-[18rem] overflow-auto rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-4 py-4 text-[13px] leading-[1.60] text-[#fdfcfc] font-['Berkeley_Mono'] custom-scrollbar">
+            <pre className="max-h-[18rem] overflow-auto rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-4 text-[13px] leading-[1.60] text-[var(--color-text-main)] custom-scrollbar">
               <code>{prettyJson(variantArtifact.content)}</code>
             </pre>
           </div>
         )}
 
         {/* Raw JSON Editor (Advanced) */}
-        <details className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] font-['Berkeley_Mono']">
-          <summary className="cursor-pointer px-3 py-2 text-[14px] font-bold text-[#9a9898] hover:text-[#fdfcfc] transition-colors">
+        <details className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)]">
+          <summary className="cursor-pointer px-3 py-2 text-[14px] font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text-main)] transition-colors">
             Advanced: Edit Raw JSON
           </summary>
-          <div className="border-t border-[rgba(15,0,0,0.12)] px-3 py-3 space-y-3">
+          <div className="border-t border-[var(--color-border)] px-3 py-3 space-y-3">
             {editMode ? (
               <>
                 <textarea
                   value={draftJson}
                   onChange={(e) => setDraftJson(e.target.value)}
-                  className="w-full h-64 px-3 py-2 font-['Berkeley_Mono'] text-[14px] rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] text-[#201d1d] focus:border-[#ec4899]/30 focus:outline-none focus:ring-1 focus:ring-[#ec4899]/20"
+                  className="w-full h-64 px-3 py-2 text-[14px] rounded-[6px] border border-[var(--color-border)] bg-[var(--color-input-bg)] text-[var(--color-text-main)] focus:border-[var(--color-primary)]/30 focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]/20"
                   placeholder='{\n  "agentAssignments": {\n    "explorer": "cx/gpt-5.3-codex"\n  }\n}'
                 />
                 {jsonError && (
-                  <p className="text-[14px] text-[#ff3b30]">{jsonError}</p>
+                  <p className="text-[14px] text-[var(--color-danger)]">{jsonError}</p>
                 )}
                 <div className="flex gap-2">
-                  <button 
-                    className="rounded bg-transparent px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#201d1d] transition-colors border border-transparent hover:border-[rgba(15,0,0,0.12)] cursor-pointer"
-                    onClick={handleCancelEdit}
-                  >
+                  <Button variant="ghost" size="sm" onClick={handleCancelEdit}>
                     Cancel
-                  </button>
-                  <button 
-                    className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer"
-                    onClick={handleSaveOverrides} 
-                    disabled={saving}
-                  >
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={handleSaveOverrides} disabled={saving} loading={saving}>
                     {saving ? "Saving..." : "Save JSON"}
-                  </button>
+                  </Button>
                 </div>
               </>
             ) : (
               <>
-                <pre className="max-h-[18rem] overflow-auto rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-4 py-4 text-[13px] leading-[1.60] text-[#fdfcfc] font-['Berkeley_Mono'] custom-scrollbar">
+                <pre className="max-h-[18rem] overflow-auto rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-4 text-[13px] leading-[1.60] text-[var(--color-text-main)] custom-scrollbar">
                   <code>{Object.keys(currentOverrides).length > 0 ? prettyJson(currentOverrides) : "{}"}</code>
                 </pre>
-                <button 
-                  className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer"
-                  onClick={handleEditClick}
-                >
+                <Button variant="secondary" size="sm" onClick={handleEditClick}>
                   Edit JSON
-                </button>
+                </Button>
               </>
             )}
           </div>
@@ -1155,7 +1073,7 @@ export default function OpenCodePageClient() {
     const current = normalizedPreferences.mcpServers || [];
     savePreferences({
       mcpServers: current.map((m) =>
-        m.name === name ? { ...m, enabled: m.enabled === false ? true : false } : m
+        m.name === name ? { ...m, disabled: m.disabled !== true } : m
       ),
     }, "mcp servers");
   };
@@ -1165,9 +1083,9 @@ export default function OpenCodePageClient() {
     savePreferences({ envVars: [...current, envVar] }, "env vars");
   };
 
-  const handleRemoveEnvVar = (index) => {
+  const handleRemoveEnvVar = (key) => {
     const current = normalizedPreferences.envVars || [];
-    savePreferences({ envVars: current.filter((_, i) => i !== index) }, "env vars");
+    savePreferences({ envVars: current.filter((env) => env.key !== key) }, "env vars");
   };
 
   // Build the effective plugin list for display (matching cliproxyapi-dashboard logic)
@@ -1186,8 +1104,8 @@ export default function OpenCodePageClient() {
   if (loading) {
     return (
       <div className="flex flex-col gap-6">
-        <div className="h-[200px] rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] animate-pulse" />
-        <div className="h-[400px] rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] animate-pulse" />
+        <div className="h-[200px] rounded border border-[var(--color-border)] bg-[var(--color-surface)] animate-pulse" />
+        <div className="h-[400px] rounded border border-[var(--color-border)] bg-[var(--color-surface)] animate-pulse" />
       </div>
     );
   }
@@ -1195,35 +1113,35 @@ export default function OpenCodePageClient() {
   return (
     <div className="flex flex-col gap-6">
         {/* Header */}
-        <section className="rounded border border-border bg-[#201d1d] p-4 text-[#fdfcfc] font-['Berkeley_Mono']">
-          <h1 className="text-[38px] font-bold leading-[1.50] tracking-tight">
+        <section className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-[var(--color-text-main)]">
+          <h1 className="text-[38px] font-bold leading-[1.50]">
             OpenCode Quick Start
           </h1>
-          <p className="mt-1 text-[16px] font-normal leading-[1.50] text-[#9a9898]">
+          <p className="mt-1 text-[16px] font-normal leading-[1.50] text-[var(--color-text-muted)]">
             Configure your OpenCode setup, generate config, and manage auto-sync from one place.
           </p>
         </section>
 
         {/* Global error */}
         {error && (
-          <div className="rounded border border-[#ff3b30]/20 bg-[#ff3b30]/10 px-4 py-3 text-[14px] text-[#ff3b30] font-['Berkeley_Mono']">
+          <div className="rounded border border-[var(--color-danger)]/20 bg-[var(--color-danger)]/10 px-4 py-3 text-[14px] text-[var(--color-danger)] leading-[1.50]">
             {error}
           </div>
         )}
 
         {savingKey && (
-          <p className="text-xs text-[#9a9898] font-['Berkeley_Mono']">Saving {savingKey}…</p>
+          <p className="text-[14px] text-[var(--color-text-muted)] leading-[2.00]">Saving {savingKey}…</p>
         )}
 
         {/* Tabs */}
-        <div className="flex border-b border-[rgba(15,0,0,0.12)]">
+        <div className="flex border-b border-[var(--color-border)]">
           <button
             onClick={() => setActiveTab("setup")}
             className={cn(
               "px-4 py-2 text-[16px] font-medium leading-[1.00] transition-colors cursor-pointer",
               activeTab === "setup"
-                ? "border-b-2 border-[#9a9898] text-[#fdfcfc]"
-                : "text-[#9a9898] hover:text-[#fdfcfc]"
+                ? "border-b-2 border-[var(--color-text-muted)] text-[var(--color-text-main)]"
+                : "text-[var(--color-text-muted)] hover:text-[var(--color-text-main)]"
             )}
           >
             Setup
@@ -1233,8 +1151,8 @@ export default function OpenCodePageClient() {
             className={cn(
               "px-4 py-2 text-[16px] font-medium leading-[1.00] transition-colors cursor-pointer",
               activeTab === "quickstart"
-                ? "border-b-2 border-[#9a9898] text-[#fdfcfc]"
-                : "text-[#9a9898] hover:text-[#fdfcfc]"
+                ? "border-b-2 border-[var(--color-text-muted)] text-[var(--color-text-main)]"
+                : "text-[var(--color-text-muted)] hover:text-[var(--color-text-main)]"
             )}
           >
             Quickstart
@@ -1244,8 +1162,8 @@ export default function OpenCodePageClient() {
             className={cn(
               "px-4 py-2 text-[16px] font-medium leading-[1.00] transition-colors cursor-pointer",
               activeTab === "tokens"
-                ? "border-b-2 border-[#9a9898] text-[#fdfcfc]"
-                : "text-[#9a9898] hover:text-[#fdfcfc]"
+                ? "border-b-2 border-[var(--color-text-muted)] text-[var(--color-text-main)]"
+                : "text-[var(--color-text-muted)] hover:text-[var(--color-text-main)]"
             )}
           >
             Tokens
@@ -1256,13 +1174,13 @@ export default function OpenCodePageClient() {
         <div className={activeTab === "setup" ? "flex flex-col gap-6" : "hidden"}>
         {/* Model Selection */}
         <section id="model-selection" className="scroll-mt-24">
-          <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] font-['Berkeley_Mono'] text-[#fdfcfc]">
-            <div className="border-b border-[rgba(15,0,0,0.12)] px-6 py-5">
+          <div className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-main)]">
+            <div className="border-b border-[var(--color-border)] px-6 py-5">
               <div className="flex items-center gap-3">
-                <span className="material-symbols-outlined text-[20px] text-[#ec4899]">model_training</span>
+                <span className="material-symbols-outlined text-[20px] text-[var(--color-primary)]">model_training</span>
                 <div>
                   <h3 className="text-[16px] font-bold">Model Selection</h3>
-                  <p className="mt-1 text-[14px] text-[#9a9898]">Choose which models appear in your generated config.</p>
+                  <p className="mt-1 text-[14px] text-[var(--color-text-muted)]">Choose which models appear in your generated config.</p>
                 </div>
               </div>
             </div>
@@ -1285,13 +1203,13 @@ export default function OpenCodePageClient() {
 
         {/* Generate Config — main Quick Start card */}
         <section id="generate-config" className="scroll-mt-24">
-          <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] font-['Berkeley_Mono'] text-[#fdfcfc]">
-            <div className="border-b border-[rgba(15,0,0,0.12)] px-6 py-5">
+          <div className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-main)]">
+            <div className="border-b border-[var(--color-border)] px-6 py-5">
               <div className="flex items-center gap-3">
-                <span className="material-symbols-outlined text-[20px] text-[#ec4899]">terminal</span>
+                <span className="material-symbols-outlined text-[20px] text-[var(--color-primary)]">terminal</span>
                 <div>
                   <h3 className="flex items-center gap-3 text-[16px] font-bold">
-                    <span className="flex h-6 w-6 items-center justify-center rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] text-[14px] text-[#9a9898]" aria-hidden="true">
+                    <span className="flex h-6 w-6 items-center justify-center rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] text-[14px] text-[var(--color-text-muted)]" aria-hidden="true">
                       ▶
                     </span>
                     Using with OpenCode
@@ -1350,11 +1268,11 @@ export default function OpenCodePageClient() {
                   />
                 </div>
               ) : (
-                <div className="rounded border border-border bg-surface/50 px-3 py-2">
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="material-symbols-outlined text-[14px] text-primary">info</span>
-                    <span className="text-text-muted">
-                      API key will be set to <code className="text-primary font-mono">sk_9router</code> (endpoint doesn't require API key)
+                <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-3 py-2">
+                  <div className="flex items-center gap-2 text-[14px]">
+                    <span className="material-symbols-outlined text-[14px] text-[var(--color-info)]">info</span>
+                    <span className="text-[var(--color-text-muted)]">
+                      API key will be set to <code className="text-[var(--color-primary)]">sk_9router</code> (endpoint doesn&apos;t require API key)
                     </span>
                   </div>
                 </div>
@@ -1405,7 +1323,7 @@ export default function OpenCodePageClient() {
               />
 
               {/* Divider */}
-              <div className="border-t border-border" />
+              <div className="border-t border-[var(--color-border)]" />
 
               {/* Config Preview */}
               <ConfigPreview
@@ -1432,6 +1350,8 @@ export default function OpenCodePageClient() {
               saving={savingKey === "advanced overrides"}
               error={error}
               onSave={(patch) => savePreferences(patch, "advanced overrides")}
+              activeProviders={activeProviders}
+              modelAliases={modelAliases}
             />
           </section>
         )}
