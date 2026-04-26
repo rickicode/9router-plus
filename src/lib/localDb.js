@@ -487,6 +487,32 @@ function invalidateDbCache() {
   dbCacheExpiresAt = 0;
 }
 
+// Read-only access to a single top-level key from the cache without paying
+// the full structuredClone cost of getDb(). The hot proxy resolve path uses
+// this for `providerConnections` and `settings` so that a routed request
+// doesn't have to deep-clone the entire DB just to read two fields.
+//
+// Returns null if the cache is stale; callers must fall back to the standard
+// getDb() path in that case. The returned slice IS shallow-cloned so callers
+// can sort/filter without mutating the cache, but inner objects are still
+// shared references — callers must not mutate connection rows in place.
+function peekDbCacheArray(key) {
+  if (!hasFreshDbCache()) return null;
+  const value = dbCache?.[key];
+  if (!Array.isArray(value)) return null;
+  // Shallow copy so callers can .sort() / .filter() without aliasing into the
+  // cache. Inner object references are reused; do not mutate.
+  return value.slice();
+}
+
+function peekDbCacheObject(key) {
+  if (!hasFreshDbCache()) return null;
+  const value = dbCache?.[key];
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  // Shallow copy of the top-level object only.
+  return { ...value };
+}
+
 async function ensureSqliteBootstrap() {
   if (isCloud) return;
   if (!sqliteInitPromise) {
@@ -523,13 +549,26 @@ async function ensureSqliteBootstrap() {
 }
 
 function getProviderConnectionsFromLowDbData(db, filter = {}) {
-  let connections = db.data.providerConnections || [];
+  // Use a fresh shallow copy so the .sort() at the end never mutates the
+  // backing array (whether that's db.data.providerConnections or — in the
+  // fast path below — the dbCache slice).
+  let connections = Array.isArray(db.data.providerConnections)
+    ? db.data.providerConnections.slice()
+    : [];
 
   if (filter.provider) connections = connections.filter((c) => c.provider === filter.provider);
   if (filter.isActive !== undefined) connections = connections.filter((c) => c.isActive === filter.isActive);
 
   connections.sort((a, b) => (a.priority || 999) - (b.priority || 999));
   return connections;
+}
+
+function filterAndSortConnections(connections, filter = {}) {
+  let result = Array.isArray(connections) ? connections.slice() : [];
+  if (filter.provider) result = result.filter((c) => c?.provider === filter.provider);
+  if (filter.isActive !== undefined) result = result.filter((c) => c?.isActive === filter.isActive);
+  result.sort((a, b) => (a?.priority || 999) - (b?.priority || 999));
+  return result;
 }
 
 function validateSqliteProviderConnections(connections) {
@@ -713,6 +752,16 @@ export async function migrateDbShape() {
 }
 
 export async function getProviderConnections(filter = {}) {
+  // Hot-path fast read: if the DB cache is fresh, skip the full structuredClone
+  // of the entire DB inside getDb() and just read providerConnections directly
+  // from the cache. The shallow slice still protects the cache from any in-place
+  // sort/filter mutations.
+  const cached = peekDbCacheArray("providerConnections");
+  if (cached !== null) {
+    const filtered = filterAndSortConnections(cached, filter);
+    return await mergeConnectionsWithHotState(filtered);
+  }
+
   const connections = await getProviderConnectionsWithFallback(filter);
   return await mergeConnectionsWithHotState(connections);
 }
@@ -1526,6 +1575,15 @@ export async function cleanupProviderConnections() {
 }
 
 export async function getSettings() {
+  // Fast-path: hot proxy resolve calls getSettings on every routed request.
+  // If the DB cache is fresh we skip the full deep-clone in getDb() and read
+  // settings directly. mergeSettingsWithDefaults always returns a fresh
+  // object so the caller can safely treat the result as their own.
+  const cachedSettings = peekDbCacheObject("settings");
+  if (cachedSettings !== null) {
+    return mergeSettingsWithDefaults(cachedSettings);
+  }
+
   const db = await getDb();
   return mergeSettingsWithDefaults(db.data.settings || { cloudEnabled: false });
 }
@@ -1701,6 +1759,18 @@ export async function importDb(payload) {
   for (const providerId of invalidatedProviders) {
     markProviderHotStateInvalidated(providerId);
   }
+
+  // The imported payload may contain different internal proxy tokens than
+  // what the in-process token cache currently holds. Drop the cache so the
+  // next routed request reads the freshly-imported tokens instead of waiting
+  // out the cache TTL with a stale token (which would 401-loop).
+  try {
+    const { invalidateInternalProxyTokenCache } = await import("@/lib/internalProxyTokens");
+    invalidateInternalProxyTokenCache();
+  } catch {
+    // Non-fatal — the tokens will refresh on cache TTL expiry.
+  }
+
   return resultData;
 }
 

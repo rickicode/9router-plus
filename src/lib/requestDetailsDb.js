@@ -161,11 +161,14 @@ async function runFlush(options = {}) {
   if (isCloud || writeBuffer.length === 0) return;
 
   isFlushing = true;
-  try {
-    const itemsToSave = [...writeBuffer];
-    writeBuffer = [];
-    activeFlushItems = itemsToSave;
+  // Capture the items we're about to flush. If the flush fails we put them
+  // back at the head of writeBuffer so the data is not silently dropped.
+  const itemsToSave = [...writeBuffer];
+  writeBuffer = [];
+  activeFlushItems = itemsToSave;
+  let succeeded = false;
 
+  try {
     const db = await getDb();
     const config = await getObservabilityConfig();
 
@@ -201,22 +204,54 @@ async function runFlush(options = {}) {
       db.data.records = db.data.records.slice(0, config.maxRecords);
     }
 
-    // Shrink records until total serialized size is within safe limit
-    while (db.data.records.length > 1) {
-      const totalSize = Buffer.byteLength(JSON.stringify(db.data), "utf8");
-      if (totalSize <= MAX_TOTAL_DB_SIZE) break;
-      db.data.records = db.data.records.slice(0, Math.floor(db.data.records.length / 2));
+    // Shrink records until total serialized size is within safe limit. We
+    // measure each record's individual size once and then use the running
+    // total instead of re-serializing the whole DB on every shrink iteration
+    // (which was O(N * total_size) before).
+    let recordSizes = db.data.records.map((r) => Buffer.byteLength(JSON.stringify(r), "utf8"));
+    let runningTotal = recordSizes.reduce((a, b) => a + b, 0);
+    // Approximate envelope overhead from JSON.stringify(db.data). For records:[...]
+    // wrapper this is tiny but bound it for safety.
+    const envelopeBytes = 32;
+    while (db.data.records.length > 1 && runningTotal + envelopeBytes > MAX_TOTAL_DB_SIZE) {
+      const keep = Math.floor(db.data.records.length / 2);
+      const dropped = recordSizes.slice(keep);
+      db.data.records = db.data.records.slice(0, keep);
+      recordSizes = recordSizes.slice(0, keep);
+      runningTotal -= dropped.reduce((a, b) => a + b, 0);
     }
 
     await db.write();
+    succeeded = true;
   } catch (error) {
     console.error("[requestDetailsDb] Batch write failed:", error);
+    // Re-queue the in-flight items at the head of the buffer so the next
+    // flush attempt can retry them. If the buffer has grown to/past the
+    // configured maxRecords meanwhile, drop the oldest items first to keep
+    // memory bounded — better to lose the OLDEST observability records than
+    // unbounded growth.
+    try {
+      const config = cachedConfig || { maxRecords: DEFAULT_MAX_RECORDS };
+      const merged = [...itemsToSave, ...writeBuffer];
+      writeBuffer = merged.length > config.maxRecords ? merged.slice(-config.maxRecords) : merged;
+    } catch {
+      // never block shutdown / next flush on a re-queue failure
+      writeBuffer = [...itemsToSave, ...writeBuffer];
+    }
     if (options.propagateError) {
       throw error;
     }
   } finally {
     activeFlushItems = [];
     isFlushing = false;
+    if (!succeeded && writeBuffer.length > 0 && !flushTimer && !isCloud) {
+      // Schedule a retry on the standard flush cadence so we don't busy-loop.
+      const cadence = (cachedConfig?.flushIntervalMs) || DEFAULT_FLUSH_INTERVAL_MS;
+      flushTimer = setTimeout(() => {
+        flushToDatabase().catch(() => {});
+        flushTimer = null;
+      }, cadence);
+    }
   }
 }
 

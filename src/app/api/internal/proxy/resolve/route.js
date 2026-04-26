@@ -136,9 +136,17 @@ export async function POST(request) {
 
     const provider = resolveProviderId(providerInput);
     providerForMetric = provider;
-    const connections = await getProviderConnections({ provider, isActive: true });
-    const availableConnections = Array.isArray(connections) ? connections : [];
 
+    // Fetch connections + settings in parallel — they're independent, both
+    // hit getDb() under the hood, and the cache TTL means the second one
+    // typically just hits the in-memory cache after the first warms it up.
+    // Saves one sequential round-trip vs. awaiting them one after the other.
+    const [connections, settings] = await Promise.all([
+      getProviderConnections({ provider, isActive: true }),
+      getSettings(),
+    ]);
+
+    const availableConnections = Array.isArray(connections) ? connections : [];
     const centralizedEligibleConnections = await getEligibleConnections(provider, availableConnections);
     const selectionPool = Array.isArray(centralizedEligibleConnections)
       ? centralizedEligibleConnections
@@ -149,7 +157,6 @@ export async function POST(request) {
       return NextResponse.json({ ok: false, error: "no_routable_connection", owner: "9router" }, { status: 503 });
     }
 
-    const settings = await getSettings();
     const providerOverride = (settings?.providerStrategies || {})[provider] || {};
     const strategy = providerOverride.fallbackStrategy || settings?.fallbackStrategy || "fill-first";
 
