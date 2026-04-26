@@ -39,7 +39,7 @@ const SLIM_CATEGORY_ROLES = {
 
 function ModelAssignmentRow({ name, label, currentModel, availableModels, isOverride, onModelChange, onClear }) {
   return (
-    <div className="flex flex-col gap-2 rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] p-2.5 sm:flex-row sm:items-center sm:justify-between font-['Berkeley_Mono'] text-[#fdfcfc]">
+    <div className="flex flex-col gap-2 rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] p-2.5 sm:flex-row sm:items-center sm:justify-between text-[#fdfcfc]">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <p className="truncate text-[14px] font-bold text-[#fdfcfc]">{name}</p>
@@ -53,7 +53,7 @@ function ModelAssignmentRow({ name, label, currentModel, availableModels, isOver
         <select
           value={currentModel || ""}
           onChange={(e) => onModelChange(e.target.value || undefined)}
-          className="rounded border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-3 py-2 text-[14px] text-[#201d1d] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
+          className="rounded border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-3 py-2 text-[14px] text-[#201d1d] focus:outline-none focus:ring-1 focus:ring-[#ec4899]"
         >
           <option value="">Auto (from chain)</option>
           {availableModels.map(id => (
@@ -122,7 +122,7 @@ export default function AdvancedConfigEditor({ variant, preferences, availableMo
   const categoryOverrideCount = Object.keys(categoryAssignments).length;
 
   return (
-    <div className="space-y-4 font-['Berkeley_Mono']">
+    <div className="space-y-4">
       {/* Tab Navigation */}
       <div className="flex items-center gap-2 border-b border-[rgba(15,0,0,0.12)]">
         <button

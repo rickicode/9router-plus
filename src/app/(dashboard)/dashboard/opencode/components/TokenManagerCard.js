@@ -28,7 +28,7 @@ export default function TokenManagerCard({
       title="Auto-sync tokens"
       subtitle="Create tokens to enable automatic config sync from this dashboard."
       icon="vpn_key"
-      className="rounded border-[rgba(15,0,0,0.12)] bg-[#201d1d] font-['Berkeley_Mono'] text-[#fdfcfc]"
+      className="rounded border-[rgba(15,0,0,0.12)] bg-[#201d1d] text-[#fdfcfc]"
     >
       <div className="space-y-6 p-6">
         <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-5 py-[1.125rem]">

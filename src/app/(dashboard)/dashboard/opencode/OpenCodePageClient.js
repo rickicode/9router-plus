@@ -73,7 +73,7 @@ function ModelSelector({ preferences, modelCatalog, saving, onSave, activeProvid
   };
 
   return (
-    <div className="space-y-3 font-['Berkeley_Mono']">
+    <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9a9898]">
           Model selection
@@ -150,7 +150,7 @@ function ModelSelector({ preferences, modelCatalog, saving, onSave, activeProvid
 
 function VariantToggle({ variant, onVariantChange }) {
   return (
-    <div className="space-y-2 font-['Berkeley_Mono']">
+    <div className="space-y-2">
       <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9a9898]">
         Variant
       </p>
@@ -201,7 +201,7 @@ function VariantToggle({ variant, onVariantChange }) {
 
 function PluginSection({ plugins, pluginInput, onPluginInputChange, onAddPlugin, onRemovePlugin }) {
   return (
-    <div className="space-y-2 font-['Berkeley_Mono']">
+    <div className="space-y-2">
       <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9a9898]">
         Plugins
       </p>
@@ -239,12 +239,12 @@ function PluginSection({ plugins, pluginInput, onPluginInputChange, onAddPlugin,
             value={pluginInput}
             onChange={(e) => onPluginInputChange(e.target.value)}
             placeholder="e.g. opencode-plugin-name"
-            className="flex-1 rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
+            className="flex-1 rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-4 py-3 text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899]"
           />
           <button 
             type="submit" 
             disabled={!pluginInput.trim()}
-            className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer disabled:opacity-50 h-[62px]"
+            className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer disabled:opacity-50"
           >
             Add Plugin
           </button>
@@ -278,7 +278,7 @@ function McpSection({ mcps, onAddMcp, onRemoveMcp, onToggleMcpEnabled }) {
   };
 
   return (
-    <div className="space-y-2 font-['Berkeley_Mono']">
+    <div className="space-y-2">
       <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9a9898]">
         MCP Servers
       </p>
@@ -327,12 +327,12 @@ function McpSection({ mcps, onAddMcp, onRemoveMcp, onToggleMcpEnabled }) {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Server Name"
-          className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
+          className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-4 py-3 text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899]"
         />
         <select
           value={type}
           onChange={(e) => setType(e.target.value)}
-          className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] text-[16px] text-[#201d1d] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
+          className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-4 py-3 text-[16px] text-[#201d1d] focus:outline-none focus:ring-1 focus:ring-[#ec4899]"
         >
           <option value="local">Local Command</option>
           <option value="sse">SSE URL</option>
@@ -344,7 +344,7 @@ function McpSection({ mcps, onAddMcp, onRemoveMcp, onToggleMcpEnabled }) {
             value={command}
             onChange={(e) => setCommand(e.target.value)}
             placeholder="npx -y some-mcp-server"
-            className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
+            className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-4 py-3 text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899]"
           />
         ) : (
           <input
@@ -352,13 +352,13 @@ function McpSection({ mcps, onAddMcp, onRemoveMcp, onToggleMcpEnabled }) {
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="http://localhost:8080/sse"
-            className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
+            className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-4 py-3 text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899]"
           />
         )}
         <button 
           type="submit" 
           disabled={!name.trim() || (type === "local" ? !command.trim() : !url.trim())}
-          className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer disabled:opacity-50 h-[62px]"
+          className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer disabled:opacity-50"
         >
           Add MCP
         </button>
@@ -381,7 +381,7 @@ function EnvVarsSection({ envVars, onAddEnvVar, onRemoveEnvVar }) {
   };
 
   return (
-    <div className="space-y-2 font-['Berkeley_Mono']">
+    <div className="space-y-2">
       <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9a9898]">
         Environment Variables
       </p>
@@ -426,14 +426,14 @@ function EnvVarsSection({ envVars, onAddEnvVar, onRemoveEnvVar }) {
           value={key}
           onChange={(e) => setKey(e.target.value)}
           placeholder="VARIABLE_NAME"
-          className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
+          className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-4 py-3 text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899]"
         />
         <input
           type="text"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder="Value"
-          className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
+          className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-4 py-3 text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899]"
         />
         <label className="flex items-center gap-1.5 text-[14px] text-[#9a9898] cursor-pointer pl-2">
           <input
@@ -447,7 +447,7 @@ function EnvVarsSection({ envVars, onAddEnvVar, onRemoveEnvVar }) {
         <button 
           type="submit" 
           disabled={!key.trim() || !value.trim()}
-          className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer disabled:opacity-50 h-[62px]"
+          className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer disabled:opacity-50"
         >
           Add Var
         </button>
@@ -515,7 +515,7 @@ function ConfigPreview({ preview, variant, loading, error, onRefresh, selectedAp
 
   if (loading) {
     return (
-      <div className="space-y-3 font-['Berkeley_Mono'] text-[#fdfcfc]">
+      <div className="space-y-3 text-[#fdfcfc]">
         <div className="flex items-start gap-3 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] p-3">
           <p className="text-[14px] text-[#9a9898] leading-[1.50]">
             The opencode.json config file uses the OpenCode schema.
@@ -568,7 +568,7 @@ function ConfigPreview({ preview, variant, loading, error, onRefresh, selectedAp
 
   if (error) {
     return (
-      <div className="rounded border border-[#ff3b30]/20 bg-[#ff3b30]/10 px-4 py-3 text-[14px] text-[#ff3b30] font-['Berkeley_Mono']">
+      <div className="rounded border border-[#ff3b30]/20 bg-[#ff3b30]/10 px-4 py-3 text-[14px] text-[#ff3b30]">
         {error}
         <button 
           className="ml-2 rounded bg-transparent px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#201d1d] transition-colors border border-transparent hover:border-[rgba(15,0,0,0.12)] cursor-pointer"
@@ -582,7 +582,7 @@ function ConfigPreview({ preview, variant, loading, error, onRefresh, selectedAp
 
   if (!preview) {
     return (
-      <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-4 py-6 text-center text-[14px] text-[#9a9898] font-['Berkeley_Mono']">
+      <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-4 py-6 text-center text-[14px] text-[#9a9898]">
         Preview not available
         <button 
           className="ml-2 rounded bg-[#201d1d] px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer"
@@ -594,23 +594,9 @@ function ConfigPreview({ preview, variant, loading, error, onRefresh, selectedAp
     );
   }
 
-  if (error) {
-    return (
-      <div className="rounded border border-[#ff3b30]/20 bg-[#ff3b30]/10 px-4 py-3 text-[14px] text-[#ff3b30] font-['Berkeley_Mono']">
-        {error}
-        <button 
-          className="ml-2 rounded bg-transparent px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#ff3b30] hover:bg-[#ff3b30]/10 transition-colors border border-transparent hover:border-[#ff3b30]/20 cursor-pointer"
-          onClick={onRefresh}
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-
   if (!opencodeConfig) {
     return (
-      <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-4 py-6 text-center text-[14px] text-[#9a9898] font-['Berkeley_Mono']">
+      <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-4 py-6 text-center text-[14px] text-[#9a9898]">
         No config preview available yet.
         <button 
           className="ml-2 rounded bg-[#201d1d] px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer"
@@ -623,7 +609,7 @@ function ConfigPreview({ preview, variant, loading, error, onRefresh, selectedAp
   }
 
   return (
-    <div className="space-y-3 font-['Berkeley_Mono']">
+    <div className="space-y-3">
       {/* Sync info banner */}
       <div className="flex items-start gap-3 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] p-3">
         <p className="text-[14px] text-[#9a9898] leading-[1.50]">
@@ -652,7 +638,7 @@ function ConfigPreview({ preview, variant, loading, error, onRefresh, selectedAp
       )}
 
       {/* Main config preview */}
-      <div className="rounded border border-[rgba(15,0,0,0.12)] overflow-hidden font-['Berkeley_Mono'] bg-[#201d1d]">
+      <div className="rounded border border-[rgba(15,0,0,0.12)] overflow-hidden bg-[#201d1d]">
         <div className="flex items-center justify-between border-b border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-4 py-2.5">
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-[16px] text-[#ec4899]">data_object</span>
@@ -699,7 +685,7 @@ function ConfigPreview({ preview, variant, loading, error, onRefresh, selectedAp
 
       {/* Variant artifact preview */}
       {variantArtifact && (
-        <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] overflow-hidden font-['Berkeley_Mono']">
+        <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] overflow-hidden">
           <div className="flex items-center justify-between border-b border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-4 py-2.5">
             <div className="flex items-center gap-2">
               <span className="material-symbols-outlined text-[16px] text-[#ec4899]">tune</span>
@@ -725,7 +711,7 @@ function ConfigPreview({ preview, variant, loading, error, onRefresh, selectedAp
       )}
 
       {/* Tips */}
-      <div className="space-y-1.5 text-[14px] text-[#9a9898] font-['Berkeley_Mono']">
+      <div className="space-y-1.5 text-[14px] text-[#9a9898]">
         <p className="flex items-start gap-2 leading-[1.50]">
           <span>•</span>
           <span>
@@ -799,7 +785,7 @@ function AdvancedOverridesCollapsible({ preferences, preview, modelCatalog, savi
   };
 
   return (
-    <details className="group/details rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] font-['Berkeley_Mono']">
+    <details className="group/details rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d]">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
         <span className="flex items-center gap-3 text-[16px] font-bold text-[#fdfcfc]">
           <span className="flex h-6 w-6 items-center justify-center rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] text-[14px] text-[#9a9898]" aria-hidden="true">
@@ -824,7 +810,7 @@ function AdvancedOverridesCollapsible({ preferences, preview, modelCatalog, savi
         {/* Generated artifact preview */}
         {variantArtifact && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3 font-['Berkeley_Mono']">
+            <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-[16px] font-bold text-[#fdfcfc]">{variantArtifact.filename}</p>
                 <p className="mt-1 text-[14px] text-[#9a9898] leading-[2.00]">
@@ -838,14 +824,14 @@ function AdvancedOverridesCollapsible({ preferences, preview, modelCatalog, savi
                 Download
               </button>
             </div>
-            <pre className="max-h-[18rem] overflow-auto rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-4 py-4 text-[13px] leading-[1.60] text-[#fdfcfc] font-['Berkeley_Mono'] custom-scrollbar">
+            <pre className="max-h-[18rem] overflow-auto rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-4 py-4 text-[13px] leading-[1.60] text-[#fdfcfc] custom-scrollbar">
               <code>{prettyJson(variantArtifact.content)}</code>
             </pre>
           </div>
         )}
 
         {/* Raw JSON Editor (Advanced) */}
-        <details className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] font-['Berkeley_Mono']">
+        <details className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c]">
           <summary className="cursor-pointer px-3 py-2 text-[14px] font-bold text-[#9a9898] hover:text-[#fdfcfc] transition-colors">
             Advanced: Edit Raw JSON
           </summary>
@@ -855,7 +841,7 @@ function AdvancedOverridesCollapsible({ preferences, preview, modelCatalog, savi
                 <textarea
                   value={draftJson}
                   onChange={(e) => setDraftJson(e.target.value)}
-                  className="w-full h-64 px-3 py-2 font-['Berkeley_Mono'] text-[14px] rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] text-[#201d1d] focus:border-[#ec4899]/30 focus:outline-none focus:ring-1 focus:ring-[#ec4899]/20"
+                  className="w-full h-64 px-3 py-2 text-[14px] rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] text-[#201d1d] focus:border-[#ec4899]/30 focus:outline-none focus:ring-1 focus:ring-[#ec4899]/20"
                   placeholder='{\n  "agentAssignments": {\n    "explorer": "cx/gpt-5.3-codex"\n  }\n}'
                 />
                 {jsonError && (
@@ -879,7 +865,7 @@ function AdvancedOverridesCollapsible({ preferences, preview, modelCatalog, savi
               </>
             ) : (
               <>
-                <pre className="max-h-[18rem] overflow-auto rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-4 py-4 text-[13px] leading-[1.60] text-[#fdfcfc] font-['Berkeley_Mono'] custom-scrollbar">
+                <pre className="max-h-[18rem] overflow-auto rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-4 py-4 text-[13px] leading-[1.60] text-[#fdfcfc] custom-scrollbar">
                   <code>{Object.keys(currentOverrides).length > 0 ? prettyJson(currentOverrides) : "{}"}</code>
                 </pre>
                 <button 
@@ -1155,7 +1141,7 @@ export default function OpenCodePageClient() {
     const current = normalizedPreferences.mcpServers || [];
     savePreferences({
       mcpServers: current.map((m) =>
-        m.name === name ? { ...m, enabled: m.enabled === false ? true : false } : m
+        m.name === name ? { ...m, disabled: m.disabled !== true } : m
       ),
     }, "mcp servers");
   };
@@ -1165,9 +1151,9 @@ export default function OpenCodePageClient() {
     savePreferences({ envVars: [...current, envVar] }, "env vars");
   };
 
-  const handleRemoveEnvVar = (index) => {
+  const handleRemoveEnvVar = (key) => {
     const current = normalizedPreferences.envVars || [];
-    savePreferences({ envVars: current.filter((_, i) => i !== index) }, "env vars");
+    savePreferences({ envVars: current.filter((env) => env.key !== key) }, "env vars");
   };
 
   // Build the effective plugin list for display (matching cliproxyapi-dashboard logic)
@@ -1195,8 +1181,8 @@ export default function OpenCodePageClient() {
   return (
     <div className="flex flex-col gap-6">
         {/* Header */}
-        <section className="rounded border border-border bg-[#201d1d] p-4 text-[#fdfcfc] font-['Berkeley_Mono']">
-          <h1 className="text-[38px] font-bold leading-[1.50] tracking-tight">
+        <section className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] p-4 text-[#fdfcfc]">
+          <h1 className="text-[38px] font-bold leading-[1.50]">
             OpenCode Quick Start
           </h1>
           <p className="mt-1 text-[16px] font-normal leading-[1.50] text-[#9a9898]">
@@ -1206,13 +1192,13 @@ export default function OpenCodePageClient() {
 
         {/* Global error */}
         {error && (
-          <div className="rounded border border-[#ff3b30]/20 bg-[#ff3b30]/10 px-4 py-3 text-[14px] text-[#ff3b30] font-['Berkeley_Mono']">
+          <div className="rounded border border-[#ff3b30]/20 bg-[#ff3b30]/10 px-4 py-3 text-[14px] text-[#ff3b30] leading-[1.50]">
             {error}
           </div>
         )}
 
         {savingKey && (
-          <p className="text-xs text-[#9a9898] font-['Berkeley_Mono']">Saving {savingKey}…</p>
+          <p className="text-[14px] text-[#9a9898] leading-[2.00]">Saving {savingKey}…</p>
         )}
 
         {/* Tabs */}
@@ -1256,7 +1242,7 @@ export default function OpenCodePageClient() {
         <div className={activeTab === "setup" ? "flex flex-col gap-6" : "hidden"}>
         {/* Model Selection */}
         <section id="model-selection" className="scroll-mt-24">
-          <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] font-['Berkeley_Mono'] text-[#fdfcfc]">
+          <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] text-[#fdfcfc]">
             <div className="border-b border-[rgba(15,0,0,0.12)] px-6 py-5">
               <div className="flex items-center gap-3">
                 <span className="material-symbols-outlined text-[20px] text-[#ec4899]">model_training</span>
@@ -1285,7 +1271,7 @@ export default function OpenCodePageClient() {
 
         {/* Generate Config — main Quick Start card */}
         <section id="generate-config" className="scroll-mt-24">
-          <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] font-['Berkeley_Mono'] text-[#fdfcfc]">
+          <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] text-[#fdfcfc]">
             <div className="border-b border-[rgba(15,0,0,0.12)] px-6 py-5">
               <div className="flex items-center gap-3">
                 <span className="material-symbols-outlined text-[20px] text-[#ec4899]">terminal</span>
@@ -1350,11 +1336,11 @@ export default function OpenCodePageClient() {
                   />
                 </div>
               ) : (
-                <div className="rounded border border-border bg-surface/50 px-3 py-2">
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="material-symbols-outlined text-[14px] text-primary">info</span>
-                    <span className="text-text-muted">
-                      API key will be set to <code className="text-primary font-mono">sk_9router</code> (endpoint doesn't require API key)
+                <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-3 py-2">
+                  <div className="flex items-center gap-2 text-[14px]">
+                    <span className="material-symbols-outlined text-[14px] text-[#007aff]">info</span>
+                    <span className="text-[#9a9898]">
+                      API key will be set to <code className="text-[#ec4899]">sk_9router</code> (endpoint doesn&apos;t require API key)
                     </span>
                   </div>
                 </div>
@@ -1405,7 +1391,7 @@ export default function OpenCodePageClient() {
               />
 
               {/* Divider */}
-              <div className="border-t border-border" />
+              <div className="border-t border-[rgba(15,0,0,0.12)]" />
 
               {/* Config Preview */}
               <ConfigPreview
