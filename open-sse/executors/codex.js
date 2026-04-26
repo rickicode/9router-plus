@@ -111,25 +111,69 @@ export class CodexExecutor extends BaseExecutor {
   }
 
   /**
-   * Prefetch remote image URLs and inline them as base64 data URIs.
-   * Runs before execute() because Codex backend cannot fetch remote images.
-   * Mutates body.input in place.
+   * Inline image content for Codex backend, which cannot fetch remote URLs and
+   * expects images encoded as data: URIs.
+   *
+   * Handles every shape that can reach this executor after request translation:
+   *   - Chat Completions style: { type: "image_url", image_url: { url, detail } | "<url>" }
+   *   - Responses style:        { type: "input_image", image_url: "<url>" | { url } }
+   *   - File-style image:       { type: "input_file", file_data: "...", mime_type: "image/*" }
+   *
+   * Runs before transformRequest() and mutates body.input in place.
    */
   async prefetchImages(body) {
     if (!Array.isArray(body?.input)) return;
     for (const item of body.input) {
       if (!Array.isArray(item.content)) continue;
-      const pending = item.content.map(async (c) => {
-        if (c.type !== "image_url") return c;
-        const url = typeof c.image_url === "string" ? c.image_url : c.image_url?.url;
-        const detail = c.image_url?.detail || "auto";
-        if (!url) return c;
-        if (url.startsWith("data:")) return { type: "input_image", image_url: url, detail };
-        const fetched = await fetchImageAsBase64(url, { timeoutMs: 15000 });
-        return { type: "input_image", image_url: fetched?.url || url, detail };
-      });
+      const pending = item.content.map((c) => this._normalizeContentPart(c));
       item.content = await Promise.all(pending);
     }
+  }
+
+  async _normalizeContentPart(c) {
+    if (!c || typeof c !== "object") return c;
+
+    // Chat Completions native image block.
+    if (c.type === "image_url") {
+      const url = typeof c.image_url === "string" ? c.image_url : c.image_url?.url;
+      const detail = (typeof c.image_url === "object" && c.image_url?.detail) || c.detail || "auto";
+      if (!url) return c;
+      if (url.startsWith("data:")) return { type: "input_image", image_url: url, detail };
+      if (/^https?:/i.test(url)) {
+        const fetched = await fetchImageAsBase64(url, { timeoutMs: 15000 });
+        return { type: "input_image", image_url: fetched?.url || url, detail };
+      }
+      return { type: "input_image", image_url: url, detail };
+    }
+
+    // Responses-style image block — may carry remote URL that we still need to inline.
+    if (c.type === "input_image") {
+      const url = typeof c.image_url === "string" ? c.image_url : c.image_url?.url || "";
+      const detail = c.detail || (typeof c.image_url === "object" && c.image_url?.detail) || "auto";
+      if (url && !url.startsWith("data:") && /^https?:/i.test(url)) {
+        const fetched = await fetchImageAsBase64(url, { timeoutMs: 15000 });
+        return { type: "input_image", image_url: fetched?.url || url, detail };
+      }
+      // Normalize image_url to a plain string so downstream JSON.stringify matches Codex schema.
+      if (url) return { type: "input_image", image_url: url, detail };
+      return c;
+    }
+
+    // File-style image block (OpenCode @ai-sdk/openai-compatible can emit these for clipboard images).
+    if (c.type === "input_file") {
+      const fileData = typeof c.file_data === "string" ? c.file_data : "";
+      const mime = typeof c.mime_type === "string" ? c.mime_type : "";
+      const detail = c.detail || "auto";
+      if (fileData.startsWith("data:image/")) {
+        return { type: "input_image", image_url: fileData, detail };
+      }
+      if (fileData && mime.startsWith("image/")) {
+        return { type: "input_image", image_url: `data:${mime};base64,${fileData}`, detail };
+      }
+      return c;
+    }
+
+    return c;
   }
 
   async execute(args) {

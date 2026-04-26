@@ -1,8 +1,11 @@
 import { register } from "../index.js";
 import { FORMATS } from "../formats.js";
 
-// Prefix for Claude OAuth tool names (must match request translator)
-const CLAUDE_OAUTH_TOOL_PREFIX = "proxy_";
+// Prefix for Claude OAuth tool names (must match request translator).
+// Kept empty to mirror open-sse/translator/request/openai-to-claude.js. The
+// strip-prefix branches below remain for forward compatibility if a non-empty
+// prefix is ever reintroduced.
+const CLAUDE_OAUTH_TOOL_PREFIX = "";
 
 // Helper: stop thinking block if started
 function stopThinkingBlock(state, results) {
