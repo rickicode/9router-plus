@@ -104,7 +104,7 @@ describe("auth account selection", () => {
     vi.resetModules();
   });
 
-  it("resets the mutex chain after a timeout so later requests can proceed", async () => {
+  it("resets the provider mutex after a timeout so later same-provider requests can proceed", async () => {
     vi.useFakeTimers();
 
     let releaseFirstRequest;
@@ -133,16 +133,17 @@ describe("auth account selection", () => {
     getEligibleConnections.mockResolvedValue([mockConnections[0]]);
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let firstRequest;
 
     try {
       const { getProviderCredentials } = await import("../../src/sse/services/auth.js");
 
-      const firstRequest = getProviderCredentials("codex", null, "gpt-4.1");
+      firstRequest = getProviderCredentials("codex", null, "gpt-4.1");
       const secondRequest = getProviderCredentials("codex", null, "gpt-4.1");
+      secondRequest.catch(() => null);
       const secondExpectation = expect(secondRequest).rejects.toThrow("Mutex timeout");
 
       await vi.advanceTimersByTimeAsync(5_000);
-
       await secondExpectation;
 
       const thirdRequest = getProviderCredentials("codex", null, "gpt-4.1");
@@ -153,11 +154,407 @@ describe("auth account selection", () => {
 
       await vi.advanceTimersByTimeAsync(5_000);
 
-      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Mutex timeout after 5000ms, forcing release"));
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("codex mutex timeout after 5000ms, forcing release"));
     } finally {
       releaseFirstRequest();
+      await firstRequest.catch(() => null);
       await vi.runAllTimersAsync();
       logSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not block another provider while one provider mutex is stuck", async () => {
+    vi.useFakeTimers();
+
+    const codexConnections = [{
+      id: "conn-codex",
+      provider: "codex",
+      isActive: true,
+      priority: 1,
+      displayName: "Codex",
+      accessToken: "codex-token",
+      testStatus: "active",
+      routingStatus: "eligible",
+      authState: "ok",
+      healthStatus: "healthy",
+      quotaState: "ok",
+    }];
+    const openaiConnections = [{
+      id: "conn-openai",
+      provider: "openai",
+      isActive: true,
+      priority: 1,
+      displayName: "OpenAI",
+      accessToken: "openai-token",
+      testStatus: "active",
+      routingStatus: "eligible",
+      authState: "ok",
+      healthStatus: "healthy",
+      quotaState: "ok",
+    }];
+
+    let releaseCodex;
+    const codexDeferred = new Promise((resolve) => {
+      releaseCodex = resolve;
+    });
+
+    getProviderConnections.mockImplementation(async ({ provider }) => {
+      if (provider === "codex") {
+        await codexDeferred;
+        return codexConnections;
+      }
+      if (provider === "openai") {
+        return openaiConnections;
+      }
+      return [];
+    });
+
+    getEligibleConnections.mockImplementation(async (provider, candidates) => candidates.filter((c) => c.provider === provider));
+
+    try {
+      const { getProviderCredentials } = await import("../../src/sse/services/auth.js");
+
+      void getProviderCredentials("codex", null, "gpt-4.1");
+      const openaiRequest = getProviderCredentials("openai", null, "gpt-4.1");
+
+      await expect(openaiRequest).resolves.toEqual(expect.objectContaining({
+        connectionId: "conn-openai",
+        accessToken: "openai-token",
+      }));
+    } finally {
+      releaseCodex();
+      await vi.runAllTimersAsync();
+      vi.useRealTimers();
+    }
+  });
+
+  it("serializes same-provider round-robin updates", async () => {
+    vi.useFakeTimers();
+
+    const connections = [{
+      id: "conn-rr",
+      provider: "codex",
+      isActive: true,
+      priority: 1,
+      displayName: "Round Robin",
+      accessToken: "rr-token",
+      testStatus: "active",
+      routingStatus: "eligible",
+      authState: "ok",
+      healthStatus: "healthy",
+      quotaState: "ok",
+      lastUsedAt: "2026-04-26T12:00:00.000Z",
+      consecutiveUseCount: 1,
+    }];
+
+    let releaseFirstUpdate;
+    const firstUpdateDeferred = new Promise((resolve) => {
+      releaseFirstUpdate = resolve;
+    });
+    let updateCalls = 0;
+
+    getProviderConnections.mockImplementation(async () => connections.map((connection) => ({ ...connection })));
+    getEligibleConnections.mockImplementation(async (_provider, candidates) => candidates);
+    getSettings.mockResolvedValue({
+      fallbackStrategy: "round-robin",
+      stickyRoundRobinLimit: 3,
+      providerStrategies: {},
+    });
+    updateProviderConnection.mockImplementation(async (id, data) => {
+      updateCalls += 1;
+      if (updateCalls === 1) {
+        await firstUpdateDeferred;
+      }
+      Object.assign(connections[0], data);
+      return { id, ...data };
+    });
+
+    try {
+      const { getProviderCredentials } = await import("../../src/sse/services/auth.js");
+
+      const first = getProviderCredentials("codex", null, "gpt-4.1");
+      const second = getProviderCredentials("codex", null, "gpt-4.1");
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(updateProviderConnection).toHaveBeenCalledTimes(1);
+
+      releaseFirstUpdate();
+
+      const [firstResult, secondResult] = await Promise.all([first, second]);
+      expect(firstResult.connectionId).toBe("conn-rr");
+      expect(secondResult.connectionId).toBe("conn-rr");
+      expect(updateProviderConnection).toHaveBeenCalledTimes(2);
+      expect(connections[0].consecutiveUseCount).toBe(3);
+    } finally {
+      await vi.runAllTimersAsync();
+      vi.useRealTimers();
+    }
+  });
+
+  it("allows fill-first selections to proceed concurrently across providers", async () => {
+    getProviderConnections.mockImplementation(async ({ provider }) => [{
+      id: `conn-${provider}`,
+      provider,
+      isActive: true,
+      priority: 1,
+      displayName: provider,
+      accessToken: `${provider}-token`,
+      testStatus: "active",
+      routingStatus: "eligible",
+      authState: "ok",
+      healthStatus: "healthy",
+      quotaState: "ok",
+    }]);
+    getEligibleConnections.mockImplementation(async (_provider, candidates) => candidates);
+
+    const { getProviderCredentials } = await import("../../src/sse/services/auth.js");
+    const [codex, openai] = await Promise.all([
+      getProviderCredentials("codex", null, "gpt-4.1"),
+      getProviderCredentials("openai", null, "gpt-4.1"),
+    ]);
+
+    expect(codex.connectionId).toBe("conn-codex");
+    expect(openai.connectionId).toBe("conn-openai");
+  });
+
+  it("resets test mutex state between cases", async () => {
+    const auth = await import("../../src/sse/services/auth.js");
+    auth.__resetSelectionMutexesForTests();
+    expect(typeof auth.__runWithProviderSelectionLock).toBe("function");
+  });
+
+  it("exposes provider-scoped lock helper for focused concurrency checks", async () => {
+    const auth = await import("../../src/sse/services/auth.js");
+    await expect(auth.__runWithProviderSelectionLock("codex", async () => "ok")).resolves.toBe("ok");
+  });
+
+  it("keeps different provider lock chains independent", async () => {
+    vi.useFakeTimers();
+
+    let releaseCodex;
+    const codexDeferred = new Promise((resolve) => {
+      releaseCodex = resolve;
+    });
+
+    try {
+      const auth = await import("../../src/sse/services/auth.js");
+      const codexTask = auth.__runWithProviderSelectionLock("codex", async () => {
+        await codexDeferred;
+        return "codex";
+      });
+      const openaiTask = auth.__runWithProviderSelectionLock("openai", async () => "openai");
+
+      await expect(openaiTask).resolves.toBe("openai");
+      releaseCodex();
+      await expect(codexTask).resolves.toBe("codex");
+    } finally {
+      await vi.runAllTimersAsync();
+      vi.useRealTimers();
+    }
+  });
+
+  it("serializes the same provider inside the provider-scoped lock helper", async () => {
+    vi.useFakeTimers();
+
+    let releaseFirst;
+    const firstDeferred = new Promise((resolve) => {
+      releaseFirst = resolve;
+    });
+    const order = [];
+
+    try {
+      const auth = await import("../../src/sse/services/auth.js");
+      const first = auth.__runWithProviderSelectionLock("codex", async () => {
+        order.push("first:start");
+        await firstDeferred;
+        order.push("first:end");
+      });
+      const second = auth.__runWithProviderSelectionLock("codex", async () => {
+        order.push("second:start");
+      });
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(order).toEqual(["first:start"]);
+
+      releaseFirst();
+      await Promise.all([first, second]);
+      expect(order).toEqual(["first:start", "first:end", "second:start"]);
+    } finally {
+      await vi.runAllTimersAsync();
+      vi.useRealTimers();
+    }
+  });
+
+  it("times out only the contended provider lock", async () => {
+    vi.useFakeTimers();
+
+    let releaseFirst;
+    const firstDeferred = new Promise((resolve) => {
+      releaseFirst = resolve;
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let firstCodex;
+
+    try {
+      const auth = await import("../../src/sse/services/auth.js");
+      firstCodex = auth.__runWithProviderSelectionLock("codex", async () => {
+        await firstDeferred;
+      });
+      const blockedCodex = auth.__runWithProviderSelectionLock("codex", async () => "never");
+      blockedCodex.catch(() => null);
+      const openaiTask = auth.__runWithProviderSelectionLock("openai", async () => "openai");
+
+      await expect(openaiTask).resolves.toBe("openai");
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(blockedCodex).rejects.toThrow("Mutex timeout");
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("codex mutex timeout after 5000ms, forcing release"));
+    } finally {
+      releaseFirst();
+      await firstCodex.catch(() => null);
+      await vi.runAllTimersAsync();
+      logSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps timeout recovery scoped to one provider", async () => {
+    vi.useFakeTimers();
+
+    let releaseFirst;
+    const firstDeferred = new Promise((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    let firstCodex;
+
+    try {
+      const auth = await import("../../src/sse/services/auth.js");
+      firstCodex = auth.__runWithProviderSelectionLock("codex", async () => {
+        await firstDeferred;
+      });
+      const blockedCodex = auth.__runWithProviderSelectionLock("codex", async () => "never");
+      blockedCodex.catch(() => null);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(blockedCodex).rejects.toThrow("Mutex timeout");
+      await expect(auth.__runWithProviderSelectionLock("openai", async () => "openai")).resolves.toBe("openai");
+    } finally {
+      releaseFirst();
+      await firstCodex.catch(() => null);
+      await vi.runAllTimersAsync();
+      vi.useRealTimers();
+    }
+  });
+
+  it("allows later same-provider requests after timeout recovery", async () => {
+    vi.useFakeTimers();
+
+    let releaseFirst;
+    const firstDeferred = new Promise((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    let firstCodex;
+
+    try {
+      const auth = await import("../../src/sse/services/auth.js");
+      firstCodex = auth.__runWithProviderSelectionLock("codex", async () => {
+        await firstDeferred;
+      });
+      const blockedCodex = auth.__runWithProviderSelectionLock("codex", async () => "never");
+      blockedCodex.catch(() => null);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(blockedCodex).rejects.toThrow("Mutex timeout");
+      await expect(auth.__runWithProviderSelectionLock("codex", async () => "recovered")).resolves.toBe("recovered");
+    } finally {
+      releaseFirst();
+      await firstCodex.catch(() => null);
+      await vi.runAllTimersAsync();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not leak provider locks after successful completion", async () => {
+    const auth = await import("../../src/sse/services/auth.js");
+    await expect(auth.__runWithProviderSelectionLock("codex", async () => "done")).resolves.toBe("done");
+    await expect(auth.__runWithProviderSelectionLock("codex", async () => "done-again")).resolves.toBe("done-again");
+  });
+
+  it("allows another provider immediately while round-robin update is pending", async () => {
+    vi.useFakeTimers();
+
+    const codexConnections = [{
+      id: "conn-codex-rr",
+      provider: "codex",
+      isActive: true,
+      priority: 1,
+      displayName: "Codex RR",
+      accessToken: "codex-rr-token",
+      testStatus: "active",
+      routingStatus: "eligible",
+      authState: "ok",
+      healthStatus: "healthy",
+      quotaState: "ok",
+      lastUsedAt: "2026-04-26T12:00:00.000Z",
+      consecutiveUseCount: 1,
+    }];
+    const openaiConnections = [{
+      id: "conn-openai-ff",
+      provider: "openai",
+      isActive: true,
+      priority: 1,
+      displayName: "OpenAI FF",
+      accessToken: "openai-ff-token",
+      testStatus: "active",
+      routingStatus: "eligible",
+      authState: "ok",
+      healthStatus: "healthy",
+      quotaState: "ok",
+    }];
+
+    let releaseUpdate;
+    const updateDeferred = new Promise((resolve) => {
+      releaseUpdate = resolve;
+    });
+
+    getProviderConnections.mockImplementation(async ({ provider }) => {
+      if (provider === "codex") return codexConnections.map((c) => ({ ...c }));
+      if (provider === "openai") return openaiConnections.map((c) => ({ ...c }));
+      return [];
+    });
+    getEligibleConnections.mockImplementation(async (_provider, candidates) => candidates);
+    getSettings.mockResolvedValue({
+      fallbackStrategy: "round-robin",
+      stickyRoundRobinLimit: 3,
+      providerStrategies: {
+        openai: { fallbackStrategy: "fill-first" },
+      },
+    });
+    updateProviderConnection.mockImplementation(async (id, data) => {
+      if (id === "conn-codex-rr") {
+        await updateDeferred;
+      }
+      Object.assign(codexConnections[0], data);
+      return { id, ...data };
+    });
+
+    let codexRequest;
+
+    try {
+      const { getProviderCredentials } = await import("../../src/sse/services/auth.js");
+      codexRequest = getProviderCredentials("codex", null, "gpt-4.1");
+      const openaiRequest = getProviderCredentials("openai", null, "gpt-4.1");
+
+      await expect(openaiRequest).resolves.toEqual(expect.objectContaining({
+        connectionId: "conn-openai-ff",
+        accessToken: "openai-ff-token",
+      }));
+    } finally {
+      releaseUpdate();
+      await codexRequest.catch(() => null);
+      await vi.runAllTimersAsync();
       vi.useRealTimers();
     }
   });

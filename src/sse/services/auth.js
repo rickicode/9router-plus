@@ -54,27 +54,154 @@ function isCanonicalFallbackEligible(connection = {}) {
   return true;
 }
 
-// Mutex to prevent race conditions during account selection
-let selectionMutex = Promise.resolve();
+// Provider-scoped mutexes prevent same-provider selection races without serializing all providers.
+const selectionMutexes = new Map();
 const MUTEX_TIMEOUT_MS = 5_000;
 
-/**
- * Get provider credentials from localDb
- * Filters out unavailable accounts and returns the selected account based on strategy
- * @param {string} provider - Provider name
- * @param {Set<string>|string|null} excludeConnectionIds - Connection ID(s) to exclude (for retry with next account)
- * @param {string|null} model - Model name for per-model rate limit filtering
- */
-export async function getProviderCredentials(provider, excludeConnectionIds = null, model = null) {
-  // Normalize to Set for consistent handling
-  const excludeSet = excludeConnectionIds instanceof Set
-    ? excludeConnectionIds
-    : (excludeConnectionIds ? new Set([excludeConnectionIds]) : new Set());
+function getSelectionMutex(providerId) {
+  return selectionMutexes.get(providerId) || Promise.resolve();
+}
 
-  const currentMutex = selectionMutex;
+function setSelectionMutex(providerId, mutex) {
+  selectionMutexes.set(providerId, mutex);
+}
+
+function clearSelectionMutex(providerId, mutex) {
+  if (selectionMutexes.get(providerId) === mutex) {
+    selectionMutexes.delete(providerId);
+  }
+}
+
+function buildSelectionPool(provider, providerId, connections, excludeSet, model, centralizedEligibleConnections) {
+  const availableConnections = connections.filter(c => {
+    if (excludeSet.has(c.id)) return false;
+    if (isModelLockActive(c, model)) return false;
+    return true;
+  });
+
+  const hasCentralizedEligibility = Array.isArray(centralizedEligibleConnections);
+  const hasCentralizedEligibilityData = centralizedEligibleConnections != null;
+  let selectionPool = hasCentralizedEligibility
+    ? sortByPriority(centralizedEligibleConnections)
+    : null;
+
+  log.debug("AUTH", `${provider} | available: ${availableConnections.length}/${connections.length}, eligible: ${hasCentralizedEligibility ? selectionPool.length : "unavailable"}`);
+  connections.forEach(c => {
+    const excluded = excludeSet.has(c.id);
+    const locked = isModelLockActive(c, model);
+    if (excluded || locked) {
+      const lockUntil = getEarliestModelLockUntil(c);
+      log.debug("AUTH", `  → ${c.id?.slice(0, 8)} | ${excluded ? "excluded" : ""} ${locked ? `modelLocked(${model}) until ${lockUntil}` : ""}`);
+    }
+  });
+
+  if (availableConnections.length === 0) {
+    const lockedConns = connections.filter(c => isModelLockActive(c, model));
+    const expiries = lockedConns.map(c => getEarliestModelLockUntil(c)).filter(Boolean);
+    const earliest = expiries.sort()[0] || null;
+    if (earliest) {
+      const earliestConn = lockedConns[0];
+      log.warn("AUTH", `${provider} | all ${connections.length} accounts locked for ${model || "all"} (${formatRetryAfter(earliest)}) | reason=${earliestConn?.reasonDetail?.slice(0, 50)}`);
+      return {
+        availableConnections,
+        selectionPool: null,
+        rateLimitedResult: {
+          allRateLimited: true,
+          retryAfter: earliest,
+          retryAfterHuman: formatRetryAfter(earliest),
+          lastError: earliestConn?.reasonDetail || null,
+          lastErrorCode: earliestConn?.reasonCode || null,
+        },
+      };
+    }
+
+    log.warn("AUTH", `${provider} | all ${connections.length} accounts unavailable`);
+    return {
+      availableConnections,
+      selectionPool: null,
+      rateLimitedResult: null,
+    };
+  }
+
+  if (!Array.isArray(selectionPool)) {
+    if (!hasCentralizedEligibilityData) {
+      const fallbackPool = sortByPriority(availableConnections.filter(isCanonicalFallbackEligible));
+      log.warn("AUTH", `${provider} | centralized eligibility unavailable, using canonical fallback (${fallbackPool.length}/${availableConnections.length})`);
+      if (fallbackPool.length > 0) {
+        selectionPool = fallbackPool;
+      }
+    }
+
+    if (!Array.isArray(selectionPool)) {
+      log.warn("AUTH", `${provider} | centralized eligibility unavailable`);
+      return {
+        availableConnections,
+        selectionPool: null,
+        rateLimitedResult: null,
+      };
+    }
+  }
+
+  if (selectionPool.length === 0) {
+    log.warn("AUTH", `${provider} | centralized eligibility returned no routable accounts`);
+    return {
+      availableConnections,
+      selectionPool: [],
+      rateLimitedResult: null,
+    };
+  }
+
+  return {
+    availableConnections,
+    selectionPool,
+    rateLimitedResult: null,
+  };
+}
+
+async function selectConnectionForStrategy(selectionPool, strategy, stickyLimit) {
+  if (strategy !== "round-robin") {
+    return selectionPool[0];
+  }
+
+  const selectedAt = new Date().toISOString();
+  const byRecency = sortByRecencyDesc(selectionPool);
+  const current = byRecency[0];
+  const currentCount = current?.consecutiveUseCount || 0;
+
+  if (current && current.lastUsedAt && currentCount < stickyLimit) {
+    const connection = {
+      ...current,
+      lastUsedAt: selectedAt,
+      consecutiveUseCount: (current.consecutiveUseCount || 0) + 1,
+    };
+    await updateProviderConnection(connection.id, {
+      lastUsedAt: connection.lastUsedAt,
+      consecutiveUseCount: connection.consecutiveUseCount,
+    });
+    return connection;
+  }
+
+  const nextConnection = {
+    ...sortByRecencyAsc(selectionPool)[0],
+    lastUsedAt: selectedAt,
+    consecutiveUseCount: 1,
+  };
+  await updateProviderConnection(nextConnection.id, {
+    lastUsedAt: nextConnection.lastUsedAt,
+    consecutiveUseCount: nextConnection.consecutiveUseCount,
+  });
+  return nextConnection;
+}
+
+export function __resetSelectionMutexesForTests() {
+  selectionMutexes.clear();
+}
+
+export async function __runWithProviderSelectionLock(providerId, callback) {
+  const currentMutex = getSelectionMutex(providerId);
   let resolveMutex;
   const nextMutex = new Promise(resolve => { resolveMutex = resolve; });
-  selectionMutex = nextMutex;
+  setSelectionMutex(providerId, nextMutex);
 
   let timeoutId;
   const mutexTimeout = new Promise((_, reject) => {
@@ -84,15 +211,42 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
   try {
     await Promise.race([currentMutex, mutexTimeout]);
     clearTimeout(timeoutId);
-
-    // Resolve alias to provider ID (e.g., "kc" -> "kilocode")
-    const providerId = resolveProviderId(provider);
-
-    // Inject a virtual connection for no-auth free providers
-    if (FREE_PROVIDERS[providerId]?.noAuth) {
-      return { id: "noauth", connectionName: "Public", isActive: true, accessToken: "public" };
+    return await callback();
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error?.message === "Mutex timeout") {
+      log.error("AUTH", `${providerId} mutex timeout after ${MUTEX_TIMEOUT_MS}ms, forcing release`);
+      if (resolveMutex) resolveMutex();
+      clearSelectionMutex(providerId, nextMutex);
     }
+    throw error;
+  } finally {
+    if (resolveMutex) resolveMutex();
+    clearSelectionMutex(providerId, nextMutex);
+  }
+}
 
+/**
+ * Get provider credentials from localDb
+ * Filters out unavailable accounts and returns the selected account based on strategy
+ * @param {string} provider - Provider name
+ * @param {Set<string>|string|null} excludeConnectionIds - Connection ID(s) to exclude (for retry with next account)
+ * @param {string|null} model - Model name for per-model rate limit filtering
+ */
+export async function getProviderCredentials(provider, excludeConnectionIds = null, model = null) {
+  const excludeSet = excludeConnectionIds instanceof Set
+    ? excludeConnectionIds
+    : (excludeConnectionIds ? new Set([excludeConnectionIds]) : new Set());
+
+  const providerId = resolveProviderId(provider);
+
+  if (FREE_PROVIDERS[providerId]?.noAuth) {
+    return { id: "noauth", connectionName: "Public", isActive: true, accessToken: "public" };
+  }
+
+  const settings = await getSettings();
+
+  return __runWithProviderSelectionLock(providerId, async () => {
     const connections = await getProviderConnections({ provider: providerId, isActive: true });
     log.debug("AUTH", `${provider} | total connections: ${connections.length}, excludeIds: ${excludeSet.size > 0 ? [...excludeSet].join(",") : "none"}, model: ${model || "any"}`);
 
@@ -101,7 +255,6 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       return null;
     }
 
-    // Filter out excluded/current-model-locked connections for centralized eligibility.
     const availableConnections = connections.filter(c => {
       if (excludeSet.has(c.id)) return false;
       if (isModelLockActive(c, model)) return false;
@@ -109,110 +262,28 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
     });
 
     const centralizedEligibleConnections = await getEligibleConnections(providerId, availableConnections);
-    const hasCentralizedEligibility = Array.isArray(centralizedEligibleConnections);
-    const hasCentralizedEligibilityData = centralizedEligibleConnections != null;
-    let selectionPool = hasCentralizedEligibility
-      ? sortByPriority(centralizedEligibleConnections)
-      : null;
+    const { selectionPool, rateLimitedResult } = buildSelectionPool(
+      provider,
+      providerId,
+      connections,
+      excludeSet,
+      model,
+      centralizedEligibleConnections,
+    );
 
-    log.debug("AUTH", `${provider} | available: ${availableConnections.length}/${connections.length}, eligible: ${hasCentralizedEligibility ? selectionPool.length : "unavailable"}`);
-    connections.forEach(c => {
-      const excluded = excludeSet.has(c.id);
-      const locked = isModelLockActive(c, model);
-      if (excluded || locked) {
-        const lockUntil = getEarliestModelLockUntil(c);
-        log.debug("AUTH", `  → ${c.id?.slice(0, 8)} | ${excluded ? "excluded" : ""} ${locked ? `modelLocked(${model}) until ${lockUntil}` : ""}`);
-      }
-    });
+    if (rateLimitedResult) {
+      return rateLimitedResult;
+    }
 
-    if (availableConnections.length === 0) {
-      // Find earliest lock expiry across all connections for retry timing
-      const lockedConns = connections.filter(c => isModelLockActive(c, model));
-      const expiries = lockedConns.map(c => getEarliestModelLockUntil(c)).filter(Boolean);
-      const earliest = expiries.sort()[0] || null;
-      if (earliest) {
-        const earliestConn = lockedConns[0];
-        log.warn("AUTH", `${provider} | all ${connections.length} accounts locked for ${model || "all"} (${formatRetryAfter(earliest)}) | reason=${earliestConn?.reasonDetail?.slice(0, 50)}`);
-        return {
-          allRateLimited: true,
-          retryAfter: earliest,
-          retryAfterHuman: formatRetryAfter(earliest),
-          lastError: earliestConn?.reasonDetail || null,
-          lastErrorCode: earliestConn?.reasonCode || null
-        };
-      }
-      log.warn("AUTH", `${provider} | all ${connections.length} accounts unavailable`);
+    if (!selectionPool || selectionPool.length === 0) {
       return null;
     }
 
-    if (!Array.isArray(selectionPool)) {
-      if (!hasCentralizedEligibilityData) {
-        const fallbackPool = sortByPriority(availableConnections.filter(isCanonicalFallbackEligible));
-        log.warn("AUTH", `${provider} | centralized eligibility unavailable, using canonical fallback (${fallbackPool.length}/${availableConnections.length})`);
-        if (fallbackPool.length > 0) {
-          selectionPool = fallbackPool;
-        }
-      }
-
-      if (!Array.isArray(selectionPool)) {
-        log.warn("AUTH", `${provider} | centralized eligibility unavailable`);
-        return null;
-      }
-    }
-
-    if (selectionPool.length === 0) {
-      log.warn("AUTH", `${provider} | centralized eligibility returned no routable accounts`);
-      return null;
-    }
-
-    const settings = await getSettings();
-    // Per-provider strategy overrides global setting
     const providerOverride = (settings.providerStrategies || {})[providerId] || {};
     const strategy = providerOverride.fallbackStrategy || settings.fallbackStrategy || "fill-first";
+    const stickyLimit = providerOverride.stickyRoundRobinLimit || settings.stickyRoundRobinLimit || 3;
 
-    let connection;
-    if (strategy === "round-robin") {
-      const stickyLimit = providerOverride.stickyRoundRobinLimit || settings.stickyRoundRobinLimit || 3;
-      const selectedAt = new Date().toISOString();
-
-      const byRecency = sortByRecencyDesc(selectionPool);
-      const current = byRecency[0];
-      const currentCount = current?.consecutiveUseCount || 0;
-
-      if (current && current.lastUsedAt && currentCount < stickyLimit) {
-        // Stay with current account
-        connection = current;
-        // Persist selection state before releasing the mutex so the next request sees the updated winner.
-        connection = {
-          ...connection,
-          lastUsedAt: selectedAt,
-          consecutiveUseCount: (connection.consecutiveUseCount || 0) + 1
-        };
-        await updateProviderConnection(connection.id, {
-          lastUsedAt: connection.lastUsedAt,
-          consecutiveUseCount: connection.consecutiveUseCount
-        });
-      } else {
-        // Pick the least recently used (excluding current if possible)
-        const sortedByOldest = sortByRecencyAsc(selectionPool);
-
-        connection = {
-          ...sortedByOldest[0],
-          lastUsedAt: selectedAt,
-          consecutiveUseCount: 1
-        };
-
-        // Persist selection state before releasing the mutex so the next request sees the updated winner.
-        await updateProviderConnection(connection.id, {
-          lastUsedAt: connection.lastUsedAt,
-          consecutiveUseCount: connection.consecutiveUseCount
-        });
-      }
-    } else {
-      // Default: fill-first (already sorted by priority in getProviderConnections)
-      connection = selectionPool[0];
-    }
-
+    const connection = await selectConnectionForStrategy(selectionPool, strategy, stickyLimit);
     const resolvedProxy = await resolveConnectionProxyConfig(connection.providerSpecificData || {});
 
     return {
@@ -231,20 +302,9 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
         vercelRelayUrl: resolvedProxy.vercelRelayUrl || "",
       },
       connectionId: connection.id,
-      // Pass full connection for clearAccountError to read modelLock_* keys
-      _connection: connection
+      _connection: connection,
     };
-  } catch (error) {
-    clearTimeout(timeoutId);
-    if (error?.message === "Mutex timeout") {
-      log.error("AUTH", `Mutex timeout after ${MUTEX_TIMEOUT_MS}ms, forcing release`);
-      selectionMutex = Promise.resolve();
-      if (resolveMutex) resolveMutex();
-    }
-    throw error;
-  } finally {
-    if (resolveMutex) resolveMutex();
-  }
+  });
 }
 
 /**

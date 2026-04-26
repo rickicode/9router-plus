@@ -7,6 +7,7 @@ import {
   extractApiKey,
   isValidApiKey,
 } from "../services/auth.js";
+import { PROVIDER_MODELS } from "@/shared/constants/models";
 import { cacheClaudeHeaders } from "open-sse/utils/claudeHeaderCache.js";
 import { getSettings } from "@/lib/localDb";
 import { getModelInfo, getComboModels } from "../services/model.js";
@@ -19,6 +20,8 @@ import { detectFormatByEndpoint } from "open-sse/translator/formats.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
+
+const codexModelIds = new Set((PROVIDER_MODELS.cx || []).map((entry) => entry?.id).filter(Boolean));
 
 /**
  * Handle chat completion request
@@ -67,6 +70,10 @@ export async function handleChat(request, clientRawRequest = null) {
 
   // Enforce API key if enabled in settings
   const settings = await getSettings();
+  const requestContext = {
+    settings,
+    comboModelsByName: new Map(),
+  };
   if (settings.requireApiKey) {
     if (!apiKey) {
       log.warn("AUTH", "Missing API key (requireApiKey=true)");
@@ -91,6 +98,7 @@ export async function handleChat(request, clientRawRequest = null) {
 
   // Check if model is a combo (has multiple models with fallback)
   const comboModels = await getComboModels(modelStr);
+  requestContext.comboModelsByName.set(modelStr, comboModels);
   if (comboModels) {
     // Check for combo-specific strategy first, fallback to global
     const comboStrategies = settings.comboStrategies || {};
@@ -101,7 +109,7 @@ export async function handleChat(request, clientRawRequest = null) {
     return handleComboChat({
       body,
       models: comboModels,
-      handleSingleModel: (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey),
+      handleSingleModel: (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey, requestContext),
       log,
       comboName: modelStr,
       comboStrategy
@@ -109,30 +117,44 @@ export async function handleChat(request, clientRawRequest = null) {
   }
 
   // Single model request
-  return handleSingleModelChat(body, modelStr, clientRawRequest, request, apiKey);
+  return handleSingleModelChat(body, modelStr, clientRawRequest, request, apiKey, requestContext);
 }
 
 /**
  * Handle single model chat request
  */
-async function handleSingleModelChat(body, modelStr, clientRawRequest = null, request = null, apiKey = null) {
+function isBareImplicitOpenAIModel(modelStr, provider, model) {
+  if (typeof modelStr !== "string" || modelStr.includes("/")) return false;
+  if (provider !== "openai" || typeof model !== "string") return false;
+  return /^(gpt-|o1|o3|o4)/i.test(model);
+}
+
+function codexHasMatchingModel(model) {
+  return codexModelIds.has(model);
+}
+
+async function handleSingleModelChat(body, modelStr, clientRawRequest = null, request = null, apiKey = null, requestContext = null) {
   const modelInfo = await getModelInfo(modelStr);
+  const settings = requestContext?.settings ?? await getSettings();
 
   // If provider is null, this might be a combo name - check and handle
   if (!modelInfo.provider) {
-    const comboModels = await getComboModels(modelStr);
+    let comboModels = requestContext?.comboModelsByName?.get(modelStr);
+    if (comboModels === undefined) {
+      comboModels = await getComboModels(modelStr);
+      requestContext?.comboModelsByName?.set(modelStr, comboModels);
+    }
     if (comboModels) {
-      const chatSettings = await getSettings();
       // Check for combo-specific strategy first, fallback to global
-      const comboStrategies = chatSettings.comboStrategies || {};
+      const comboStrategies = settings.comboStrategies || {};
       const comboSpecificStrategy = comboStrategies[modelStr]?.fallbackStrategy;
-      const comboStrategy = comboSpecificStrategy || chatSettings.comboStrategy || "fallback";
-      
+      const comboStrategy = comboSpecificStrategy || settings.comboStrategy || "fallback";
+
       log.info("CHAT", `Combo "${modelStr}" with ${comboModels.length} models (strategy: ${comboStrategy})`);
       return handleComboChat({
         body,
         models: comboModels,
-        handleSingleModel: (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey),
+        handleSingleModel: (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey, requestContext),
         log,
         comboName: modelStr,
         comboStrategy
@@ -142,7 +164,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid model format");
   }
 
-  const { provider, model } = modelInfo;
+  let { provider, model } = modelInfo;
 
   // Log model routing (alias → actual model)
   if (modelStr !== `${provider}/${model}`) {
@@ -153,6 +175,8 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
 
   // Extract userAgent from request
   const userAgent = request?.headers?.get("user-agent") || "";
+  const allowCodexFallback = isBareImplicitOpenAIModel(modelStr, provider, model);
+  const preferCodexFirst = allowCodexFallback && codexHasMatchingModel(model);
 
   // Try with available accounts (fallback on errors)
   const excludeConnectionIds = new Set();
@@ -160,10 +184,44 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   let lastStatus = null;
   const MAX_FALLBACK_ATTEMPTS = 10;
   let fallbackAttempts = 0;
+  let attemptedCodexFallback = false;
+
+  if (preferCodexFirst && provider === "openai") {
+    provider = "codex";
+    log.info("ROUTING", `Bare model ${model} exists in Codex; preferring codex/${model} before openai/${model}`);
+  }
 
   while (fallbackAttempts < MAX_FALLBACK_ATTEMPTS) {
     fallbackAttempts += 1;
-    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model);
+    let credentials = await getProviderCredentials(provider, excludeConnectionIds, model);
+
+    if (!credentials && allowCodexFallback && provider === "codex" && preferCodexFirst && !attemptedCodexFallback) {
+      attemptedCodexFallback = true;
+      provider = "openai";
+      excludeConnectionIds.clear();
+      log.info("ROUTING", `No active Codex credentials for bare model ${model}; retrying with openai/${model}`);
+      credentials = await getProviderCredentials(provider, excludeConnectionIds, model);
+    }
+
+    if (credentials?.allRateLimited && allowCodexFallback && provider === "codex" && preferCodexFirst && !attemptedCodexFallback) {
+      attemptedCodexFallback = true;
+      provider = "openai";
+      excludeConnectionIds.clear();
+      lastError = credentials.lastError || lastError;
+      lastStatus = Number(credentials.lastErrorCode) || lastStatus;
+      log.info("ROUTING", `Codex unavailable for bare model ${model}; retrying with openai/${model}`);
+      credentials = await getProviderCredentials(provider, excludeConnectionIds, model);
+    }
+
+    if (modelStr !== `${provider}/${model}`) {
+      log.info("ROUTING", `${modelStr} → ${provider}/${model}`);
+    }
+
+    body = { ...body, model: `${provider}/${model}` };
+
+    if (modelStr !== `${provider}/${model}`) {
+      log.info("ROUTING", `${modelStr} → ${provider}/${model}`);
+    }
 
     // All accounts unavailable
     if (!credentials || credentials.allRateLimited) {
@@ -197,8 +255,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     }
 
     // Use shared chatCore
-    const chatSettings = await getSettings();
-    const providerThinking = (chatSettings.providerThinking || {})[provider] || null;
+    const providerThinking = (settings.providerThinking || {})[provider] || null;
     const result = await handleChatCore({
       body: { ...body, model: `${provider}/${model}` },
       modelInfo: { provider, model },
@@ -208,7 +265,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       connectionId: credentials.connectionId,
       userAgent,
       apiKey,
-      ccFilterNaming: !!chatSettings.ccFilterNaming,
+      ccFilterNaming: !!settings.ccFilterNaming,
       providerThinking,
       // Detect source format by endpoint + body
       sourceFormatOverride: request?.url ? detectFormatByEndpoint(new URL(request.url).pathname, body) : null,
