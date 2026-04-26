@@ -13,7 +13,11 @@ const DEFAULT_MAX_QUEUED = 100;
 
 const MEMORY_STATE = {
   queue: [],
-  active: new Set(),
+  // Total in-flight jobs (across all connectionIds). The route layer
+  // (api/usage/[connectionId]) already deduplicates concurrent refreshes
+  // for the same connection via its own usageRequestCache, so we only need
+  // to bound *total* concurrency here.
+  activeCount: 0,
   pumping: false,
 };
 
@@ -76,23 +80,28 @@ function withMemoryQueue(connectionId, handler) {
 }
 
 function pumpMemoryQueue() {
+  // Re-entrancy guard: only one synchronous "drain" of the queue at a time.
+  // The flag is cleared in finally so that .finally() callbacks from
+  // resolved jobs can safely call back into pumpMemoryQueue().
   if (MEMORY_STATE.pumping) return;
   MEMORY_STATE.pumping = true;
 
   try {
     const concurrency = getUsageQueueConcurrency();
-    while (MEMORY_STATE.active.size < concurrency && MEMORY_STATE.queue.length > 0) {
+    while (MEMORY_STATE.activeCount < concurrency && MEMORY_STATE.queue.length > 0) {
       const job = MEMORY_STATE.queue.shift();
       if (!job) break;
 
       clearTimeout(job.timeoutId);
-      MEMORY_STATE.active.add(job.connectionId);
+      MEMORY_STATE.activeCount += 1;
       Promise.resolve()
         .then(() => job.handler())
         .then(job.resolve, job.reject)
         .finally(() => {
-          MEMORY_STATE.active.delete(job.connectionId);
-          MEMORY_STATE.pumping = false;
+          MEMORY_STATE.activeCount = Math.max(0, MEMORY_STATE.activeCount - 1);
+          // Don't touch MEMORY_STATE.pumping here — it's owned by the
+          // synchronous pump driver above. We just trigger another pump
+          // pass so newly-eligible queued jobs can start.
           pumpMemoryQueue();
         });
     }

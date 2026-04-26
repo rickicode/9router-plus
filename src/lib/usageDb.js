@@ -118,7 +118,12 @@ if (!global._statsEmitter) {
 }
 export const statsEmitter = global._statsEmitter;
 
-// Safety timers — force-clear pending counts after 1 min if END was never called
+// Safety timers — force-clear pending counts after 1 min if END was never
+// called. Each (connectionId, model) key maps to an ARRAY of timer ids so
+// concurrent in-flight requests for the same (connection, model) tuple don't
+// silently overwrite each other's safety timer (which previously meant only
+// the LAST start's timer survived; if N starts overlapped and only one end
+// fired, the other N-1 leaked their timers and counters until process exit).
 if (!global._pendingTimers) global._pendingTimers = {};
 const pendingTimers = global._pendingTimers;
 
@@ -148,22 +153,37 @@ export function trackPendingRequest(model, provider, connectionId, started, erro
   }
 
   if (started) {
-    // Safety timeout: force-clear if END is never called (client disconnect, crash, etc.)
-    clearTimeout(pendingTimers[timerKey]);
-    pendingTimers[timerKey] = setTimeout(() => {
-      delete pendingTimers[timerKey];
+    // Safety timeout: force-decrement (NOT zero out) if END is never called.
+    // Decrement-by-one ensures other concurrent in-flight starts on the same
+    // key are still represented in the counter even after one of them times
+    // out.
+    const timer = setTimeout(() => {
+      const list = pendingTimers[timerKey];
+      if (Array.isArray(list)) {
+        const idx = list.indexOf(timer);
+        if (idx >= 0) list.splice(idx, 1);
+        if (list.length === 0) delete pendingTimers[timerKey];
+      }
       if (pendingRequests.byModel[modelKey] > 0) {
-        pendingRequests.byModel[modelKey] = 0;
+        pendingRequests.byModel[modelKey] -= 1;
       }
       if (connectionId && pendingRequests.byAccount[connectionId]?.[modelKey] > 0) {
-        pendingRequests.byAccount[connectionId][modelKey] = 0;
+        pendingRequests.byAccount[connectionId][modelKey] -= 1;
       }
       statsEmitter.emit("pending");
     }, PENDING_TIMEOUT_MS);
+    if (!pendingTimers[timerKey]) pendingTimers[timerKey] = [];
+    pendingTimers[timerKey].push(timer);
   } else {
-    // END called normally — cancel the safety timer
-    clearTimeout(pendingTimers[timerKey]);
-    delete pendingTimers[timerKey];
+    // END called normally — cancel one (the oldest) outstanding safety timer
+    // for this key. We can't be sure WHICH start this end corresponds to, so
+    // FIFO is the most reasonable approximation.
+    const list = pendingTimers[timerKey];
+    if (Array.isArray(list) && list.length > 0) {
+      const oldest = list.shift();
+      clearTimeout(oldest);
+      if (list.length === 0) delete pendingTimers[timerKey];
+    }
   }
 
   // Track error provider (auto-clears after 10s)

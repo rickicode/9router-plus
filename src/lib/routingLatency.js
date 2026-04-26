@@ -69,11 +69,19 @@ export function getRoutingLatencySummary({ windowMs = DEFAULT_WINDOW_MS } = {}) 
   const now = Date.now();
   const cutoff = now - Math.max(0, Number(windowMs) || DEFAULT_WINDOW_MS);
   const windowed = samples.filter((s) => s.t >= cutoff);
-  windowed.sort((a, b) => a.ms - b.ms);
 
-  const count = windowed.length;
-  const errorCount = windowed.reduce((acc, s) => acc + (s.status === "ok" ? 0 : 1), 0);
-  const sortedMs = windowed.map((s) => s.ms);
+  // Compute earliest timestamp BEFORE sorting by latency, otherwise
+  // sampledFromMs would point to the smallest-latency sample instead of the
+  // oldest sample within the window.
+  let earliestT = null;
+  let errorCount = 0;
+  for (const s of windowed) {
+    if (earliestT === null || s.t < earliestT) earliestT = s.t;
+    if (s.status !== "ok") errorCount += 1;
+  }
+
+  const sortedMs = windowed.map((s) => s.ms).sort((a, b) => a - b);
+  const count = sortedMs.length;
 
   let avg = null;
   let sum = 0;
@@ -94,7 +102,7 @@ export function getRoutingLatencySummary({ windowMs = DEFAULT_WINDOW_MS } = {}) 
     lastMs,
     lastAt,
     windowMs: Math.max(0, Number(windowMs) || DEFAULT_WINDOW_MS),
-    sampledFromMs: count > 0 ? windowed[0].t : null,
+    sampledFromMs: earliestT,
   };
 }
 
