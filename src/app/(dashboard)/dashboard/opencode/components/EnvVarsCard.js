@@ -61,77 +61,83 @@ export default function EnvVarsCard({ preferences, saving = false, error = "", o
   return (
     <Card
       title="Environment variables"
-      subtitle="Optional: store environment variables that should be reflected in the generated config. Secret values stay masked here and should be re-entered when you edit them."
+      subtitle="Pass secrets securely directly into the configuration block."
       icon="key"
-      className="rounded border-border"
-      action={
-        <Button variant="secondary" size="sm" onClick={handleSave} loading={saving}>
-          Save env vars
-        </Button>
-      }
+      className="rounded border-[rgba(15,0,0,0.12)] bg-[#201d1d] font-['Berkeley_Mono'] text-[#fdfcfc]"
     >
-      <div className="space-y-6">
-        <div className="rounded border border-primary/10 bg-[var(--color-primary-soft)] px-5 py-[1.125rem]">
+      <div className="space-y-6 p-6">
+        <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-5 py-[1.125rem]">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-semibold text-text-main">Config-backed variables</p>
-              <p className="text-xs leading-5 text-text-muted">Secrets remain masked in the UI and should be re-entered before saving changes.</p>
+              <p className="text-[16px] font-bold text-[#fdfcfc]">Config-backed variables</p>
+              <p className="text-[14px] leading-[2.00] text-[#9a9898]">Secrets remain masked in the UI and should be re-entered before saving changes.</p>
             </div>
-            <div className="rounded-full border border-primary/15 bg-[var(--color-primary-soft)] px-3 py-1 text-xs font-medium text-primary">
-              {draftVars.length} row{draftVars.length === 1 ? "" : "s"}
+            <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-3 py-1 text-[14px] font-bold text-[#ec4899]">
+              {safeEnv.length} configured
             </div>
           </div>
         </div>
 
-        {error ? <p className="text-sm text-[var(--color-danger)]">{error}</p> : null}
-        {localError ? <p className="text-sm text-[var(--color-danger)]">{localError}</p> : null}
+        {error ? <p className="text-[14px] text-[#ff3b30]">{error}</p> : null}
+        {localError ? <p className="text-[14px] text-[#ff3b30]">{localError}</p> : null}
 
         <div className="space-y-4">
-          {draftVars.length === 0 ? (
-            <div className="rounded border border-dashed border-border bg-[var(--color-bg-alt)] px-5 py-6 text-sm text-text-muted">No environment variables configured yet.</div>
+          {safeEnv.length === 0 ? (
+            <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-5 py-6 text-[14px] text-[#9a9898]">No environment variables configured yet.</div>
           ) : (
-            draftVars.map((item, index) => (
-              <Card.Section key={`${item.key || "env"}-${index}`} className="space-y-5 rounded border border-border bg-[var(--color-surface)] px-5 py-5">
+            safeEnv.map((item, index) => (
+              <div key={`${item.key || "env"}-${index}`} className="space-y-5 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-5 py-5">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-text-main">Variable {index + 1}</p>
-                    <p className="mt-1 text-xs leading-5 text-text-muted">{item.secret ? "Stored as a secret" : "Stored as plain text in preview"}</p>
+                    <p className="text-[16px] font-bold text-[#fdfcfc]">Variable {index + 1}</p>
+                    <p className="mt-1 text-[14px] leading-[2.00] text-[#9a9898]">{item.secret ? "Stored as a secret" : "Stored as plain text in preview"}</p>
                   </div>
-                  <Button variant="ghost" onClick={() => removeRow(index)}>
+                  <button 
+                    className="rounded bg-transparent px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#ff3b30] hover:bg-[#201d1d] transition-colors border border-transparent hover:border-[#ff3b30] cursor-pointer"
+                    onClick={() => removeEnv(index)}
+                  >
                     Remove
-                  </Button>
+                  </button>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                   <Input
                     label="Key"
-                    value={item.key}
-                    onChange={(event) => updateItem(index, { key: event.target.value })}
-                    placeholder="OPENAI_API_KEY"
+                    value={item.key || ""}
+                    onChange={(event) => updateEnv(index, "key", event.target.value)}
+                    placeholder="VARIABLE_NAME"
                   />
-                  <Input
-                    label="Value"
-                    type={item.secret ? "password" : "text"}
-                    value={item.value}
-                    onChange={(event) => updateItem(index, { value: event.target.value, masked: false })}
-                    placeholder={item.masked ? "Saved secret — enter a new value to replace it" : "sk-..."}
-                  />
+                  <div className="space-y-3">
+                    <Input
+                      label="Value"
+                      value={item.value || ""}
+                      onChange={(event) => updateEnv(index, "value", event.target.value)}
+                      placeholder="Value"
+                      type={item.secret && !dirtyFlags.has(index) ? "password" : "text"}
+                    />
+                    <label className="flex items-center gap-2 cursor-pointer pl-1 text-[14px] text-[#9a9898]">
+                      <input
+                        type="checkbox"
+                        checked={item.secret || false}
+                        onChange={(event) => updateEnv(index, "secret", event.target.checked)}
+                        className="rounded border-[rgba(15,0,0,0.12)] text-[#ec4899] focus:ring-[#ec4899]"
+                      />
+                      <span>Secret</span>
+                    </label>
+                  </div>
                 </div>
-                <Toggle
-                  checked={item.secret}
-                  onChange={(checked) => updateItem(index, { secret: checked })}
-                  label="Treat as secret"
-                  description="Secret values render as masked inputs in the dashboard."
-                />
-              </Card.Section>
+              </div>
             ))
           )}
         </div>
 
         <div className="flex justify-start pt-1">
-          <Button variant="outline" onClick={addRow} icon="add">
-            Add env var
-          </Button>
+          <button 
+            className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer"
+            onClick={addEnv}
+          >
+            Add variable
+          </button>
         </div>
       </div>
     </Card>

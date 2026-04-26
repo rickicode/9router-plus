@@ -28,23 +28,23 @@ export default function TokenManagerCard({
       title="Auto-sync tokens"
       subtitle="Create tokens to enable automatic config sync from this dashboard."
       icon="vpn_key"
-      className="rounded border-border"
+      className="rounded border-[rgba(15,0,0,0.12)] bg-[#201d1d] font-['Berkeley_Mono'] text-[#fdfcfc]"
     >
-      <div className="space-y-6">
-        <div className="rounded border border-primary/10 bg-[var(--color-primary-soft)] px-5 py-[1.125rem]">
+      <div className="space-y-6 p-6">
+        <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-5 py-[1.125rem]">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-semibold text-text-main">Create a sync token</p>
-              <p className="text-xs leading-5 text-text-muted">Tokens allow OpenCode to sync config from this dashboard automatically.</p>
+              <p className="text-[16px] font-bold text-[#fdfcfc] leading-[1.50]">Create a sync token</p>
+              <p className="text-[14px] leading-[2.00] text-[#9a9898]">Tokens allow OpenCode to sync config from this dashboard automatically.</p>
             </div>
-            <Badge size="sm">{tokens.length} active</Badge>
+            <span className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-2 py-0.5 text-[14px] text-[#9a9898]">{tokens.length} active</span>
           </div>
         </div>
 
-        <Card.Section className="rounded border border-border bg-[var(--color-surface)] px-5 py-5">
+        <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-5 py-5">
           <div className="mb-4 space-y-1">
-            <p className="text-sm font-semibold text-text-main">Issue a new token</p>
-            <p className="text-xs leading-5 text-text-muted">New token values are only shown once, so create them only when you are ready to copy.</p>
+            <p className="text-[16px] font-bold text-[#fdfcfc]">Issue a new token</p>
+            <p className="text-[14px] leading-[2.00] text-[#9a9898]">New token values are only shown once, so create them only when you are ready to copy.</p>
           </div>
           <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
             <Input
@@ -55,73 +55,72 @@ export default function TokenManagerCard({
               hint="Give it a descriptive name to identify where it's used."
             />
             <div className="flex items-end">
-              <Button
-                fullWidth
-                loading={creating}
+              <button
+                className="w-full rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer disabled:opacity-50"
                 onClick={() => onCreate?.({ name, mode: "shared" })}
-                disabled={!name.trim()}
+                disabled={!name.trim() || creating}
               >
-                Create token
-              </Button>
+                {creating ? "Creating..." : "Create token"}
+              </button>
             </div>
           </div>
-        </Card.Section>
+        </div>
 
         {createError ? (
-          <div className="rounded border border-[var(--color-danger)]/20 bg-[var(--color-danger-soft)] px-4 py-3 text-sm text-[var(--color-danger)]">
+          <div className="rounded border border-[#ff3b30] bg-[#201d1d] px-4 py-3 text-[14px] text-[#ff3b30]">
             {createError}
           </div>
         ) : null}
 
         {createdToken ? (
           <div className="space-y-4">
-            <Card.Section className="space-y-3 rounded border border-[var(--color-success)]/20 bg-[var(--color-success-soft)] px-5 py-[1.125rem]">
+            <div className="space-y-3 rounded border border-[#30d158]/20 bg-[#30d158]/10 px-5 py-[1.125rem]">
               <div className="flex items-center gap-2">
-                <Badge variant="success">New token</Badge>
-                <span className="text-xs text-text-muted">Shown once — copy it now.</span>
+                <span className="rounded border border-[#30d158]/20 bg-[#30d158]/10 px-2 py-0.5 text-[14px] text-[#30d158]">New token</span>
+                <span className="text-[14px] text-[#9a9898]">Shown once — copy it now.</span>
               </div>
-              <code className="block overflow-x-auto rounded bg-[var(--color-editor-bg)] px-3 py-2 text-xs text-[var(--color-text-inverse)]">
+              <code className="block overflow-x-auto rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-3 py-2 text-[14px] text-[#fdfcfc]">
                 {createdToken}
               </code>
-              <div className="rounded border border-[var(--color-warning)]/20 bg-[var(--color-warning-soft)] px-3 py-2 text-xs text-[var(--color-warning)]">
+              <div className="rounded border border-[#ff9f0a]/20 bg-[#ff9f0a]/10 px-3 py-2 text-[14px] text-[#ff9f0a]">
                 ⚠️ This token will not be shown again. Save it securely before closing this message.
               </div>
-            </Card.Section>
+            </div>
 
             {/* Setup Instructions */}
-            <Card.Section className="space-y-3 rounded border border-[var(--color-info)]/20 bg-[var(--color-info-soft)] px-5 py-[1.125rem]">
+            <div className="space-y-3 rounded border border-[#007aff]/20 bg-[#007aff]/10 px-5 py-[1.125rem]">
               <button
                 type="button"
                 onClick={() => setShowInstructions(!showInstructions)}
-                className="flex w-full items-center justify-between text-left"
+                className="flex w-full items-center justify-between text-left cursor-pointer"
               >
-                <span className="text-sm font-semibold text-[var(--color-info)]">
+                <span className="text-[16px] font-bold text-[#007aff]">
                   📋 Setup Instructions
                 </span>
-                <span className="text-[var(--color-info)]">
+                <span className="text-[#007aff]">
                   {showInstructions ? "▼" : "▶"}
                 </span>
               </button>
 
               {showInstructions && (
-                <div className="space-y-4 pt-2 text-xs text-[var(--color-text-main)]">
+                <div className="space-y-4 pt-2 text-[14px] text-[#fdfcfc]">
                   <div>
-                    <p className="font-semibold mb-2">1. Add to opencode.json plugin array:</p>
-                    <code className="block rounded bg-[var(--color-editor-bg)] px-3 py-2 text-xs text-[var(--color-text-inverse)] overflow-x-auto">
+                    <p className="font-bold mb-2">1. Add to opencode.json plugin array:</p>
+                    <code className="block rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-3 py-2 text-[14px] text-[#fdfcfc] overflow-x-auto">
                       "plugin": ["opencode-9router-sync@latest", ...]
                     </code>
                   </div>
 
                   <div>
-                    <p className="font-semibold mb-2">2. Create config file:</p>
+                    <p className="font-bold mb-2">2. Create config file:</p>
                     
                     {/* Standard */}
-                    <div className="mb-3 rounded border border-border bg-[var(--color-bg-alt)] p-3">
-                      <p className="font-semibold mb-1 text-[var(--color-text-main)]">Standard:</p>
-                      <code className="block text-[10px] text-[var(--color-text-muted)] mb-2">
+                    <div className="mb-3 rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] p-3">
+                      <p className="font-bold mb-1 text-[#fdfcfc]">Standard:</p>
+                      <code className="block text-[14px] text-[#9a9898] mb-2">
                         ~/.config/opencode-9router-sync/config.json
                       </code>
-                      <pre className="rounded bg-[var(--color-editor-bg)] px-3 py-2 text-[10px] text-[var(--color-text-inverse)] overflow-x-auto">
+                      <pre className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-3 py-2 text-[14px] text-[#fdfcfc] overflow-x-auto">
 {`{
   "dashboardUrl": "${typeof window !== "undefined" ? window.location.origin : "http://localhost:20129"}",
   "syncToken": "${createdToken}",
@@ -131,12 +130,12 @@ export default function TokenManagerCard({
                     </div>
 
                     {/* OCX Profile */}
-                    <div className="rounded border border-[var(--color-success)]/20 bg-[var(--color-success-soft)] p-3">
-                      <p className="font-semibold mb-1 text-[var(--color-success)]">With OCX Profile:</p>
-                      <code className="block text-[10px] text-[var(--color-success)] mb-2">
+                    <div className="rounded border border-[#30d158]/20 bg-[#30d158]/10 p-3">
+                      <p className="font-bold mb-1 text-[#30d158]">With OCX Profile:</p>
+                      <code className="block text-[14px] text-[#30d158] mb-2">
                         ~/.config/opencode/profiles/&lt;profilename&gt;/opencode-9router-sync/config.json
                       </code>
-                      <pre className="rounded bg-[var(--color-editor-bg)] px-3 py-2 text-[10px] text-[var(--color-text-inverse)] overflow-x-auto">
+                      <pre className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-3 py-2 text-[14px] text-[#fdfcfc] overflow-x-auto">
 {`{
   "dashboardUrl": "${typeof window !== "undefined" ? window.location.origin : "http://localhost:20129"}",
   "syncToken": "${createdToken}",
@@ -146,38 +145,38 @@ export default function TokenManagerCard({
                     </div>
                   </div>
 
-                  <div className="rounded border border-[var(--color-info)]/20 bg-[var(--color-info-soft)] px-3 py-2">
-                    <p className="text-[var(--color-info)]">
+                  <div className="rounded border border-[#007aff]/20 bg-[#007aff]/10 px-3 py-2">
+                    <p className="text-[#007aff]">
                       ✨ <strong>Auto-sync:</strong> The plugin will automatically sync your config from 9Router dashboard on OpenCode startup.
                     </p>
                   </div>
                 </div>
               )}
-            </Card.Section>
+            </div>
           </div>
         ) : null}
 
         <div className="space-y-4">
           {tokens.length === 0 ? (
-            <div className="rounded border border-dashed border-border bg-[var(--color-bg-alt)] px-5 py-6 text-sm text-text-muted">
+            <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-5 py-6 text-[14px] text-[#9a9898]">
               No auto-sync tokens created yet.
             </div>
           ) : (
             tokens.map((token) => (
-              <Card.Section key={token.id} className="space-y-4 rounded border border-border bg-[var(--color-surface)] px-5 py-5">
+              <div key={token.id} className="space-y-4 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-5 py-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <div className="text-sm font-semibold text-text-main">{token.name}</div>
-                    <div className="mt-1 text-xs text-text-muted">Created {formatDate(token.createdAt)}</div>
+                    <div className="text-[16px] font-bold text-[#fdfcfc]">{token.name}</div>
+                    <div className="mt-1 text-[14px] text-[#9a9898]">Created {formatDate(token.createdAt)}</div>
                   </div>
                 </div>
                 {token.metadata && Object.keys(token.metadata).length > 0 ? (
-                  <pre className="overflow-x-auto rounded bg-[var(--color-bg-alt)] px-3 py-2 text-xs text-text-muted">
+                  <pre className="overflow-x-auto rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-3 py-2 text-[14px] text-[#9a9898]">
                     {JSON.stringify(token.metadata, null, 2)}
                   </pre>
                 ) : null}
-                <div className="text-xs text-text-muted">Last used: {formatDate(token.lastUsedAt)}</div>
-              </Card.Section>
+                <div className="text-[14px] text-[#9a9898]">Last used: {formatDate(token.lastUsedAt)}</div>
+              </div>
             ))
           )}
         </div>

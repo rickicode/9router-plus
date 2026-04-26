@@ -11,18 +11,18 @@ function SelectionModeButton({ active, title, description, onClick }) {
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded border px-5 py-[1.125rem] text-left transition-colors duration-200",
+        "rounded border px-5 py-[1.125rem] text-left transition-colors duration-200 cursor-pointer font-['Berkeley_Mono']",
         active
-          ? "border-primary/35 bg-[var(--color-primary-soft)]"
-          : "border-border bg-[var(--color-surface)] hover:border-primary/30 hover:bg-[var(--color-bg-alt)]"
+          ? "border-[#ec4899] bg-[#302c2c]"
+          : "border-[rgba(15,0,0,0.12)] bg-[#201d1d] hover:border-[#ec4899]/30 hover:bg-[#302c2c]"
       )}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1.5">
-          <div className="text-sm font-semibold text-text-main">{title}</div>
-          <div className="text-xs leading-5 text-text-muted">{description}</div>
+          <div className="text-[16px] font-bold text-[#fdfcfc] leading-[1.50]">{title}</div>
+          <div className="text-[16px] leading-[1.50] text-[#9a9898]">{description}</div>
         </div>
-        <span className={cn("material-symbols-outlined mt-0.5 text-[18px]", active ? "text-primary" : "text-text-muted")}>
+        <span className={cn("material-symbols-outlined mt-0.5 text-[18px]", active ? "text-[#ec4899]" : "text-[#9a9898]")}>
           {active ? "check_circle" : "radio_button_unchecked"}
         </span>
       </div>
@@ -75,24 +75,24 @@ export default function ModelSelectionCard({
       title="Choose models"
       subtitle="Choose which models you want included in the generated config."
       icon="model_training"
-      className="rounded border-border bg-[var(--color-bg-alt)]"
+      className="rounded border-[rgba(15,0,0,0.12)] bg-[#201d1d] font-['Berkeley_Mono'] text-[#fdfcfc]"
     >
-      <div className="space-y-7">
-        <div className="rounded border border-primary/10 bg-[var(--color-primary-soft)] px-5 py-[1.125rem]">
+      <div className="space-y-7 p-6">
+        <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-5 py-[1.125rem]">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">Model visibility</p>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-text-muted">
+              <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9a9898] leading-[1.50]">Model visibility</p>
+              <p className="mt-2 max-w-2xl text-[16px] leading-[1.50] text-[#9a9898]">
                 Choose whether this config starts from the full catalog or from an allowlist. This keeps the highest-impact decision grouped before preset selection.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Badge variant={mode === "include" ? "primary" : "secondary"} size="sm">
+            <div className="flex flex-wrap gap-2 text-[14px]">
+              <span className={cn("rounded border border-[rgba(15,0,0,0.12)] px-2 py-0.5", mode === "include" ? "text-[#ec4899] bg-[#201d1d]" : "text-[#9a9898]")}>
                 {mode === "include" ? "Allowlist mode" : "Allowlist available"}
-              </Badge>
-              <Badge variant={mode === "exclude" ? "primary" : "secondary"} size="sm">
+              </span>
+              <span className={cn("rounded border border-[rgba(15,0,0,0.12)] px-2 py-0.5", mode === "exclude" ? "text-[#ec4899] bg-[#201d1d]" : "text-[#9a9898]")}>
                 {mode === "exclude" ? "Catalog mode" : "Catalog available"}
-              </Badge>
+              </span>
             </div>
           </div>
         </div>
@@ -112,54 +112,58 @@ export default function ModelSelectionCard({
           />
         </div>
 
-        <Card.Section className="rounded border border-border bg-[var(--color-surface)] px-5 py-5">
+        <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-5 py-5">
           <div className="mb-4 space-y-1">
-            <p className="text-sm font-semibold text-text-main">Add a model rule</p>
-            <p className="text-xs leading-5 text-text-muted">Pick from the models currently available so the generated config stays valid and easy to review.</p>
+            <p className="text-[16px] font-bold text-[#fdfcfc]">Add a model rule</p>
+            <p className="text-[14px] leading-[2.00] text-[#9a9898]">Pick from the models currently available so the generated config stays valid and easy to review.</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={() => setPickerOpen(true)} loading={saving} disabled={availableOptions.length === 0}>
+            <button 
+              className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer disabled:opacity-50"
+              onClick={() => setPickerOpen(true)} 
+              disabled={availableOptions.length === 0}
+            >
               {mode === "include" ? "Add allowed model" : "Add excluded model"}
-            </Button>
-            <p className="text-xs text-text-muted">
+            </button>
+            <p className="text-[14px] text-[#9a9898] leading-[2.00]">
               {availableOptions.length > 0
                 ? `${availableOptions.length} available model${availableOptions.length === 1 ? "" : "s"} ready to pick.`
                 : "All currently available models are already in this list."}
             </p>
           </div>
-        </Card.Section>
+        </div>
 
-        {error ? <p className="text-sm text-[var(--color-danger)]">{error}</p> : null}
+        {error ? <p className="text-[14px] text-[#ff3b30]">{error}</p> : null}
 
         <div className="space-y-3.5">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold text-text-main">Selected model rules</p>
-              <p className="text-xs text-text-muted">Keep this list tight so the preview stays intentional.</p>
+              <p className="text-[16px] font-bold text-[#fdfcfc]">Selected model rules</p>
+              <p className="text-[14px] leading-[2.00] text-[#9a9898]">Keep this list tight so the preview stays intentional.</p>
             </div>
-            {selectedModels.length > 0 ? <Badge size="sm">{selectedModels.length} selected</Badge> : null}
+            {selectedModels.length > 0 ? <span className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-2 py-0.5 text-[14px] text-[#9a9898]">{selectedModels.length} selected</span> : null}
           </div>
 
-          <div className="flex min-h-[64px] flex-wrap gap-2.5 rounded border border-dashed border-border bg-[var(--color-bg-alt)] p-4">
+          <div className="flex min-h-[64px] flex-wrap gap-2.5 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] p-4">
             {selectedModels.length === 0 ? (
-              <p className="text-sm text-text-muted">
+              <p className="text-[16px] text-[#9a9898] leading-[1.50]">
                 {mode === "include"
                   ? "No included models selected yet."
                   : "No excluded models configured. The generated config will keep the full catalog."}
               </p>
             ) : (
               selectedModels.map((modelId) => (
-                <Badge key={modelId} className="gap-2 pr-1">
+                <span key={modelId} className="flex items-center gap-2 pr-1 rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-2 py-0.5 text-[14px] text-[#fdfcfc]">
                   <span className="max-w-[240px] truncate">{modelId}</span>
                   <button
                     type="button"
-                    className="rounded-full p-0.5 hover:bg-[var(--color-bg-alt)]"
+                    className="rounded-full p-0.5 hover:text-[#ff3b30] cursor-pointer"
                     onClick={() => removeModel(modelId)}
                     aria-label={`Remove ${modelId}`}
                   >
                     <span className="material-symbols-outlined text-[14px]">close</span>
                   </button>
-                </Badge>
+                </span>
               ))
             )}
           </div>

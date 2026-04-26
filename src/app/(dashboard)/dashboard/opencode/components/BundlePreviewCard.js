@@ -99,14 +99,14 @@ function getProviderModelCount(opencodeConfig = {}) {
 
 function StatTile({ label, value, note, icon }) {
   return (
-    <div className="rounded border border-border bg-[var(--color-surface)] px-[1.125rem] py-4">
+    <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[1.125rem] py-4 font-['Berkeley_Mono']">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">{label}</p>
-          <p className="text-sm font-semibold text-text-main break-all">{value}</p>
-          {note ? <p className="text-xs text-text-muted">{note}</p> : null}
+          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9a9898] leading-[1.50]">{label}</p>
+          <p className="text-[16px] font-bold text-[#201d1d] break-all leading-[1.50]">{value}</p>
+          {note ? <p className="text-[14px] text-[#9a9898] leading-[2.00]">{note}</p> : null}
         </div>
-        <span className="material-symbols-outlined text-[18px] text-primary">{icon}</span>
+        <span className="material-symbols-outlined text-[18px] text-[#ec4899]">{icon}</span>
       </div>
     </div>
   );
@@ -131,10 +131,10 @@ function ConfigViewTabs({ views, activeView, onChange }) {
             type="button"
             onClick={() => onChange(view.id)}
             className={cn(
-              "rounded-full border px-3 py-1.5 text-xs font-semibold transition-all",
+              "border-b-2 px-3 py-1.5 text-[16px] font-medium leading-[1.00] transition-all font-['Berkeley_Mono']",
               activeView === view.id
-                ? "border-primary bg-[var(--color-primary-soft)] text-primary"
-                : "border-border bg-transparent text-text-muted hover:border-primary/30 hover:text-text-main"
+                ? "border-[#9a9898] text-[#fdfcfc] bg-[#201d1d]"
+                : "border-transparent bg-transparent text-[#9a9898] hover:border-[#ec4899] hover:text-[#fdfcfc]"
             )}
           >
             {view.label}
@@ -187,27 +187,39 @@ export default function BundlePreviewCard({ preview, selectedVariant = "custom",
   };
 
   return (
-    <Card
-      title="Generated config files"
-      subtitle={hasMainArtifact ? "Quick Start starts with the server-provided opencode.json artifact." : PUBLIC_ARTIFACTS_COPY}
-      icon="data_object"
-      className="rounded border-primary/10 bg-[var(--color-surface)]"
-      action={
+    <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] p-6 font-['Berkeley_Mono'] text-[#fdfcfc]">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 className="flex items-center gap-2 text-[16px] font-bold leading-[1.50]">
+            <span className="material-symbols-outlined text-[#ec4899]">data_object</span>
+            Generated config files
+          </h2>
+          <p className="mt-1 text-[16px] font-normal leading-[1.50] text-[#9a9898]">
+            {hasMainArtifact ? "Quick Start starts with the server-provided opencode.json artifact." : PUBLIC_ARTIFACTS_COPY}
+          </p>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           {hasMainArtifact ? (
-            <Button variant="secondary" size="sm" onClick={() => downloadTextFile(prettyJson(opencodeConfig), "opencode.json")}>
+            <button 
+              className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer"
+              onClick={() => downloadTextFile(prettyJson(opencodeConfig), "opencode.json")}
+            >
               Download opencode.json
-            </Button>
+            </button>
           ) : null}
-          <Button variant="secondary" size="sm" onClick={onRefresh} loading={loading}>
+          <button 
+            className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer disabled:opacity-50"
+            onClick={onRefresh} 
+            disabled={loading}
+          >
             Refresh preview
-          </Button>
+          </button>
         </div>
-      }
-    >
+      </div>
+
       <div className="space-y-7">
         {error ? (
-          <div className="rounded border border-[var(--color-danger)]/20 bg-[var(--color-danger-soft)] px-4 py-3 text-sm text-[var(--color-danger)]">
+          <div className="rounded border border-[#ff3b30] bg-[#201d1d] px-4 py-3 text-[14px] text-[#ff3b30]">
             {error}
           </div>
         ) : null}
@@ -239,18 +251,18 @@ export default function BundlePreviewCard({ preview, selectedVariant = "custom",
           />
         </div>
 
-        <Card.Section className="space-y-6 rounded border border-primary/10 bg-[var(--color-primary-soft)] px-5 py-5">
+        <div className="space-y-6 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-5 py-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="space-y-2">
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="primary">Quick Start-aligned</Badge>
-                <Badge>{modelCount} models</Badge>
-                <Badge>{pluginList.length} plugins</Badge>
-                <Badge>{selectedVariantArtifact?.badge || "No preset artifact"}</Badge>
+              <div className="flex flex-wrap gap-2 text-[14px]">
+                <span className="rounded border border-[rgba(15,0,0,0.12)] px-2 py-0.5 text-[#ec4899]">Quick Start-aligned</span>
+                <span className="rounded border border-[rgba(15,0,0,0.12)] px-2 py-0.5 text-[#9a9898]">{modelCount} models</span>
+                <span className="rounded border border-[rgba(15,0,0,0.12)] px-2 py-0.5 text-[#9a9898]">{pluginList.length} plugins</span>
+                <span className="rounded border border-[rgba(15,0,0,0.12)] px-2 py-0.5 text-[#9a9898]">{selectedVariantArtifact?.badge || "No preset artifact"}</span>
               </div>
               <div>
-                <h4 className="text-base font-semibold text-text-main">Choose the file you want to copy</h4>
-                <p className="text-sm leading-6 text-text-muted">This preview centers the real generated opencode.json artifact first. {PUBLIC_ARTIFACTS_COPY}</p>
+                <h4 className="text-[16px] font-bold text-[#fdfcfc]">Choose the file you want to copy</h4>
+                <p className="text-[16px] leading-[1.50] text-[#9a9898]">This preview centers the real generated opencode.json artifact first. {PUBLIC_ARTIFACTS_COPY}</p>
               </div>
             </div>
           </div>
@@ -258,13 +270,13 @@ export default function BundlePreviewCard({ preview, selectedVariant = "custom",
           {hasMainArtifact ? (
             <ConfigViewTabs views={primaryViews} activeView={resolvedActiveView} onChange={setActiveView} />
           ) : (
-            <div className="rounded border border-dashed border-border bg-[var(--color-bg-alt)] p-[1.125rem] text-sm text-text-muted">
+            <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] p-[1.125rem] text-[14px] text-[#9a9898]">
               {getMissingMainArtifactCopy()}
             </div>
           )}
 
           {secondaryViews.length > 0 ? (
-            <div className="space-y-3 rounded border border-dashed border-border bg-[var(--color-bg-alt)] p-[1.125rem]">
+            <div className="space-y-3 rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] p-[1.125rem]">
               <button
                 type="button"
                 onClick={() => {
@@ -279,12 +291,12 @@ export default function BundlePreviewCard({ preview, selectedVariant = "custom",
                 className="flex w-full items-center justify-between gap-3 text-left"
               >
                 <div>
-                  <p className="text-sm font-semibold text-text-main">More generated artifacts</p>
-                  <p className="mt-1 text-xs text-text-muted">Only true public artifacts beyond opencode.json stay secondary.</p>
+                  <p className="text-[16px] font-bold text-[#fdfcfc]">More generated artifacts</p>
+                  <p className="mt-1 text-[14px] text-[#9a9898]">Only true public artifacts beyond opencode.json stay secondary.</p>
                 </div>
                 <span
                   className={cn(
-                    "material-symbols-outlined text-[18px] text-text-muted transition-transform duration-200",
+                    "material-symbols-outlined text-[18px] text-[#9a9898] transition-transform duration-200",
                     showMoreViews ? "rotate-180" : "rotate-0"
                   )}
                 >
@@ -299,7 +311,7 @@ export default function BundlePreviewCard({ preview, selectedVariant = "custom",
                     activeView={resolvedActiveView || secondaryViews[0]?.id || "advanced"}
                     onChange={setActiveView}
                   />
-                  <p className="text-xs text-text-muted">{PUBLIC_ARTIFACTS_COPY}</p>
+                  <p className="text-[14px] text-[#9a9898]">{PUBLIC_ARTIFACTS_COPY}</p>
                 </div>
               ) : null}
             </div>
@@ -309,7 +321,7 @@ export default function BundlePreviewCard({ preview, selectedVariant = "custom",
             <button
               type="button"
               onClick={() => setIsExpanded((value) => !value)}
-              className="flex items-center gap-2 rounded-full px-1 text-xs font-medium text-text-muted transition-colors hover:text-text-main"
+              className="flex items-center gap-2 rounded px-1 text-[14px] font-medium text-[#9a9898] transition-colors hover:text-[#fdfcfc] cursor-pointer"
             >
               <span
                 className={cn(
@@ -325,21 +337,21 @@ export default function BundlePreviewCard({ preview, selectedVariant = "custom",
 
           {isExpanded && currentView && resolvedActiveView ? (
             <div className="grid gap-5 2xl:grid-cols-[minmax(320px,0.82fr)_minmax(0,1.18fr)]">
-              <div className="space-y-5 rounded border border-border bg-surface px-5 py-5">
+              <div className="space-y-5 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-5 py-5">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">Current view</p>
-                  <h4 className="mt-1 text-base font-semibold text-text-main">{currentView?.title}</h4>
-                  <p className="mt-1 text-sm text-text-muted">{currentView?.description}</p>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9a9898]">Current view</p>
+                  <h4 className="mt-1 text-[16px] font-bold text-[#fdfcfc]">{currentView?.title}</h4>
+                  <p className="mt-1 text-[16px] text-[#9a9898]">{currentView?.description}</p>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded border border-border bg-[var(--color-bg-alt)] px-3 py-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-text-muted">Filename</p>
-                    <p className="mt-1 text-sm font-medium text-text-main break-all">{currentView?.filename}</p>
+                  <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-3 py-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#9a9898]">Filename</p>
+                    <p className="mt-1 text-[16px] font-medium text-[#fdfcfc] break-all">{currentView?.filename}</p>
                   </div>
-                  <div className="rounded border border-border bg-[var(--color-bg-alt)] px-3 py-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-text-muted">Contains</p>
-                    <p className="mt-1 text-sm font-medium text-text-main">
+                  <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-3 py-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#9a9898]">Contains</p>
+                    <p className="mt-1 text-[16px] font-medium text-[#fdfcfc]">
                       {Array.isArray(currentView?.content)
                         ? `${currentView.content.length} items`
                         : `${Object.keys(currentView?.content || {}).length} top-level keys`}
@@ -348,34 +360,40 @@ export default function BundlePreviewCard({ preview, selectedVariant = "custom",
                 </div>
 
                 <div className="flex flex-wrap gap-2.5">
-                  <Button variant="primary" size="sm" onClick={() => downloadTextFile(currentContent, currentView?.filename || "config.json")}>
+                  <button 
+                    className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer"
+                    onClick={() => downloadTextFile(currentContent, currentView?.filename || "config.json")}
+                  >
                     Download this file
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={handleCopy}>
+                  </button>
+                  <button 
+                    className="rounded bg-transparent px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#201d1d] transition-colors border border-transparent hover:border-[rgba(15,0,0,0.12)] cursor-pointer"
+                    onClick={handleCopy}
+                  >
                     {copied ? "Copied" : "Copy file contents"}
-                  </Button>
+                  </button>
                 </div>
               </div>
 
-              <div className="overflow-hidden rounded border border-border bg-[var(--color-editor-bg)]">
-                <div className="flex items-center justify-between border-b border-[var(--color-border)] px-5 py-3.5">
+              <div className="overflow-hidden rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d]">
+                <div className="flex items-center justify-between border-b border-[rgba(15,0,0,0.12)] px-5 py-3.5">
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--color-text-subtle)]">Preview</p>
-                    <p className="text-sm font-semibold text-[var(--color-text-inverse)]">{currentView?.filename}</p>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9a9898]">Preview</p>
+                    <p className="text-[16px] font-bold text-[#fdfcfc]">{currentView?.filename}</p>
                   </div>
-                  <Badge className="bg-[var(--color-bg-alt)] text-[var(--color-text-inverse)]" size="sm">
+                  <span className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-2 py-0.5 text-[14px] text-[#fdfcfc]">
                     sanitized
-                  </Badge>
+                  </span>
                 </div>
 
-                <pre className="max-h-[42rem] overflow-auto px-5 py-5 text-xs leading-6 text-[var(--color-text-inverse)]">
+                <pre className="max-h-[42rem] overflow-auto px-5 py-5 text-[14px] leading-[1.50] text-[#fdfcfc] font-['Berkeley_Mono']">
                   <code>{currentContent}</code>
                 </pre>
               </div>
             </div>
           ) : null}
-        </Card.Section>
+        </div>
       </div>
-    </Card>
+    </div>
   );
 }

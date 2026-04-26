@@ -95,151 +95,136 @@ export default function McpServersCard({ preferences, saving = false, error = ""
   return (
     <Card
       title="MCP servers"
-      subtitle="Optional: attach local command-based or remote MCP servers so they appear in the generated config when you need them."
+      subtitle="Connect extra capability endpoints directly via config file."
       icon="dns"
-      className="rounded border-border"
-      action={
-        <Button variant="secondary" size="sm" onClick={saveServers} loading={saving}>
-          Save MCP servers
-        </Button>
-      }
+      className="rounded border-[rgba(15,0,0,0.12)] bg-[#201d1d] font-['Berkeley_Mono'] text-[#fdfcfc]"
     >
-      <div className="space-y-6">
-        <div className="rounded border border-primary/10 bg-[var(--color-primary-soft)] px-5 py-[1.125rem]">
+      <div className="space-y-6 p-6">
+        <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-5 py-[1.125rem]">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-semibold text-text-main">Connected MCP endpoints</p>
-              <p className="text-xs leading-5 text-text-muted">Mix local command runners and remote URLs without overcrowding the main setup flow.</p>
+              <p className="text-[16px] font-bold text-[#fdfcfc]">Connected MCP endpoints</p>
+              <p className="text-[14px] leading-[2.00] text-[#9a9898]">Mix local command runners and remote URLs without overcrowding the main setup flow.</p>
             </div>
-            <Badge size="sm">{draftServers.length} configured</Badge>
+            <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-3 py-1 text-[14px] font-bold text-[#ec4899]">
+              {safeServers.length} configured
+            </div>
           </div>
         </div>
 
-        <Card.Section className="rounded border border-border bg-[var(--color-surface)] px-5 py-5">
+        <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-5 py-5">
           <div className="mb-5 flex items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold text-text-main">Add a server</p>
-              <p className="mt-1 text-xs leading-5 text-text-muted">Create the next MCP entry, then save the whole list once it feels complete.</p>
+              <p className="text-[16px] font-bold text-[#fdfcfc]">Add a server</p>
+              <p className="mt-1 text-[14px] leading-[2.00] text-[#9a9898]">Create the next MCP entry, then save the whole list once it feels complete.</p>
             </div>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
             <Input
-              label="Server name"
-              value={draft.name}
-              onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-              placeholder="filesystem"
+              label="Name"
+              value={stagedServer.name}
+              onChange={(event) => setStagedServer((prev) => ({ ...prev, name: event.target.value }))}
+              placeholder="server-name"
             />
             <Select
               label="Type"
-              value={draft.type}
-              onChange={(event) => setDraft((current) => ({ ...current, type: event.target.value }))}
-              options={[
-                { value: "local", label: "Local command" },
-                { value: "remote", label: "Remote URL" },
-              ]}
+              value={stagedServer.type}
+              onChange={(event) => setStagedServer((prev) => ({ ...prev, type: event.target.value }))}
+              options={Object.entries(SERVER_TYPES).map(([val, label]) => ({ value: val, label }))}
             />
-            {draft.type === "remote" ? (
+
+            {stagedServer.type === "local" ? (
               <Input
-                label="Remote URL"
-                value={draft.url}
-                onChange={(event) => setDraft((current) => ({ ...current, url: event.target.value }))}
-                placeholder="https://example.com/mcp"
+                label="Command"
+                value={stagedServer.command}
+                onChange={(event) => setStagedServer((prev) => ({ ...prev, command: event.target.value }))}
+                placeholder="npx"
                 className="md:col-span-2"
+                hint="For npx commands with arguments, format carefully to match the generated spec."
               />
             ) : (
-              <>
-                <Input
-                  label="Command"
-                  value={draft.command}
-                  onChange={(event) => setDraft((current) => ({ ...current, command: event.target.value }))}
-                  placeholder="npx"
-                />
-                <Input
-                  label="Args"
-                  value={draft.args}
-                  onChange={(event) => setDraft((current) => ({ ...current, args: event.target.value }))}
-                  placeholder="@modelcontextprotocol/server-filesystem, /workspace"
-                  hint="Comma-separated for a small inline editor."
-                />
-              </>
+              <Input
+                label="URL"
+                value={stagedServer.url}
+                onChange={(event) => setStagedServer((prev) => ({ ...prev, url: event.target.value }))}
+                placeholder="http://localhost:8080/sse"
+                className="md:col-span-2"
+                type="url"
+              />
             )}
           </div>
 
           <div className="mt-5 flex justify-end">
-            <Button onClick={addServer} loading={saving}>
-              Add MCP server
-            </Button>
+            <button 
+              className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer"
+              onClick={stageServer}
+            >
+              Stage server
+            </button>
           </div>
-        </Card.Section>
+        </div>
 
-        {error ? <p className="text-sm text-[var(--color-danger)]">{error}</p> : null}
-        {localError ? <p className="text-sm text-[var(--color-danger)]">{localError}</p> : null}
+        {error ? <p className="text-[14px] text-[#ff3b30]">{error}</p> : null}
+        {localError ? <p className="text-[14px] text-[#ff3b30]">{localError}</p> : null}
 
         <div className="space-y-4">
-          {draftServers.length === 0 ? (
-            <div className="rounded border border-dashed border-border bg-[var(--color-bg-alt)] px-5 py-6 text-sm text-text-muted">No MCP servers configured yet.</div>
+          {safeServers.length === 0 ? (
+            <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-5 py-6 text-[14px] text-[#9a9898]">No MCP servers configured yet.</div>
           ) : (
-            draftServers.map((draftServer, index) => {
+            safeServers.map((draftServer, index) => {
+              const safeType = Object.keys(SERVER_TYPES).includes(draftServer.type) ? draftServer.type : "local";
+              const typeLabel = SERVER_TYPES[safeType];
 
               return (
-                <Card.Section key={`${draftServer.name || "server"}-${index}`} className="space-y-5 rounded border border-border bg-[var(--color-surface)] px-5 py-5">
+                <div key={`${draftServer.name || "server"}-${index}`} className="space-y-5 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-5 py-5">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="text-sm font-semibold text-text-main">{draftServer.name || `Server ${index + 1}`}</div>
-                      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-text-muted">
-                        <span>{draftServer.type === "remote" ? "Remote URL" : "Local command"}</span>
-                        <span className="inline-block h-1 w-1 rounded-full bg-text-muted/50" />
-                        <span>{draftServer.type === "remote" ? "Network-based" : "Runs locally"}</span>
+                      <div className="text-[16px] font-bold text-[#fdfcfc]">{draftServer.name || `Server ${index + 1}`}</div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[14px] text-[#9a9898]">
+                        <span className="font-bold uppercase tracking-[0.14em]">{typeLabel}</span>
+                        <span className="inline-block h-1 w-1 rounded-full bg-[#9a9898]/50" />
+                        <span className="truncate">{draftServer.disabled ? "Disabled" : "Active"}</span>
                       </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => removeDraftServer(index)}
+                    <button 
+                      className="rounded bg-transparent px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#ff3b30] hover:bg-[#201d1d] transition-colors border border-transparent hover:border-[#ff3b30] cursor-pointer"
+                      onClick={() => removeServer(index)}
                     >
                       Remove
-                    </Button>
+                    </button>
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
                     <Input
                       label="Name"
-                      value={draftServer.name}
-                      onChange={(event) => updateDraftServer(index, { name: event.target.value })}
+                      value={draftServer.name || ""}
+                      onChange={(event) => updateServer(index, "name", event.target.value)}
                     />
                     <Select
                       label="Type"
-                      value={draftServer.type}
-                      onChange={(event) => updateDraftServer(index, { type: event.target.value })}
-                      options={[
-                        { value: "local", label: "Local command" },
-                        { value: "remote", label: "Remote URL" },
-                      ]}
+                      value={safeType}
+                      onChange={(event) => updateServer(index, "type", event.target.value)}
+                      options={Object.entries(SERVER_TYPES).map(([val, label]) => ({ value: val, label }))}
                     />
-                    {draftServer.type === "remote" ? (
+
+                    {safeType === "local" ? (
                       <Input
-                        label="URL"
-                        value={draftServer.url}
-                        onChange={(event) => updateDraftServer(index, { url: event.target.value })}
+                        label="Command"
+                        value={draftServer.command || ""}
+                        onChange={(event) => updateServer(index, "command", event.target.value)}
                         className="md:col-span-2"
                       />
                     ) : (
-                      <>
-                        <Input
-                          label="Command"
-                          value={draftServer.command}
-                          onChange={(event) => updateDraftServer(index, { command: event.target.value })}
-                        />
-                        <Input
-                          label="Args"
-                          value={draftServer.args}
-                          onChange={(event) => updateDraftServer(index, { args: event.target.value })}
-                        />
-                      </>
+                      <Input
+                        label="URL"
+                        value={draftServer.url || ""}
+                        onChange={(event) => updateServer(index, "url", event.target.value)}
+                        className="md:col-span-2"
+                      />
                     )}
                   </div>
-                </Card.Section>
+                </div>
               );
             })
           )}

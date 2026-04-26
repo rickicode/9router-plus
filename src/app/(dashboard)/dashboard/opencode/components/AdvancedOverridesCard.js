@@ -495,83 +495,85 @@ export default function AdvancedOverridesCard({
       title={getConfigTitle(variant)}
       subtitle={getCardSubtitle(variant, hasGeneratedArtifact, configFilename)}
       icon="settings"
-      className="rounded border-border"
+      className="rounded border-[rgba(15,0,0,0.12)] bg-[#201d1d] font-['Berkeley_Mono'] text-[#fdfcfc]"
       action={
         <div className="flex flex-wrap items-center gap-2">
           {hasGeneratedArtifact ? (
-            <Button
-              variant="secondary"
-              size="sm"
+            <button
+              className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer"
               onClick={() => downloadTextFile(prettyJson(generatedVariantConfig), configFilename)}
             >
               Download {configFilename}
-            </Button>
+            </button>
           ) : null}
-          <Button variant="ghost" size="sm" onClick={() => setCollapsed((value) => !value)}>
+          <button 
+            className="rounded bg-transparent px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#201d1d] transition-colors border border-transparent hover:border-[rgba(15,0,0,0.12)] cursor-pointer"
+            onClick={() => setCollapsed((value) => !value)}
+          >
             {collapsed ? "Show editor" : "Hide editor"}
-          </Button>
+          </button>
         </div>
       }
     >
       {collapsed ? (
-        <div className="space-y-6">
+        <div className="space-y-6 p-6">
           {hasGeneratedArtifact ? (
-            <div className="rounded border border-primary/10 bg-[var(--color-primary-soft)] p-4">
+            <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-text-main">{configFilename}</p>
-                  <p className="mt-1 text-xs text-text-muted">
+                  <p className="text-[16px] font-bold text-[#fdfcfc]">{configFilename}</p>
+                  <p className="mt-1 text-[14px] text-[#9a9898] leading-[2.00]">
                     Generated advanced config for the selected variant. Keep it below the main opencode.json flow.
                   </p>
                 </div>
-                <span className="material-symbols-outlined text-[18px] text-primary">tune</span>
+                <span className="material-symbols-outlined text-[18px] text-[#ec4899]">tune</span>
               </div>
-              <pre className="mt-4 max-h-[18rem] overflow-auto rounded border border-border bg-[var(--color-editor-bg)] px-4 py-4 text-xs leading-6 text-[var(--color-text-inverse)]">
+              <pre className="mt-4 max-h-[18rem] overflow-auto rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-4 py-4 text-[13px] leading-[1.60] text-[#fdfcfc] custom-scrollbar font-['Berkeley_Mono']">
                 <code>{prettyJson(generatedVariantConfig)}</code>
               </pre>
             </div>
           ) : (
-            <div className="rounded border border-dashed border-border bg-[var(--color-bg-alt)] p-4 text-sm text-text-muted">
+            <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] p-4 text-[14px] text-[#9a9898]">
               {getMissingVariantArtifactCopy(variant)}
             </div>
           )}
-          <p className="text-sm text-text-muted">
+          <p className="text-[14px] text-[#9a9898]">
             Expand only if you need to change overrides, assignments, LSP servers, or raw JSON.
           </p>
         </div>
       ) : (
-        <div className="space-y-6">
-          {error ? <p className="text-sm text-[var(--color-danger)]">{error}</p> : null}
-          {parseError ? <p className="text-sm text-[var(--color-danger)]">{parseError}</p> : null}
+        <div className="space-y-6 p-6">
+          {error ? <p className="text-[14px] text-[#ff3b30]">{error}</p> : null}
+          {parseError ? <p className="text-[14px] text-[#ff3b30]">{parseError}</p> : null}
 
           {hasGeneratedArtifact ? (
-            <div className="rounded border border-border bg-[var(--color-surface)] px-5 py-5">
+            <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-5 py-5">
               <div className="space-y-1.5">
-                <p className="text-sm font-semibold text-text-main">Generated output</p>
-                <p className="text-xs leading-5 text-text-muted">Preview of the current generated advanced file for this variant.</p>
+                <p className="text-[16px] font-bold text-[#fdfcfc]">Generated output</p>
+                <p className="text-[14px] leading-[2.00] text-[#9a9898]">Preview of the current generated advanced file for this variant.</p>
               </div>
-              <pre className="mt-4 max-h-[18rem] overflow-auto rounded border border-border bg-[var(--color-editor-bg)] px-4 py-4 text-xs leading-6 text-[var(--color-text-inverse)]">
+              <pre className="mt-4 max-h-[18rem] overflow-auto rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-4 py-4 text-[13px] leading-[1.60] text-[#fdfcfc] custom-scrollbar font-['Berkeley_Mono']">
                 <code>{prettyJson(generatedVariantConfig)}</code>
               </pre>
             </div>
           ) : null}
 
-          <div className="rounded border border-border bg-[var(--color-surface)] px-5 py-5">
+          <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-5 py-5">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
               <div className="space-y-1.5">
-                <p className="text-sm font-semibold text-text-main">Assignment controls</p>
-                <p className="text-xs leading-5 text-text-muted">Use a preset as a starting point, then refine assignments and supporting servers below.</p>
+                <p className="text-[16px] font-bold text-[#fdfcfc]">Assignment controls</p>
+                <p className="text-[14px] leading-[2.00] text-[#9a9898]">Use a preset as a starting point, then refine assignments and supporting servers below.</p>
               </div>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                 <div className="flex flex-wrap items-center gap-3">
-                  <label className="text-sm font-medium text-text-main" htmlFor={`preset-${variant}`}>
+                  <label className="text-[16px] font-bold text-[#fdfcfc]" htmlFor={`preset-${variant}`}>
                     Preset
                   </label>
                   <select
                     id={`preset-${variant}`}
                     value={draft.preset || ""}
                     onChange={(event) => applyPreset(event.target.value)}
-                    className="h-10 rounded border border-border bg-[var(--color-surface)] px-3 text-sm text-text-main"
+                    className="h-[40px] rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] text-[16px] text-[#201d1d] font-['Berkeley_Mono'] focus:outline-none focus:ring-1 focus:ring-[#ec4899]"
                     disabled={variant === "custom"}
                   >
                     {ASSIGNMENT_PRESET_OPTIONS.map((option) => (
@@ -581,77 +583,82 @@ export default function AdvancedOverridesCard({
                     ))}
                   </select>
                 </div>
-                <Button variant="ghost" size="sm" onClick={toggleRawEditor}>
+                <button 
+                  className="rounded bg-transparent px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#201d1d] transition-colors border border-transparent hover:border-[rgba(15,0,0,0.12)] cursor-pointer"
+                  onClick={toggleRawEditor}
+                >
                   {showRawEditor ? "Hide raw JSON" : "Show raw JSON"}
-                </Button>
+                </button>
               </div>
             </div>
           </div>
 
           {variant === "custom" ? (
-            <div className="rounded border border-[var(--color-warning)]/20 bg-[var(--color-warning-soft)] px-4 py-3 text-sm text-[var(--color-warning)]">
+            <div className="rounded border border-[#ff9f0a]/20 bg-[#ff9f0a]/10 px-4 py-3 text-[14px] text-[#ff9f0a]">
               Custom / No preset uses raw JSON overrides instead of the preset matrix.
             </div>
           ) : null}
 
           {variant !== "custom" ? (
             <div className="grid gap-5 lg:grid-cols-2">
-              <div className="space-y-4 rounded border border-border bg-[var(--color-surface)] px-5 py-5">
+              <div className="space-y-4 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-5 py-5">
                 <div className="space-y-1">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-text-muted">Agent assignments</h4>
-                  <p className="text-xs leading-5 text-text-muted">Map each agent with enough breathing room to compare selections comfortably.</p>
+                  <h4 className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9a9898]">Agent assignments</h4>
+                  <p className="text-[14px] leading-[2.00] text-[#9a9898]">Map each agent with enough breathing room to compare selections comfortably.</p>
                 </div>
                 {agentRows.map((row) => (
-                  <div key={row.id} className="rounded border border-border px-4 py-3.5">
+                  <div key={row.id} className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-4 py-3.5">
                     <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                       <div>
-                        <p className="text-sm font-medium text-text-main">{row.label}</p>
-                        <p className="mt-1 text-xs text-text-muted">{row.note}</p>
+                        <p className="text-[16px] font-bold text-[#fdfcfc]">{row.label}</p>
+                        <p className="mt-1 text-[14px] text-[#9a9898]">{row.note}</p>
                       </div>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="min-w-[220px] justify-between"
+                      <button
+                        className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer min-w-[220px] flex justify-between items-center"
                         onClick={() => openAssignmentPicker("agentAssignments", row.id, row.label)}
                       >
                         <span className="truncate">{draft.agentAssignments?.[row.id] || "Use default"}</span>
                         <span className="material-symbols-outlined text-[16px]">unfold_more</span>
-                      </Button>
+                      </button>
                       {draft.agentAssignments?.[row.id] ? (
-                        <Button variant="ghost" size="sm" onClick={() => clearAssignment("agentAssignments", row.id)}>
+                        <button 
+                          className="rounded bg-transparent px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#201d1d] transition-colors border border-transparent hover:border-[rgba(15,0,0,0.12)] cursor-pointer"
+                          onClick={() => clearAssignment("agentAssignments", row.id)}
+                        >
                           Use default
-                        </Button>
+                        </button>
                       ) : null}
                     </div>
                   </div>
                 ))}
               </div>
 
-              <div className="space-y-4 rounded border border-border bg-[var(--color-surface)] px-5 py-5">
+              <div className="space-y-4 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-5 py-5">
                 <div className="space-y-1">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-text-muted">Category assignments</h4>
-                  <p className="text-xs leading-5 text-text-muted">Keep routing separate from agent mapping so the advanced matrix is easier to scan.</p>
+                  <h4 className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9a9898]">Category assignments</h4>
+                  <p className="text-[14px] leading-[2.00] text-[#9a9898]">Keep routing separate from agent mapping so the advanced matrix is easier to scan.</p>
                 </div>
                 {categoryRows.map((row) => (
-                  <div key={row.id} className="rounded border border-border px-4 py-3.5">
+                  <div key={row.id} className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-4 py-3.5">
                     <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                       <div>
-                        <p className="text-sm font-medium text-text-main">{row.label}</p>
-                        <p className="mt-1 text-xs text-text-muted">{row.note}</p>
+                        <p className="text-[16px] font-bold text-[#fdfcfc]">{row.label}</p>
+                        <p className="mt-1 text-[14px] text-[#9a9898]">{row.note}</p>
                       </div>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="min-w-[220px] justify-between"
+                      <button
+                        className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer min-w-[220px] flex justify-between items-center"
                         onClick={() => openAssignmentPicker("categoryAssignments", row.id, row.label)}
                       >
                         <span className="truncate">{draft.categoryAssignments?.[row.id] || "Use default"}</span>
                         <span className="material-symbols-outlined text-[16px]">unfold_more</span>
-                      </Button>
+                      </button>
                       {draft.categoryAssignments?.[row.id] ? (
-                        <Button variant="ghost" size="sm" onClick={() => clearAssignment("categoryAssignments", row.id)}>
+                        <button 
+                          className="rounded bg-transparent px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#201d1d] transition-colors border border-transparent hover:border-[rgba(15,0,0,0.12)] cursor-pointer"
+                          onClick={() => clearAssignment("categoryAssignments", row.id)}
+                        >
                           Use default
-                        </Button>
+                        </button>
                       ) : null}
                     </div>
                   </div>
@@ -660,40 +667,50 @@ export default function AdvancedOverridesCard({
             </div>
           ) : null}
 
-          <div className="space-y-4 rounded border border-[var(--color-success)]/20 bg-[var(--color-success-soft)] px-5 py-5">
+          <div className="space-y-4 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-5 py-5">
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-1">
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-success)]">LSP Servers</h4>
-                <p className="text-xs leading-5 text-text-muted">Add optional language server entries without crowding the assignments above.</p>
+                <h4 className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#fdfcfc]">LSP Servers</h4>
+                <p className="text-[14px] leading-[2.00] text-[#9a9898]">Add optional language server entries without crowding the assignments above.</p>
               </div>
-              <Button variant="ghost" size="sm" onClick={addLspServer}>Add row</Button>
+              <button 
+                className="rounded bg-transparent px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#201d1d] transition-colors border border-transparent hover:border-[rgba(15,0,0,0.12)] cursor-pointer"
+                onClick={addLspServer}
+              >
+                Add row
+              </button>
             </div>
 
             {(draft.lspServers || []).length === 0 ? (
-              <p className="text-sm text-text-muted">No LSP servers configured.</p>
+              <p className="text-[14px] text-[#9a9898]">No LSP servers configured.</p>
             ) : (
               <div className="space-y-3">
                 {(draft.lspServers || []).map((server, index) => (
-                  <div key={`${server.language || "lang"}-${index}`} className="grid gap-3 rounded border border-[var(--color-success)]/20 bg-[var(--color-surface)] p-4 md:grid-cols-[140px_1fr_1fr_auto]">
+                  <div key={`${server.language || "lang"}-${index}`} className="grid gap-3 rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] p-4 md:grid-cols-[140px_1fr_1fr_auto]">
                     <input
                       value={server.language || ""}
                       onChange={(event) => updateLspServer(index, "language", event.target.value)}
                       placeholder="language"
-                      className="h-9 rounded border border-border bg-[var(--color-surface)] px-3 text-xs text-text-main"
+                      className="h-[40px] rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] text-[16px] text-[#201d1d] font-['Berkeley_Mono'] focus:outline-none focus:ring-1 focus:ring-[#ec4899]"
                     />
                     <input
                       value={server.command || ""}
                       onChange={(event) => updateLspServer(index, "command", event.target.value)}
                       placeholder="command"
-                      className="h-9 rounded border border-border bg-[var(--color-surface)] px-3 text-xs text-text-main"
+                      className="h-[40px] rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] text-[16px] text-[#201d1d] font-['Berkeley_Mono'] focus:outline-none focus:ring-1 focus:ring-[#ec4899]"
                     />
                     <input
                       value={server.args || ""}
                       onChange={(event) => updateLspServer(index, "args", event.target.value)}
                       placeholder="args"
-                      className="h-9 rounded border border-border bg-[var(--color-surface)] px-3 text-xs text-text-main"
+                      className="h-[40px] rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] text-[16px] text-[#201d1d] font-['Berkeley_Mono'] focus:outline-none focus:ring-1 focus:ring-[#ec4899]"
                     />
-                    <Button variant="ghost" size="sm" onClick={() => removeLspServer(index)}>Remove</Button>
+                    <button 
+                      className="rounded bg-transparent px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#201d1d] transition-colors border border-transparent hover:border-[rgba(15,0,0,0.12)] cursor-pointer h-[40px]"
+                      onClick={() => removeLspServer(index)}
+                    >
+                      Remove
+                    </button>
                   </div>
                 ))}
               </div>
@@ -704,15 +721,19 @@ export default function AdvancedOverridesCard({
             <textarea
               value={rawValue}
               onChange={(event) => setRawValue(event.target.value)}
-              className="min-h-[260px] w-full rounded border border-border bg-[var(--color-surface)] px-4 py-4 font-mono text-sm text-text-main outline-none transition-all focus:border-primary/50 focus:ring-1 focus:ring-primary/30"
+              className="min-h-[260px] w-full rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] font-['Berkeley_Mono'] text-[16px] text-[#201d1d] outline-none transition-all focus:border-[#ec4899]/50 focus:ring-1 focus:ring-[#ec4899]/30"
               spellCheck={false}
             />
           ) : null}
 
           <div className="flex justify-end">
-            <Button variant="secondary" size="sm" onClick={handleSave} loading={saving}>
+            <button 
+              className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer disabled:opacity-50"
+              onClick={handleSave} 
+              disabled={saving}
+            >
               Save overrides
-            </Button>
+            </button>
           </div>
         </div>
       )}

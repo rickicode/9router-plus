@@ -73,9 +73,9 @@ function ModelSelector({ preferences, modelCatalog, saving, onSave, activeProvid
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 font-['Berkeley_Mono']">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-medium uppercase tracking-wider text-text-muted">
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9a9898]">
           Model selection
         </p>
         <div className="flex gap-2">
@@ -83,10 +83,10 @@ function ModelSelector({ preferences, modelCatalog, saving, onSave, activeProvid
             type="button"
             onClick={() => onSave?.({ modelSelectionMode: "exclude" })}
             className={cn(
-              "rounded border px-3 py-1.5 text-xs font-medium transition-colors",
+              "rounded border px-3 py-1.5 text-[14px] font-medium transition-colors cursor-pointer",
               mode === "exclude"
-                ? "border-primary/30 bg-primary/10 text-primary"
-                : "border-border bg-surface text-text-muted hover:text-text-main"
+                ? "border-[#ec4899]/30 bg-[#ec4899]/10 text-[#ec4899]"
+                : "border-[rgba(15,0,0,0.12)] bg-[#302c2c] text-[#9a9898] hover:text-[#fdfcfc]"
             )}
           >
             Exclude from catalog
@@ -95,10 +95,10 @@ function ModelSelector({ preferences, modelCatalog, saving, onSave, activeProvid
             type="button"
             onClick={() => onSave?.({ modelSelectionMode: "include" })}
             className={cn(
-              "rounded border px-3 py-1.5 text-xs font-medium transition-colors",
+              "rounded border px-3 py-1.5 text-[14px] font-medium transition-colors cursor-pointer",
               mode === "include"
-                ? "border-primary/30 bg-primary/10 text-primary"
-                : "border-border bg-surface text-text-muted hover:text-text-main"
+                ? "border-[#ec4899]/30 bg-[#ec4899]/10 text-[#ec4899]"
+                : "border-[rgba(15,0,0,0.12)] bg-[#302c2c] text-[#9a9898] hover:text-[#fdfcfc]"
             )}
           >
             Include only
@@ -106,36 +106,34 @@ function ModelSelector({ preferences, modelCatalog, saving, onSave, activeProvid
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-border bg-surface/50 p-3">
+      <div className="flex flex-wrap items-center gap-2 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] p-3">
         {selectedModels.length === 0 ? (
-          <p className="text-xs text-text-muted">
+          <p className="text-[14px] text-[#9a9898]">
             {mode === "include"
               ? "No included models selected yet."
               : "No excluded models. Full catalog will be used."}
           </p>
         ) : (
           selectedModels.map((modelId) => (
-            <Badge key={modelId} className="gap-1.5 pr-1">
-              <span className="max-w-[200px] truncate text-xs">{modelId}</span>
+            <span key={modelId} className="flex items-center gap-1.5 pr-1 rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-2 py-0.5 text-[14px] text-[#fdfcfc]">
+              <span className="max-w-[200px] truncate">{modelId}</span>
               <button
                 type="button"
-                className="rounded-full p-0.5 hover:bg-[var(--color-bg-alt)]"
+                className="rounded-full p-0.5 hover:text-[#ff3b30] cursor-pointer"
                 onClick={() => removeModel(modelId)}
               >
-                <span className="material-symbols-outlined text-[12px]">close</span>
+                <span className="material-symbols-outlined text-[14px]">close</span>
               </button>
-            </Badge>
+            </span>
           ))
         )}
-        <Button
-          variant="ghost"
-          size="sm"
+        <button
+          className="rounded bg-transparent px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#201d1d] transition-colors border border-transparent hover:border-[rgba(15,0,0,0.12)] cursor-pointer disabled:opacity-50"
           onClick={() => setPickerOpen(true)}
-          loading={saving}
-          disabled={availableOptions.length === 0}
+          disabled={availableOptions.length === 0 || saving}
         >
           {mode === "include" ? "+ Add model" : "+ Exclude model"}
-        </Button>
+        </button>
       </div>
 
       <ModelSelectModal
@@ -152,8 +150,8 @@ function ModelSelector({ preferences, modelCatalog, saving, onSave, activeProvid
 
 function VariantToggle({ variant, onVariantChange }) {
   return (
-    <div className="space-y-2">
-      <p className="text-xs font-medium uppercase tracking-wider text-text-muted">
+    <div className="space-y-2 font-['Berkeley_Mono']">
+      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9a9898]">
         Variant
       </p>
       <div className="flex gap-2">
@@ -161,40 +159,40 @@ function VariantToggle({ variant, onVariantChange }) {
           type="button"
           onClick={() => onVariantChange("openagent")}
           className={cn(
-            "flex-1 rounded border px-3 py-2 text-xs font-medium transition-colors cursor-pointer",
+            "flex-1 rounded border px-3 py-2 text-[14px] font-medium transition-colors cursor-pointer text-left",
             variant === "openagent"
-              ? "border-primary/30 bg-primary/10 text-text-main"
-              : "border-border bg-surface text-text-muted hover:text-text-main hover:border-primary/20"
+              ? "border-[#ec4899] bg-[#302c2c] text-[#fdfcfc]"
+              : "border-[rgba(15,0,0,0.12)] bg-[#201d1d] text-[#9a9898] hover:text-[#fdfcfc] hover:border-[#ec4899]/50"
           )}
         >
-          <div className="font-semibold">Oh My Open Agent</div>
-          <div className="mt-0.5 text-[10px] opacity-70">Recommended · Full preset</div>
+          <div className="font-bold">Oh My Open Agent</div>
+          <div className="mt-0.5 text-[12px] opacity-70">Recommended · Full preset</div>
         </button>
         <button
           type="button"
           onClick={() => onVariantChange("slim")}
           className={cn(
-            "flex-1 rounded border px-3 py-2 text-xs font-medium transition-colors cursor-pointer",
+            "flex-1 rounded border px-3 py-2 text-[14px] font-medium transition-colors cursor-pointer text-left",
             variant === "slim"
-              ? "border-primary/30 bg-primary/10 text-text-main"
-              : "border-border bg-surface text-text-muted hover:text-text-main hover:border-primary/20"
+              ? "border-[#ec4899] bg-[#302c2c] text-[#fdfcfc]"
+              : "border-[rgba(15,0,0,0.12)] bg-[#201d1d] text-[#9a9898] hover:text-[#fdfcfc] hover:border-[#ec4899]/50"
           )}
         >
-          <div className="font-semibold">Oh My OpenCode Slim</div>
-          <div className="mt-0.5 text-[10px] opacity-70">Lighter preset</div>
+          <div className="font-bold">Oh My OpenCode Slim</div>
+          <div className="mt-0.5 text-[12px] opacity-70">Lighter preset</div>
         </button>
         <button
           type="button"
           onClick={() => onVariantChange("custom")}
           className={cn(
-            "flex-1 rounded border px-3 py-2 text-xs font-medium transition-colors cursor-pointer",
+            "flex-1 rounded border px-3 py-2 text-[14px] font-medium transition-colors cursor-pointer text-left",
             variant === "custom"
-              ? "border-primary/30 bg-primary/10 text-text-main"
-              : "border-border bg-surface text-text-muted hover:text-text-main hover:border-primary/20"
+              ? "border-[#ec4899] bg-[#302c2c] text-[#fdfcfc]"
+              : "border-[rgba(15,0,0,0.12)] bg-[#201d1d] text-[#9a9898] hover:text-[#fdfcfc] hover:border-[#ec4899]/50"
           )}
         >
-          <div className="font-semibold">Custom / No preset</div>
-          <div className="mt-0.5 text-[10px] opacity-70">Manual overrides only</div>
+          <div className="font-bold">Custom / No preset</div>
+          <div className="mt-0.5 text-[12px] opacity-70">Manual overrides only</div>
         </button>
       </div>
     </div>
@@ -203,40 +201,54 @@ function VariantToggle({ variant, onVariantChange }) {
 
 function PluginSection({ plugins, pluginInput, onPluginInputChange, onAddPlugin, onRemovePlugin }) {
   return (
-    <div className="space-y-2">
-      <p className="text-xs font-medium uppercase tracking-wider text-text-muted">
+    <div className="space-y-2 font-['Berkeley_Mono']">
+      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9a9898]">
         Plugins
       </p>
       <div className="flex flex-wrap gap-2">
         {plugins.map((plugin) => (
-          <span
+          <div
             key={plugin}
-            className="inline-flex items-center gap-1.5 rounded border border-border bg-surface px-2.5 py-1 text-xs text-text-main"
+            className="inline-flex items-center gap-1.5 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-2.5 py-1 text-[14px] text-[#fdfcfc]"
           >
-            <span className="material-symbols-outlined text-[12px] text-primary">extension</span>
+            <span className="material-symbols-outlined text-[14px] text-[#ec4899]">extension</span>
             {plugin}
-            <button
-              type="button"
-              onClick={() => onRemovePlugin(plugin)}
-              className="ml-0.5 rounded-full p-0.5 text-text-muted hover:bg-[var(--color-bg-alt)] hover:text-text-main"
-            >
-              <span className="material-symbols-outlined text-[12px]">close</span>
-            </button>
-          </span>
+            {!DEFAULT_PLUGINS.includes(plugin) && (
+              <button
+                type="button"
+                onClick={() => onRemovePlugin(plugin)}
+                className="ml-0.5 rounded-full p-0.5 text-[#9a9898] hover:bg-[#201d1d] hover:text-[#ff3b30] cursor-pointer"
+                title="Remove plugin"
+              >
+                <span className="material-symbols-outlined text-[14px]">close</span>
+              </button>
+            )}
+          </div>
         ))}
       </div>
       <div className="flex gap-2">
-        <input
-          type="text"
-          value={pluginInput}
-          onChange={(e) => onPluginInputChange(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && onAddPlugin()}
-          placeholder="my-plugin@latest"
-          className="flex-1 rounded border border-border bg-surface px-3 py-1.5 text-xs text-text-main placeholder:text-text-muted focus:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary/20"
-        />
-        <Button variant="ghost" size="sm" onClick={onAddPlugin} disabled={!pluginInput.trim()}>
-          Add
-        </Button>
+        <form
+          className="flex flex-1 items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onAddPlugin();
+          }}
+        >
+          <input
+            type="text"
+            value={pluginInput}
+            onChange={(e) => onPluginInputChange(e.target.value)}
+            placeholder="e.g. opencode-plugin-name"
+            className="flex-1 rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
+          />
+          <button 
+            type="submit" 
+            disabled={!pluginInput.trim()}
+            className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer disabled:opacity-50 h-[62px]"
+          >
+            Add Plugin
+          </button>
+        </form>
       </div>
     </div>
   );
@@ -266,74 +278,91 @@ function McpSection({ mcps, onAddMcp, onRemoveMcp, onToggleMcpEnabled }) {
   };
 
   return (
-    <div className="space-y-2">
-      <p className="text-xs font-medium uppercase tracking-wider text-text-muted">
+    <div className="space-y-2 font-['Berkeley_Mono']">
+      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9a9898]">
         MCP Servers
       </p>
       {mcps.length > 0 && (
         <div className="space-y-1.5">
-          {mcps.map((mcp) => (
+          {mcps.map((mcp, idx) => (
             <div
-              key={mcp.name}
-              className="flex items-center justify-between gap-2 rounded border border-border bg-surface px-3 py-2"
+              key={`${mcp.name}-${idx}`}
+              className="flex items-center justify-between gap-2 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-3 py-2 text-[#fdfcfc]"
             >
-              <div className="flex items-center gap-2 text-xs">
-                <span className="material-symbols-outlined text-[14px] text-primary">dns</span>
-                <span className="font-medium text-text-main">{mcp.name}</span>
-                <Badge size="sm">{mcp.type || "local"}</Badge>
-                {mcp.enabled === false && <Badge size="sm" variant="secondary">disabled</Badge>}
+              <div className="flex items-center gap-2 text-[14px]">
+                <span className="material-symbols-outlined text-[16px] text-[#ec4899]">dns</span>
+                <span className="font-bold text-[#fdfcfc]">{mcp.name}</span>
+                <span className="text-[#9a9898] ml-2">{mcp.type}</span>
               </div>
               <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => onToggleMcpEnabled(mcp.name)}
-                  className="rounded p-1 text-text-muted hover:text-text-main"
-                  title={mcp.enabled === false ? "Enable" : "Disable"}
-                >
-                  <span className="material-symbols-outlined text-[14px]">
-                    {mcp.enabled === false ? "toggle_off" : "toggle_on"}
-                  </span>
-                </button>
+                <Toggle
+                  checked={mcp.disabled !== true}
+                  onChange={() => onToggleMcpEnabled(mcp.name)}
+                />
                 <button
                   type="button"
                   onClick={() => onRemoveMcp(mcp.name)}
-                  className="rounded p-1 text-text-muted hover:text-[var(--color-danger)]"
+                  className="rounded p-1 text-[#9a9898] hover:text-[#ff3b30] cursor-pointer transition-colors"
+                  title="Remove MCP server"
                 >
-                  <span className="material-symbols-outlined text-[14px]">close</span>
+                  <span className="material-symbols-outlined text-[16px]">close</span>
                 </button>
               </div>
             </div>
           ))}
         </div>
       )}
-      <div className="grid gap-2 sm:grid-cols-[1fr_auto_1fr_auto]">
+      <form
+        className="grid gap-2 sm:grid-cols-[1fr_auto_1fr_auto]"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onAddMcp({ name, type, command, url });
+          setName("");
+          setCommand("");
+          setUrl("");
+        }}
+      >
         <input
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Server name"
-          className="rounded border border-border bg-surface px-3 py-1.5 text-xs text-text-main placeholder:text-text-muted focus:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary/20"
+          placeholder="Server Name"
+          className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
         />
         <select
           value={type}
           onChange={(e) => setType(e.target.value)}
-          className="rounded border border-border bg-surface px-2 py-1.5 text-xs text-text-main focus:border-primary/30 focus:outline-none"
+          className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] text-[16px] text-[#201d1d] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
         >
-          <option value="local">Local</option>
-          <option value="remote">Remote</option>
+          <option value="local">Local Command</option>
+          <option value="sse">SSE URL</option>
         </select>
-        <input
-          type="text"
-          value={type === "remote" ? url : command}
-          onChange={(e) => (type === "remote" ? setUrl(e.target.value) : setCommand(e.target.value))}
-          onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-          placeholder={type === "remote" ? "https://example.com/mcp" : "npx @modelcontextprotocol/server-filesystem /workspace"}
-          className="rounded border border-border bg-surface px-3 py-1.5 text-xs text-text-main placeholder:text-text-muted focus:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary/20"
-        />
-        <Button variant="ghost" size="sm" onClick={handleAdd} disabled={!name.trim()}>
-          Add
-        </Button>
-      </div>
+        
+        {type === "local" ? (
+          <input
+            type="text"
+            value={command}
+            onChange={(e) => setCommand(e.target.value)}
+            placeholder="npx -y some-mcp-server"
+            className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
+          />
+        ) : (
+          <input
+            type="url"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="http://localhost:8080/sse"
+            className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
+          />
+        )}
+        <button 
+          type="submit" 
+          disabled={!name.trim() || (type === "local" ? !command.trim() : !url.trim())}
+          className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer disabled:opacity-50 h-[62px]"
+        >
+          Add MCP
+        </button>
+      </form>
     </div>
   );
 }
@@ -352,8 +381,8 @@ function EnvVarsSection({ envVars, onAddEnvVar, onRemoveEnvVar }) {
   };
 
   return (
-    <div className="space-y-2">
-      <p className="text-xs font-medium uppercase tracking-wider text-text-muted">
+    <div className="space-y-2 font-['Berkeley_Mono']">
+      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9a9898]">
         Environment Variables
       </p>
       {envVars.length > 0 && (
@@ -361,53 +390,68 @@ function EnvVarsSection({ envVars, onAddEnvVar, onRemoveEnvVar }) {
           {envVars.map((env, idx) => (
             <div
               key={`${env.key}-${idx}`}
-              className="flex items-center justify-between gap-2 rounded border border-border bg-surface px-3 py-2"
+              className="flex items-center justify-between gap-2 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-3 py-2 text-[#fdfcfc]"
             >
-              <div className="flex items-center gap-2 text-xs">
-                <span className="material-symbols-outlined text-[14px] text-primary">key</span>
-                <span className="font-mono font-medium text-text-main">{env.key}</span>
-                {env.secret && <Badge size="sm" variant="secondary">secret</Badge>}
+              <div className="flex items-center gap-2 text-[14px]">
+                <span className="material-symbols-outlined text-[16px] text-[#ec4899]">key</span>
+                <span className="font-bold text-[#fdfcfc]">{env.key}</span>
+                <span className="text-[#9a9898] ml-2 truncate max-w-[200px]">
+                  {env.secret ? "••••••••" : env.value}
+                </span>
               </div>
               <button
                 type="button"
-                onClick={() => onRemoveEnvVar(idx)}
-                className="rounded p-1 text-text-muted hover:text-[var(--color-danger)]"
+                onClick={() => onRemoveEnvVar(env.key)}
+                className="rounded p-1 text-[#9a9898] hover:text-[#ff3b30] cursor-pointer transition-colors"
+                title="Remove environment variable"
               >
-                <span className="material-symbols-outlined text-[14px]">close</span>
+                <span className="material-symbols-outlined text-[16px]">close</span>
               </button>
             </div>
           ))}
         </div>
       )}
-      <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto]">
+      <form
+        className="grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto]"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onAddEnvVar({ key, value, secret });
+          setKey("");
+          setValue("");
+          setSecret(false);
+        }}
+      >
         <input
           type="text"
           value={key}
           onChange={(e) => setKey(e.target.value)}
-          placeholder="OPENAI_API_KEY"
-          className="rounded border border-border bg-surface px-3 py-1.5 text-xs text-text-main placeholder:text-text-muted focus:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary/20"
+          placeholder="VARIABLE_NAME"
+          className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
         />
         <input
-          type={secret ? "password" : "text"}
+          type="text"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-          placeholder="value"
-          className="rounded border border-border bg-surface px-3 py-1.5 text-xs text-text-main placeholder:text-text-muted focus:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary/20"
+          placeholder="Value"
+          className="rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] px-[20px] py-[20px] text-[16px] text-[#201d1d] placeholder:text-[#9a9898] focus:outline-none focus:ring-1 focus:ring-[#ec4899] font-['Berkeley_Mono']"
         />
-        <label className="flex items-center gap-1.5 text-xs text-text-muted">
+        <label className="flex items-center gap-1.5 text-[14px] text-[#9a9898] cursor-pointer pl-2">
           <input
             type="checkbox"
             checked={secret}
             onChange={(e) => setSecret(e.target.checked)}
-            className="rounded"
+            className="rounded border-[rgba(15,0,0,0.12)] text-[#ec4899] focus:ring-[#ec4899]"
           />
           Secret
         </label>
-        <Button variant="ghost" size="sm" onClick={handleAdd} disabled={!key.trim()}>
-          Add
-        </Button>
-      </div>
+        <button 
+          type="submit" 
+          disabled={!key.trim() || !value.trim()}
+          className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer disabled:opacity-50 h-[62px]"
+        >
+          Add Var
+        </button>
+      </form>
     </div>
   );
 }
@@ -470,147 +514,235 @@ function ConfigPreview({ preview, variant, loading, error, onRefresh, selectedAp
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center gap-3 py-8">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-primary" />
-        <span className="text-sm text-text-muted">Generating preview…</span>
+  return (
+    <div className="space-y-3 font-['Berkeley_Mono'] text-[#fdfcfc]">
+      <div className="flex items-start gap-3 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] p-3">
+        <p className="text-[14px] text-[#9a9898] leading-[1.50]">
+          The opencode.json config file uses the OpenCode schema.
+          <code className="rounded bg-[#201d1d] px-1.5 py-0.5 font-bold text-[12px] text-[#ec4899] ml-1">
+            opencode-9router-sync
+          </code>
+          is included automatically.
+        </p>
+      </div>
+
+      <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] overflow-hidden">
+        <div className="flex items-center justify-between border-b border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-[16px] text-[#ec4899]">data_object</span>
+            <span className="text-[14px] font-bold text-[#fdfcfc]">opencode.json</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {requireApiKey && (
+              <span className="flex items-center gap-1 rounded border border-[#ff9f0a]/30 bg-[#ff9f0a]/10 px-2 py-0.5 text-[12px] text-[#ff9f0a]">
+                <span className="material-symbols-outlined text-[12px]">key</span>
+                Requires valid API key
+              </span>
+            )}
+            <button
+              onClick={() => {
+                downloadFile(prettyJson(opencodeConfig), "opencode.json");
+              }}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[12px] text-[#9a9898] hover:text-[#fdfcfc] transition-colors cursor-pointer"
+            >
+              <span className="material-symbols-outlined text-[16px]">download</span>
+              Download
+            </button>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(prettyJson(opencodeConfig));
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[12px] text-[#9a9898] hover:text-[#fdfcfc] transition-colors cursor-pointer"
+            >
+              <span className={cn(
+                "material-symbols-outlined text-[16px]",
+                copied ? "text-[#30d158]" : ""
+              )}>
+                {copied ? "check" : "content_copy"}
+              </span>
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+        </div>
+        <pre className="max-h-[32rem] overflow-auto bg-[#201d1d] px-4 py-4 text-[13px] leading-[1.60] text-[#fdfcfc] custom-scrollbar">
+          <code>{prettyJson(opencodeConfig)}</code>
+        </pre>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="rounded border border-[var(--color-danger)]/20 bg-[var(--color-danger-soft)] px-4 py-3 text-sm text-[var(--color-danger)]">
+      <div className="rounded border border-[#ff3b30]/20 bg-[#ff3b30]/10 px-4 py-3 text-[14px] text-[#ff3b30] font-['Berkeley_Mono']">
         {error}
-        <Button variant="ghost" size="sm" onClick={onRefresh} className="ml-2">
+        <button 
+          className="ml-2 rounded bg-transparent px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#201d1d] transition-colors border border-transparent hover:border-[rgba(15,0,0,0.12)] cursor-pointer"
+          onClick={onRefresh}
+        >
           Retry
-        </Button>
+        </button>
+      </div>
+    );
+  }
+
+  if (!preview) {
+    return (
+      <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-4 py-6 text-center text-[14px] text-[#9a9898] font-['Berkeley_Mono']">
+        Preview not available
+        <button 
+          className="ml-2 rounded bg-[#201d1d] px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer"
+          onClick={onRefresh}
+        >
+          Refresh
+        </button>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded border border-[#ff3b30]/20 bg-[#ff3b30]/10 px-4 py-3 text-[14px] text-[#ff3b30] font-['Berkeley_Mono']">
+        {error}
+        <button 
+          className="ml-2 rounded bg-transparent px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#ff3b30] hover:bg-[#ff3b30]/10 transition-colors border border-transparent hover:border-[#ff3b30]/20 cursor-pointer"
+          onClick={onRefresh}
+        >
+          Retry
+        </button>
       </div>
     );
   }
 
   if (!opencodeConfig) {
     return (
-      <div className="rounded-xl border border-dashed border-border bg-surface/50 px-4 py-6 text-center text-sm text-text-muted">
+      <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-4 py-6 text-center text-[14px] text-[#9a9898] font-['Berkeley_Mono']">
         No config preview available yet.
-        <Button variant="ghost" size="sm" onClick={onRefresh} className="ml-2">
+        <button 
+          className="ml-2 rounded bg-[#201d1d] px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer"
+          onClick={onRefresh}
+        >
           Refresh
-        </Button>
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 font-['Berkeley_Mono']">
       {/* Sync info banner */}
-      <div className="flex items-start gap-3 rounded-xl border border-border bg-surface p-3">
-        <p className="text-sm text-text-muted">
+      <div className="flex items-start gap-3 rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] p-3">
+        <p className="text-[14px] text-[#9a9898] leading-[1.50]">
           Auto-sync keeps this config updated via{" "}
-          <code className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-xs text-primary">
-            opencode-9router-sync@latest
+          <code className="rounded bg-[#201d1d] px-1.5 py-0.5 font-bold text-[12px] text-[#ec4899]">
+            opencode-9router-sync
           </code>
+          .
         </p>
       </div>
 
       {/* Slim first-time setup banner */}
       {variant === "slim" && (
-        <div className="rounded border border-[var(--color-danger)]/20 bg-[var(--color-danger-soft)] px-3 py-2 space-y-1">
+        <div className="rounded border border-[#ff3b30]/20 bg-[#ff3b30]/10 px-3 py-2 space-y-1">
           <div className="flex items-center gap-2">
-            <span className="text-[11px] font-semibold text-[var(--color-danger)] shrink-0">First-time setup:</span>
-            <code className="text-xs font-mono select-all truncate text-[var(--color-danger)]">
-              bunx oh-my-opencode-slim@latest install --no-tui --skills=no
+            <span className="text-[11px] font-bold text-[#ff3b30] shrink-0">First-time setup:</span>
+            <code className="text-[14px] font-bold select-all truncate text-[#ff3b30]">
+              npx -y -p @9router/opencode-9router-sync plugin-register --skills=yes
             </code>
-            <span className="text-[10px] text-[var(--color-danger)]/70 shrink-0">(run once)</span>
+            <span className="text-[12px] text-[#ff3b30]/70 shrink-0">(run once)</span>
           </div>
-          <p className="text-[10px] text-[var(--color-danger)]/60">
-            Registers agents and hooks. Use <code className="text-[var(--color-danger)]/70">--skills=yes</code> to also install community skills.
+          <p className="text-[12px] text-[#ff3b30]/60">
+            Registers agents and hooks. Use <code className="text-[#ff3b30]/70">--skills=yes</code> to also install community skills.
           </p>
         </div>
       )}
 
       {/* Main config preview */}
-      <div className="rounded-xl border border-border overflow-hidden">
-        <div className="flex items-center justify-between border-b border-border bg-surface px-4 py-2.5">
+      <div className="rounded border border-[rgba(15,0,0,0.12)] overflow-hidden font-['Berkeley_Mono'] bg-[#201d1d]">
+        <div className="flex items-center justify-between border-b border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-4 py-2.5">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-[16px] text-primary">data_object</span>
-            <span className="text-sm font-semibold text-text-main">opencode.json</span>
-            <Badge size="sm">
-              {Object.keys(opencodeConfig?.provider?.["9router"]?.models || {}).length} models
-            </Badge>
+            <span className="material-symbols-outlined text-[16px] text-[#ec4899]">data_object</span>
+            <span className="text-[14px] font-bold text-[#fdfcfc]">opencode.json</span>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={() => handleCopy(configJson)}>
-              {copied ? "Copied!" : "Copy"}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => downloadFile(configJson, "opencode.json")}>
-              Download
-            </Button>
-            <Button variant="ghost" size="sm" onClick={onRefresh}>
-              Refresh
-            </Button>
+            {requireApiKey && (
+              <span className="flex items-center gap-1 rounded border border-[#ff9f0a]/30 bg-[#ff9f0a]/10 px-2 py-0.5 text-[12px] text-[#ff9f0a]">
+                <span className="material-symbols-outlined text-[12px]">key</span>
+                Requires valid API key
+              </span>
+            )}
             <button
-              type="button"
-              onClick={() => setIsExpanded(!isExpanded)}
-              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-text-muted hover:text-text-main"
+              onClick={() => {
+                downloadFile(prettyJson(opencodeConfig), "opencode.json");
+              }}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[12px] text-[#9a9898] hover:text-[#fdfcfc] transition-colors cursor-pointer"
+            >
+              <span className="material-symbols-outlined text-[16px]">download</span>
+              Download
+            </button>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(prettyJson(opencodeConfig));
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[12px] text-[#9a9898] hover:text-[#fdfcfc] transition-colors cursor-pointer"
             >
               <span className={cn(
-                "material-symbols-outlined text-[14px] transition-transform",
-                isExpanded ? "rotate-90" : ""
+                "material-symbols-outlined text-[16px]",
+                copied ? "text-[#30d158]" : ""
               )}>
-                chevron_right
+                {copied ? "check" : "content_copy"}
               </span>
-              {isExpanded ? "Hide" : "Show"}
+              {copied ? "Copied" : "Copy"}
             </button>
           </div>
         </div>
-        {isExpanded && (
-          <pre className="max-h-[32rem] overflow-auto bg-[#0b1020] px-4 py-4 text-xs leading-6 text-slate-100">
-            <code>{configJson}</code>
-          </pre>
-        )}
+        <pre className="max-h-[32rem] overflow-auto bg-[#201d1d] px-4 py-4 text-[13px] leading-[1.60] text-[#fdfcfc] custom-scrollbar">
+          <code>{prettyJson(opencodeConfig)}</code>
+        </pre>
       </div>
 
       {/* Variant artifact preview */}
       {variantArtifact && (
-        <div className="rounded-xl border border-border overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border bg-surface px-4 py-2.5">
+        <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] overflow-hidden font-['Berkeley_Mono']">
+          <div className="flex items-center justify-between border-b border-[rgba(15,0,0,0.12)] bg-[#302c2c] px-4 py-2.5">
             <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-[16px] text-primary">tune</span>
-              <span className="text-sm font-semibold text-text-main">{variantArtifact.filename}</span>
-              <Badge size="sm" variant="secondary">Preset artifact</Badge>
+              <span className="material-symbols-outlined text-[16px] text-[#ec4899]">tune</span>
+              <span className="text-[14px] font-bold text-[#fdfcfc]">{variantArtifact.filename}</span>
+              <span className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-2 py-0.5 text-[14px] text-[#9a9898]">Preset artifact</span>
             </div>
             <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
+              <button
+                className="rounded bg-transparent px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#201d1d] transition-colors border border-transparent hover:border-[rgba(15,0,0,0.12)] cursor-pointer"
                 onClick={() => handleCopy(prettyJson(variantArtifact.content))}
               >
                 Copy
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
+              </button>
+              <button
+                className="rounded bg-transparent px-[12px] py-[4px] text-[14px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#201d1d] transition-colors border border-transparent hover:border-[rgba(15,0,0,0.12)] cursor-pointer"
                 onClick={() => downloadFile(prettyJson(variantArtifact.content), variantArtifact.filename)}
               >
                 Download
-              </Button>
+              </button>
             </div>
           </div>
         </div>
       )}
 
       {/* Tips */}
-      <div className="space-y-1.5 text-sm text-text-muted">
-        <p className="flex items-start gap-2">
+      <div className="space-y-1.5 text-[14px] text-[#9a9898] font-['Berkeley_Mono']">
+        <p className="flex items-start gap-2 leading-[1.50]">
           <span>•</span>
           <span>
-            Set default model: <code className="rounded bg-surface px-1.5 py-0.5 font-mono text-xs text-[var(--color-warning)]">9router/cx/model-name</code>
+            Set default model: <code className="rounded bg-[#302c2c] px-1.5 py-0.5 font-bold text-[12px] text-[#ff9f0a]">9router/cx/model-name</code>
           </span>
         </p>
-        <p className="flex items-start gap-2">
+        <p className="flex items-start gap-2 leading-[1.50]">
           <span>•</span>
           <span>
-            Place at <code className="break-all rounded bg-surface px-1.5 py-0.5 font-mono text-xs text-[var(--color-warning)]">~/.config/opencode/opencode.json</code>
+            Place at <code className="break-all rounded bg-[#302c2c] px-1.5 py-0.5 font-bold text-[12px] text-[#ff9f0a]">~/.config/opencode/opencode.json</code>
           </span>
         </p>
       </div>
@@ -674,19 +806,19 @@ function AdvancedOverridesCollapsible({ preferences, preview, modelCatalog, savi
   };
 
   return (
-    <details className="group/details rounded-xl border border-border bg-surface">
+    <details className="group/details rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] font-['Berkeley_Mono']">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
-        <span className="flex items-center gap-3 text-sm font-semibold text-text-main">
-          <span className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-surface text-sm text-text-muted" aria-hidden="true">
+        <span className="flex items-center gap-3 text-[16px] font-bold text-[#fdfcfc]">
+          <span className="flex h-6 w-6 items-center justify-center rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] text-[14px] text-[#9a9898]" aria-hidden="true">
             ▶
           </span>
           {title}
         </span>
-        <span className="material-symbols-outlined text-[18px] text-text-muted transition-transform duration-200 group-open/details:rotate-180">
+        <span className="material-symbols-outlined text-[18px] text-[#9a9898] transition-transform duration-200 group-open/details:rotate-180">
           expand_more
         </span>
       </summary>
-      <div className="border-t border-border px-4 py-4 space-y-4">
+      <div className="border-t border-[rgba(15,0,0,0.12)] px-4 py-4 space-y-4">
         {/* Advanced Config Editor with Agent/Category Assignments */}
         <AdvancedConfigEditor
           variant={variant}
@@ -699,46 +831,48 @@ function AdvancedOverridesCollapsible({ preferences, preview, modelCatalog, savi
         {/* Generated artifact preview */}
         {variantArtifact && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center justify-between gap-3 font-['Berkeley_Mono']">
               <div>
-                <p className="text-sm font-semibold text-text-main">{variantArtifact.filename}</p>
-                <p className="mt-1 text-xs text-text-muted">
+                <p className="text-[16px] font-bold text-[#fdfcfc]">{variantArtifact.filename}</p>
+                <p className="mt-1 text-[14px] text-[#9a9898] leading-[2.00]">
                   Generated advanced config for the selected variant.
                 </p>
               </div>
-              <Button
-                variant="secondary"
-                size="sm"
+              <button
+                className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer"
                 onClick={() => downloadFile(prettyJson(variantArtifact.content), variantArtifact.filename)}
               >
                 Download
-              </Button>
+              </button>
             </div>
-            <pre className="max-h-[18rem] overflow-auto rounded-xl border border-border bg-[#0b1020] px-4 py-4 text-xs leading-6 text-slate-100">
+            <pre className="max-h-[18rem] overflow-auto rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-4 py-4 text-[13px] leading-[1.60] text-[#fdfcfc] font-['Berkeley_Mono'] custom-scrollbar">
               <code>{prettyJson(variantArtifact.content)}</code>
             </pre>
           </div>
         )}
 
         {/* Raw JSON Editor (Advanced) */}
-        <details className="rounded border border-border bg-surface/50">
-          <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-text-muted hover:text-text-main transition-colors">
+        <details className="rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] font-['Berkeley_Mono']">
+          <summary className="cursor-pointer px-3 py-2 text-[14px] font-bold text-[#9a9898] hover:text-[#fdfcfc] transition-colors">
             Advanced: Edit Raw JSON
           </summary>
-          <div className="border-t border-border px-3 py-3 space-y-3">
+          <div className="border-t border-[rgba(15,0,0,0.12)] px-3 py-3 space-y-3">
             {editMode ? (
               <>
                 <textarea
                   value={draftJson}
                   onChange={(e) => setDraftJson(e.target.value)}
-                  className="w-full h-64 px-3 py-2 font-mono text-xs rounded border border-border bg-surface text-text-main focus:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary/20"
+                  className="w-full h-64 px-3 py-2 font-['Berkeley_Mono'] text-[14px] rounded-[6px] border border-[rgba(15,0,0,0.12)] bg-[#f8f7f7] text-[#201d1d] focus:border-[#ec4899]/30 focus:outline-none focus:ring-1 focus:ring-[#ec4899]/20"
                   placeholder='{\n  "agentAssignments": {\n    "explorer": "cx/gpt-5.3-codex"\n  }\n}'
                 />
                 {jsonError && (
-                  <p className="text-sm text-[var(--color-danger)]">{jsonError}</p>
+                  <p className="text-[14px] text-[#ff3b30]">{jsonError}</p>
                 )}
                 <div className="flex gap-2">
-                  <Button variant="ghost" size="sm" onClick={handleCancelEdit}>
+                  <button 
+                    className="rounded bg-transparent px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#201d1d] transition-colors border border-transparent hover:border-[rgba(15,0,0,0.12)] cursor-pointer"
+                    onClick={handleCancelEdit}
+                  >
                     Cancel
                   </Button>
                   <Button size="sm" onClick={handleSaveOverrides} loading={saving}>
@@ -748,12 +882,15 @@ function AdvancedOverridesCollapsible({ preferences, preview, modelCatalog, savi
               </>
             ) : (
               <>
-                <pre className="max-h-[18rem] overflow-auto rounded-xl border border-border bg-surface px-4 py-4 text-xs leading-6 text-text-main">
+                <pre className="max-h-[18rem] overflow-auto rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] px-4 py-4 text-[13px] leading-[1.60] text-[#fdfcfc] font-['Berkeley_Mono'] custom-scrollbar">
                   <code>{Object.keys(currentOverrides).length > 0 ? prettyJson(currentOverrides) : "{}"}</code>
                 </pre>
-                <Button variant="secondary" size="sm" onClick={handleEditClick}>
+                <button 
+                  className="rounded bg-[#201d1d] px-[20px] py-[4px] text-[16px] font-medium leading-[2.00] text-[#fdfcfc] hover:bg-[#ec4899] transition-colors border border-[rgba(15,0,0,0.12)] cursor-pointer"
+                  onClick={handleEditClick}
+                >
                   Edit JSON
-                </Button>
+                </button>
               </>
             )}
           </div>
@@ -766,6 +903,7 @@ function AdvancedOverridesCollapsible({ preferences, preview, modelCatalog, savi
 /* ── main page ─────────────────────────────────────────────────── */
 
 export default function OpenCodePageClient() {
+  const [activeTab, setActiveTab] = useState("setup"); // 'setup' | 'quickstart' | 'tokens'
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [preferences, setPreferences] = useState(null);
@@ -1051,8 +1189,8 @@ export default function OpenCodePageClient() {
   if (loading) {
     return (
       <div className="flex flex-col gap-6">
-        <CardSkeleton />
-        <CardSkeleton />
+        <div className="h-[200px] rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] animate-pulse" />
+        <div className="h-[400px] rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] animate-pulse" />
       </div>
     );
   }
@@ -1060,60 +1198,112 @@ export default function OpenCodePageClient() {
   return (
     <div className="flex flex-col gap-6">
         {/* Header */}
-        <section className="rounded border border-border bg-surface p-4">
-          <h1 className="text-xl font-semibold tracking-tight text-text-main">
+        <section className="rounded border border-border bg-[#201d1d] p-4 text-[#fdfcfc] font-['Berkeley_Mono']">
+          <h1 className="text-[38px] font-bold leading-[1.50] tracking-tight">
             OpenCode Quick Start
           </h1>
-          <p className="mt-1 text-sm text-text-muted">
+          <p className="mt-1 text-[16px] font-normal leading-[1.50] text-[#9a9898]">
             Configure your OpenCode setup, generate config, and manage auto-sync from one place.
           </p>
         </section>
 
         {/* Global error */}
         {error && (
-          <div className="rounded border border-[var(--color-danger)]/20 bg-[var(--color-danger-soft)] px-4 py-3 text-sm text-[var(--color-danger)]">
+          <div className="rounded border border-[#ff3b30]/20 bg-[#ff3b30]/10 px-4 py-3 text-[14px] text-[#ff3b30] font-['Berkeley_Mono']">
             {error}
           </div>
         )}
 
         {savingKey && (
-          <p className="text-xs text-text-muted">Saving {savingKey}…</p>
+          <p className="text-xs text-[#9a9898] font-['Berkeley_Mono']">Saving {savingKey}…</p>
         )}
 
+        {/* Tabs */}
+        <div className="flex border-b border-[rgba(15,0,0,0.12)]">
+          <button
+            onClick={() => setActiveTab("setup")}
+            className={cn(
+              "px-4 py-2 text-[16px] font-medium leading-[1.00] transition-colors cursor-pointer",
+              activeTab === "setup"
+                ? "border-b-2 border-[#9a9898] text-[#fdfcfc]"
+                : "text-[#9a9898] hover:text-[#fdfcfc]"
+            )}
+          >
+            Setup
+          </button>
+          <button
+            onClick={() => setActiveTab("quickstart")}
+            className={cn(
+              "px-4 py-2 text-[16px] font-medium leading-[1.00] transition-colors cursor-pointer",
+              activeTab === "quickstart"
+                ? "border-b-2 border-[#9a9898] text-[#fdfcfc]"
+                : "text-[#9a9898] hover:text-[#fdfcfc]"
+            )}
+          >
+            Quickstart
+          </button>
+          <button
+            onClick={() => setActiveTab("tokens")}
+            className={cn(
+              "px-4 py-2 text-[16px] font-medium leading-[1.00] transition-colors cursor-pointer",
+              activeTab === "tokens"
+                ? "border-b-2 border-[#9a9898] text-[#fdfcfc]"
+                : "text-[#9a9898] hover:text-[#fdfcfc]"
+            )}
+          >
+            Tokens
+          </button>
+        </div>
+
+        {/* Tab Content */}
+        <div className={activeTab === "setup" ? "flex flex-col gap-6" : "hidden"}>
         {/* Model Selection */}
         <section id="model-selection" className="scroll-mt-24">
-          <Card
-            title="Model Selection"
-            subtitle="Choose which models appear in your generated config."
-            icon="model_training"
-            className="rounded-xl"
-          >
-            <ModelSelector
-              preferences={normalizedPreferences}
-              modelCatalog={modelCatalog}
-              saving={savingKey === "models"}
-              onSave={(patch) => savePreferences(patch, "models")}
-              activeProviders={activeProviders}
-              modelAliases={modelAliases}
-            />
-          </Card>
+          <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] font-['Berkeley_Mono'] text-[#fdfcfc]">
+            <div className="border-b border-[rgba(15,0,0,0.12)] px-6 py-5">
+              <div className="flex items-center gap-3">
+                <span className="material-symbols-outlined text-[20px] text-[#ec4899]">model_training</span>
+                <div>
+                  <h3 className="text-[16px] font-bold">Model Selection</h3>
+                  <p className="mt-1 text-[14px] text-[#9a9898]">Choose which models appear in your generated config.</p>
+                </div>
+              </div>
+            </div>
+            <div className="p-6">
+              <ModelSelector
+                preferences={normalizedPreferences}
+                modelCatalog={modelCatalog}
+                saving={savingKey === "models"}
+                onSave={(patch) => savePreferences(patch, "models")}
+                activeProviders={activeProviders}
+                modelAliases={modelAliases}
+              />
+            </div>
+          </div>
         </section>
+        </div>
+
+        {/* Tab Content - Quickstart */}
+        <div className={activeTab === "quickstart" ? "flex flex-col gap-6" : "hidden"}>
 
         {/* Generate Config — main Quick Start card */}
         <section id="generate-config" className="scroll-mt-24">
-          <Card
-            title={
-              <span className="flex items-center gap-3">
-                <span className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-surface text-sm text-text-muted" aria-hidden="true">
-                  ▶
-                </span>
-                Using with OpenCode
-              </span>
-            }
-            icon="terminal"
-            className="rounded-xl"
-          >
-            <div className="space-y-5">
+          <div className="rounded border border-[rgba(15,0,0,0.12)] bg-[#201d1d] font-['Berkeley_Mono'] text-[#fdfcfc]">
+            <div className="border-b border-[rgba(15,0,0,0.12)] px-6 py-5">
+              <div className="flex items-center gap-3">
+                <span className="material-symbols-outlined text-[20px] text-[#ec4899]">terminal</span>
+                <div>
+                  <h3 className="flex items-center gap-3 text-[16px] font-bold">
+                    <span className="flex h-6 w-6 items-center justify-center rounded border border-[rgba(15,0,0,0.12)] bg-[#302c2c] text-[14px] text-[#9a9898]" aria-hidden="true">
+                      ▶
+                    </span>
+                    Using with OpenCode
+                  </h3>
+                </div>
+              </div>
+            </div>
+            <div className="p-6">
+              <div className="space-y-5">
               {/* Variant toggle */}
               <VariantToggle
                 variant={normalizedPreferences.variant}
@@ -1231,7 +1421,7 @@ export default function OpenCodePageClient() {
                 requireApiKey={requireApiKey}
               />
             </div>
-          </Card>
+          </div>
         </section>
 
         {/* Advanced overrides — collapsible */}
@@ -1247,6 +1437,10 @@ export default function OpenCodePageClient() {
             />
           </section>
         )}
+        </div>
+
+        {/* Tab Content - Tokens */}
+        <div className={activeTab === "tokens" ? "flex flex-col gap-6" : "hidden"}>
 
         {/* Auto-sync tokens */}
         <section id="sync-tokens" className="scroll-mt-24">
@@ -1258,6 +1452,7 @@ export default function OpenCodePageClient() {
             onCreate={createToken}
           />
         </section>
+        </div>
     </div>
   );
 }
