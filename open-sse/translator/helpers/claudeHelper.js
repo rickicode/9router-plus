@@ -19,57 +19,67 @@ export function hasValidContent(msg) {
 
 // Fix tool_use/tool_result ordering for Claude API
 // 1. Assistant message with tool_use: remove text AFTER tool_use (Claude doesn't allow)
-// 2. Merge consecutive same-role messages
+// 2. Merge consecutive same-role messages (tool_result blocks first, others after)
 export function fixToolUseOrdering(messages) {
   if (messages.length <= 1) return messages;
 
-  // Pass 1: Fix assistant messages with tool_use - remove text after tool_use
+  // Pass 1: Fix assistant messages with tool_use — drop text-like blocks after the
+  // first tool_use. Single-pass with an early-exit when no tool_use is present.
   for (const msg of messages) {
-    if (msg.role === "assistant" && Array.isArray(msg.content)) {
-      const hasToolUse = msg.content.some(b => b.type === "tool_use");
-      if (hasToolUse) {
-        // Keep only: thinking blocks + tool_use blocks (remove text blocks after tool_use)
-        const newContent = [];
-        let foundToolUse = false;
+    if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
 
-        for (const block of msg.content) {
-          if (block.type === "tool_use") {
-            foundToolUse = true;
-            newContent.push(block);
-          } else if (block.type === "thinking" || block.type === "redacted_thinking") {
-            newContent.push(block);
-          } else if (!foundToolUse) {
-            // Keep text blocks BEFORE tool_use
-            newContent.push(block);
-          }
-          // Skip text blocks AFTER tool_use
-        }
-
-        msg.content = newContent;
+    let firstToolUseAt = -1;
+    for (let i = 0; i < msg.content.length; i++) {
+      if (msg.content[i].type === "tool_use") {
+        firstToolUseAt = i;
+        break;
       }
     }
+    if (firstToolUseAt === -1) continue;
+
+    const newContent = [];
+    for (let i = 0; i < msg.content.length; i++) {
+      const block = msg.content[i];
+      const t = block.type;
+      // Always keep thinking + tool_use blocks (Claude requires them); drop other
+      // block types positioned AFTER the first tool_use.
+      if (t === "tool_use" || t === "thinking" || t === "redacted_thinking") {
+        newContent.push(block);
+      } else if (i < firstToolUseAt) {
+        newContent.push(block);
+      }
+    }
+    msg.content = newContent;
   }
 
-  // Pass 2: Merge consecutive same-role messages
+  // Pass 2: Merge consecutive same-role messages with single-pass partition.
+  // tool_result blocks must come before other blocks per Claude API ordering.
   const merged = [];
 
   for (const msg of messages) {
     const last = merged[merged.length - 1];
 
     if (last && last.role === msg.role) {
-      // Merge content arrays
       const lastContent = Array.isArray(last.content) ? last.content : [{ type: "text", text: last.content }];
       const msgContent = Array.isArray(msg.content) ? msg.content : [{ type: "text", text: msg.content }];
 
-      // Put tool_result first, then other content
-      const toolResults = [...lastContent.filter(b => b.type === "tool_result"), ...msgContent.filter(b => b.type === "tool_result")];
-      const otherContent = [...lastContent.filter(b => b.type !== "tool_result"), ...msgContent.filter(b => b.type !== "tool_result")];
-
-      last.content = [...toolResults, ...otherContent];
+      // Single pass over both source arrays, partitioning into two buckets.
+      const toolResults = [];
+      const otherContent = [];
+      for (const b of lastContent) {
+        (b.type === "tool_result" ? toolResults : otherContent).push(b);
+      }
+      for (const b of msgContent) {
+        (b.type === "tool_result" ? toolResults : otherContent).push(b);
+      }
+      last.content = toolResults.length > 0 ? toolResults.concat(otherContent) : otherContent;
     } else {
-      // Ensure content is array
+      // Avoid the `[...content]` clone — Pass 1 already mutated assistant
+      // content arrays in place, and downstream passes only mutate block-level
+      // fields (e.g. `block.cache_control`) which are shared by reference
+      // regardless of array clone status.
       const content = Array.isArray(msg.content) ? msg.content : [{ type: "text", text: msg.content }];
-      merged.push({ role: msg.role, content: [...content] });
+      merged.push({ role: msg.role, content });
     }
   }
 
@@ -83,15 +93,36 @@ export function fixToolUseOrdering(messages) {
 // - Fix tool_use/tool_result ordering
 // - Apply cloaking (billing header + fake user ID) for OAuth tokens
 export function prepareClaudeRequest(body, provider = null, apiKey = null, connectionId = null) {
-  // 1. System: remove all cache_control, add only to last block with ttl 1h
-  if (body.system && Array.isArray(body.system)) {
-    body.system = body.system.map((block, i) => {
-      const { cache_control, ...rest } = block;
-      if (i === body.system.length - 1) {
-        return { ...rest, cache_control: { type: "ephemeral", ttl: "1h" } };
+  // 1. System: remove all cache_control, add only to last block with ttl 1h.
+  // Fast path: if no non-last block has cache_control AND last block already
+  // has the canonical {type:"ephemeral", ttl:"1h"} mark, skip the rebuild.
+  if (body.system && Array.isArray(body.system) && body.system.length > 0) {
+    const lastIdx = body.system.length - 1;
+    const targetCacheControl = { type: "ephemeral", ttl: "1h" };
+
+    let needsRebuild = false;
+    for (let i = 0; i < lastIdx; i++) {
+      if (body.system[i] && body.system[i].cache_control !== undefined) {
+        needsRebuild = true;
+        break;
       }
-      return rest;
-    });
+    }
+    if (!needsRebuild) {
+      const lastBlock = body.system[lastIdx];
+      const cc = lastBlock?.cache_control;
+      if (!cc || cc.type !== "ephemeral" || cc.ttl !== "1h") {
+        // Mutate in place — last block needs the canonical cache_control mark.
+        if (lastBlock) lastBlock.cache_control = targetCacheControl;
+      }
+    } else {
+      body.system = body.system.map((block, i) => {
+        const { cache_control, ...rest } = block;
+        if (i === lastIdx) {
+          return { ...rest, cache_control: targetCacheControl };
+        }
+        return rest;
+      });
+    }
   }
 
   // 2. Messages: process in optimized passes
