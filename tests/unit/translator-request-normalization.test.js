@@ -390,6 +390,58 @@ describe("request normalization", () => {
     expect(format).toBe(FORMATS.OPENAI_RESPONSES);
   });
 
+  it("openai -> responses keeps system messages as developer role in input (matches CLIProxyAPI)", () => {
+    const body = {
+      messages: [
+        { role: "system", content: "You are a helpful coding agent." },
+        { role: "user", content: "hi" },
+      ],
+    };
+
+    const result = openaiToOpenAIResponsesRequest("cx/gpt-5.3-codex", body, true);
+
+    // Instructions field is ALWAYS empty string \u2014 backend uses its own default.
+    expect(result.instructions).toBe("");
+
+    // System message must appear in input[] as role="developer" with input_text content,
+    // exactly like CLIProxyAPI codex_openai_request.go:137-141.
+    expect(result.input[0]).toEqual({
+      type: "message",
+      role: "developer",
+      content: [{ type: "input_text", text: "You are a helpful coding agent." }],
+    });
+
+    // User message stays as role="user".
+    expect(result.input[1]).toEqual({
+      type: "message",
+      role: "user",
+      content: [{ type: "input_text", text: "hi" }],
+    });
+
+    // parallel_tool_calls is explicitly enabled.
+    expect(result.parallel_tool_calls).toBe(true);
+  });
+
+  it("openai -> responses preserves multiple system messages as separate developer-role items", () => {
+    const body = {
+      messages: [
+        { role: "system", content: "Rule 1." },
+        { role: "system", content: "Rule 2." },
+        { role: "developer", content: "Dev note." },
+        { role: "user", content: "ok" },
+      ],
+    };
+
+    const result = openaiToOpenAIResponsesRequest("cx/gpt-5.3-codex", body, true);
+
+    expect(result.input.slice(0, 3)).toEqual([
+      { type: "message", role: "developer", content: [{ type: "input_text", text: "Rule 1." }] },
+      { type: "message", role: "developer", content: [{ type: "input_text", text: "Rule 2." }] },
+      { type: "message", role: "developer", content: [{ type: "input_text", text: "Dev note." }] },
+    ]);
+    expect(result.input[3].role).toBe("user");
+  });
+
   it("translateRequest normalizes openai-responses requests even when target stays openai-responses", async () => {
     const body = {
       input: [

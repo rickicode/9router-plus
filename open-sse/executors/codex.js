@@ -1,7 +1,8 @@
 import { createHash } from "crypto";
 import { BaseExecutor } from "./base.js";
-import { CODEX_DEFAULT_INSTRUCTIONS } from "../config/codexInstructions.js";
 import { PROVIDERS } from "../config/providers.js";
+import { CODEX_DEFAULT_INSTRUCTIONS } from "../config/codexInstructions.js";
+import { resolveCodexInstructionsForRequest } from "../config/codexInstructionsResolver.js";
 import { normalizeResponsesInput } from "../translator/helpers/responsesApiHelper.js";
 import { fetchImageAsBase64 } from "../translator/helpers/imageHelper.js";
 import { getConsistentMachineId } from "../../src/shared/utils/machineId.js";
@@ -220,6 +221,16 @@ export class CodexExecutor extends BaseExecutor {
     cachedMachineId = await ensureMachineId();
     // Fetch remote images before the synchronous transform/execute pipeline
     await this.prefetchImages(args.body);
+    // Resolve user-controlled Codex default instructions setting (enabled /
+    // disabled / custom .md). Stash on the body so the sync transformRequest
+    // step can read it without doing async work itself.
+    if (args.body && typeof args.body === "object" && !("_resolvedCodexInstructions" in args.body)) {
+      try {
+        args.body._resolvedCodexInstructions = await resolveCodexInstructionsForRequest();
+      } catch {
+        args.body._resolvedCodexInstructions = CODEX_DEFAULT_INSTRUCTIONS;
+      }
+    }
     return super.execute(args);
   }
 
@@ -244,13 +255,33 @@ export class CodexExecutor extends BaseExecutor {
     // Ensure streaming is enabled (Codex API requires it)
     body.stream = true;
 
-    // If no instructions provided, inject default Codex instructions
-    if (!body.instructions || body.instructions.trim() === "") {
-      body.instructions = CODEX_DEFAULT_INSTRUCTIONS;
+    // Resolve instructions per user-configurable Codex provider setting
+    // (codexInstructions: { enabled, mode } in settings, optional custom .md
+    // file at DATA_DIR/codex-instructions.md). Three states:
+    //   1. enabled + default mode -> built-in CODEX_DEFAULT_INSTRUCTIONS
+    //   2. enabled + custom mode  -> contents of the .md file
+    //   3. disabled               -> empty string (matches CLIProxyAPI;
+    //                                saves ~3000 tokens / request)
+    // The actual lookup happens in execute() (async) and the result is stashed
+    // on body._resolvedCodexInstructions; here we only consume it and clean up.
+    const resolved = "_resolvedCodexInstructions" in body
+      ? body._resolvedCodexInstructions
+      : CODEX_DEFAULT_INSTRUCTIONS;
+    delete body._resolvedCodexInstructions;
+    if (body.instructions == null || body.instructions === "") {
+      // Empty resolved value means "disabled" -> send empty string (CLIProxyAPI parity).
+      body.instructions = typeof resolved === "string" ? resolved : CODEX_DEFAULT_INSTRUCTIONS;
     }
 
-    // Ensure store is false (Codex requirement)
+    // Ensure store is false (Codex requirement).
     body.store = false;
+
+    // Match CLIProxyAPI: explicitly enable parallel tool calls so the model
+    // can dispatch multiple tools concurrently rather than serially. Faster
+    // wall-clock for tool-heavy turns. (codex_openai_request.go:62)
+    if (body.parallel_tool_calls === undefined) {
+      body.parallel_tool_calls = true;
+    }
 
     // Extract thinking level from model name suffix
     // e.g., gpt-5.3-codex-high → high, gpt-5.3-codex → medium (default)
@@ -265,7 +296,9 @@ export class CodexExecutor extends BaseExecutor {
       }
     }
 
-    // Priority: explicit reasoning.effort > reasoning_effort param > model suffix > default (medium)
+    // Priority: explicit reasoning.effort > reasoning_effort param > model suffix > default ("low").
+    // The default is "low" to keep request latency and token usage small for the common
+    // interactive case. Callers (or per-credential overrides) can still raise it explicitly.
     if (!body.reasoning) {
       const effort = body.reasoning_effort || modelEffort || 'low';
       body.reasoning = { effort, summary: "auto" };

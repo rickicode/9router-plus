@@ -273,23 +273,23 @@ export function openaiToOpenAIResponsesRequest(model, body, stream, credentials)
     store: false
   };
 
-  // Extract system message as instructions
-  let hasSystemMessage = false;
+  // Match CLIProxyAPI: keep system messages in input[] as role="developer"
+  // (codex/openai/chat-completions/codex_openai_request.go:137-141). Do NOT
+  // extract them into the `instructions` field — the backend uses its own
+  // default when instructions is empty, and putting the user's system prompt
+  // as a developer-role message is what the Codex CLI itself sends.
+  // This also preserves multiple system messages instead of dropping all but
+  // the first.
   const messages = body.messages || [];
 
   for (const msg of messages) {
-    if (msg.role === "system") {
-      // Use first system message as instructions
-      if (!hasSystemMessage) {
-        result.instructions = typeof msg.content === "string" ? msg.content : "";
-        hasSystemMessage = true;
-      }
-      continue; // Skip system messages in input
-    }
-
-    // Convert user/assistant messages to input items
-    if (msg.role === "user" || msg.role === "assistant") {
-      const contentType = msg.role === "user" ? "input_text" : "output_text";
+    // Convert system / developer / user / assistant messages to input items.
+    // System and developer roles both serialize as role="developer" with
+    // input_text content, matching CLIProxyAPI.
+    const isDeveloperLike = msg.role === "system" || msg.role === "developer";
+    if (isDeveloperLike || msg.role === "user" || msg.role === "assistant") {
+      const outRole = isDeveloperLike ? "developer" : msg.role;
+      const contentType = msg.role === "assistant" ? "output_text" : "input_text";
       const content = typeof msg.content === "string"
         ? [{ type: contentType, text: msg.content }]
         : Array.isArray(msg.content)
@@ -341,7 +341,7 @@ export function openaiToOpenAIResponsesRequest(model, body, stream, credentials)
       if (content.length > 0) {
         result.input.push({
           type: "message",
-          role: msg.role,
+          role: outRole,
           content
         });
       }
@@ -374,10 +374,15 @@ export function openaiToOpenAIResponsesRequest(model, body, stream, credentials)
     }
   }
 
-  // If no system message, leave instructions empty (will be filled by executor)
-  if (!hasSystemMessage) {
-    result.instructions = "";
-  }
+  // Match CLIProxyAPI: instructions is always an empty string by default; the
+  // backend supplies its own default Codex CLI prompt. The executor's
+  // normalizeCodexInstructions step keeps this contract.
+  result.instructions = "";
+
+  // Match CLIProxyAPI: enable parallel tool calls so the model can dispatch
+  // multiple tools concurrently. Faster wall-clock for tool-heavy turns.
+  // (codex_openai_request.go:62)
+  result.parallel_tool_calls = true;
 
   // Convert tools format
   if (body.tools && Array.isArray(body.tools)) {
