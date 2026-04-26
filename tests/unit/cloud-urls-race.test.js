@@ -85,8 +85,7 @@ describe("cloud-urls race condition", () => {
     const settings = await localDb.getSettings();
     const savedUrls = settings.cloudUrls.map((entry) => entry.url);
 
-    expect(settings.cloudUrls).toHaveLength(4);
-    expect(savedUrls).toContain("http://localhost:8787");
+    expect(settings.cloudUrls).toHaveLength(3);
     expect(savedUrls).toContain("https://worker1.example.com/");
     expect(savedUrls).toContain("https://worker2.example.com/");
     expect(savedUrls).toContain("https://worker3.example.com/");

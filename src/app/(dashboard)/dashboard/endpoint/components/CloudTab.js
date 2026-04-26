@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Button, Input } from "@/shared/components";
+import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import GlassCard from "./shared/GlassCard";
 import StatusBadge from "./shared/StatusBadge";
 import ToggleRow from "./shared/ToggleRow";
@@ -68,6 +69,8 @@ export default function CloudTab() {
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [revealedSecrets, setRevealedSecrets] = useState({});
+  const [loadingSecretId, setLoadingSecretId] = useState(null);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [tunnelEnabled, setTunnelEnabled] = useState(false);
@@ -76,6 +79,7 @@ export default function CloudTab() {
   const [tsUrl, setTsUrl] = useState("");
 
   const pollTimerRef = useRef(null);
+  const { copied, copy } = useCopyToClipboard();
 
   const loadSettings = useCallback(async () => {
     try {
@@ -250,6 +254,52 @@ export default function CloudTab() {
     }
   };
 
+  const handleRevealSecret = async (id) => {
+    try {
+      if (revealedSecrets[id]) {
+        setRevealedSecrets((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        return;
+      }
+
+      setLoadingSecretId(id);
+      const res = await fetch(`/api/cloud-urls/${id}/status?includeSecret=1`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load worker secret");
+      if (!data.secret) throw new Error("Worker secret is unavailable");
+      setRevealedSecrets((prev) => ({ ...prev, [id]: data.secret }));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoadingSecretId(null);
+    }
+  };
+
+  const handleCopySecret = async (entryId, fallbackMasked) => {
+    const secret = revealedSecrets[entryId];
+    if (secret) {
+      copy(secret, entryId);
+      return;
+    }
+
+    try {
+      setLoadingSecretId(entryId);
+      const res = await fetch(`/api/cloud-urls/${entryId}/status?includeSecret=1`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load worker secret");
+      if (!data.secret) throw new Error("Worker secret is unavailable");
+      setRevealedSecrets((prev) => ({ ...prev, [entryId]: data.secret }));
+      copy(data.secret, entryId);
+    } catch (e) {
+      setError(e.message || `Failed to copy ${fallbackMasked || "secret"}`);
+    } finally {
+      setLoadingSecretId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <GlassCard>
@@ -320,6 +370,9 @@ export default function CloudTab() {
               const probeStatus = status?.probe?.ok ? "online" : (status?.probe?.status || entry.status || "unknown");
               const workerError = status?.workerError;
               const workerStatus = status?.workerStatus;
+              const secretValue = revealedSecrets[entry.id] || status?.secretMasked || (entry.hasSecret ? "••••" : "Unavailable");
+              const hasSecret = status?.hasSecret ?? entry.hasSecret;
+              const isSecretLoading = loadingSecretId === entry.id;
               return (
                 <div
                   key={entry.id}
@@ -350,6 +403,28 @@ export default function CloudTab() {
                         <div>
                           <span className="opacity-70">Registered</span>
                           <div>{formatRelative(entry.registeredAt)}</div>
+                        </div>
+                      </div>
+                      <div className="mt-3 rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-2">
+                        <div className="mb-1 text-[11px] uppercase tracking-[0.04em] text-[var(--color-text-muted)]">Worker Secret</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <code className="rounded bg-black/20 px-2 py-1 text-xs text-[var(--color-text-main)]">{secretValue}</code>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => handleRevealSecret(entry.id)}
+                            disabled={!hasSecret || isSecretLoading}
+                          >
+                            {!hasSecret ? "Unavailable" : revealedSecrets[entry.id] ? "Hide" : (isSecretLoading ? "Loading…" : "Reveal")}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => handleCopySecret(entry.id, status?.secretMasked)}
+                            disabled={!hasSecret || isSecretLoading}
+                          >
+                            {copied === entry.id ? "Copied" : "Copy"}
+                          </Button>
                         </div>
                       </div>
                       {(entry.lastSyncError || workerError) && (

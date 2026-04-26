@@ -7,6 +7,30 @@ import {
 } from "@/lib/cloudWorkerClient";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
 
+function hasValidOrigin(request) {
+  const origin = request.headers.get("origin");
+  const host = request.headers.get("host");
+
+  if (!host) return false;
+  if (process.env.NODE_ENV === "production" && !origin) return false;
+  if (!origin) return true;
+
+  try {
+    return new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
+function maskSecret(secret) {
+  if (typeof secret !== "string" || secret.length < 12) return "••••";
+  return `${secret.slice(0, 6)}...${secret.slice(-4)}`;
+}
+
+function shouldRevealSecret(request) {
+  return request.nextUrl?.searchParams?.get("includeSecret") === "1";
+}
+
 /**
  * GET /api/cloud-urls/:id/status
  *
@@ -21,7 +45,11 @@ import { getConsistentMachineId } from "@/shared/utils/machineId";
  * sense that rotating the secret (TODO: future work) immediately invalidates
  * the link.
  */
-export async function GET(_request, context) {
+export async function GET(request, context) {
+  if (!hasValidOrigin(request)) {
+    return NextResponse.json({ error: "CSRF validation failed" }, { status: 403 });
+  }
+
   const { id } = await context.params;
   if (!id) {
     return NextResponse.json({ error: "Missing cloud URL id" }, { status: 400 });
@@ -50,6 +78,8 @@ export async function GET(_request, context) {
       lastSyncOk: entry.lastSyncOk ?? null,
       providersCount: entry.providersCount ?? null,
       url: entry.url,
+      hasSecret: false,
+      secretMasked: null,
       message: "Worker not registered yet. Re-add the cloud URL to register.",
     });
   }
@@ -81,6 +111,9 @@ export async function GET(_request, context) {
     workerStatus,
     workerError,
     workerStatusCode,
+    hasSecret: true,
+    secretMasked: maskSecret(entry.secret),
+    secret: shouldRevealSecret(request) ? entry.secret : undefined,
     dashboardUrl: buildWorkerDashboardUrl(entry.url, entry.secret, machineId),
   });
 }
