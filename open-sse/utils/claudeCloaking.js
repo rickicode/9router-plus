@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "crypto";
-import { CLAUDE_TOOL_SUFFIX, CC_DEFAULT_TOOLS } from "../config/appConstants.js";
+import { CLAUDE_TOOL_SUFFIX } from "../config/appConstants.js";
 
 const CLAUDE_VERSION = "2.1.92";
 const CC_ENTRYPOINT = "sdk-cli";
@@ -24,9 +24,10 @@ function generateFakeUserID(sessionId) {
 
 /**
  * Cloak tools before sending to Claude provider (anti-ban):
- * - Rename non-CC client tools with _cc suffix in tools[] and messages[]
- * - Skip tools that are already CC default names (they become decoys as-is)
- * - Inject CC_DECOY_TOOLS after client tools
+ * - Rename every client tool with the CLAUDE_TOOL_SUFFIX in tools[] and messages[]
+ * - Inject CC_DECOY_TOOLS (Claude Code's own tool names, marked unavailable)
+ *   AFTER the renamed client tools so the model is steered to call the
+ *   suffixed (real) variants.
  * Returns { body, toolNameMap } where toolNameMap maps suffixed → original
  * @param {object} body - Claude API request body
  * @returns {{ body: object, toolNameMap: Map|null }}

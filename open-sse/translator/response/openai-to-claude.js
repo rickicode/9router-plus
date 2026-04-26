@@ -1,11 +1,10 @@
 import { register } from "../index.js";
 import { FORMATS } from "../formats.js";
 
-// Prefix for Claude OAuth tool names (must match request translator).
-// Kept empty to mirror open-sse/translator/request/openai-to-claude.js. The
-// strip-prefix branches below remain for forward compatibility if a non-empty
-// prefix is ever reintroduced.
-const CLAUDE_OAUTH_TOOL_PREFIX = "";
+// Tool names round-trip 1:1 (request side has no prefix, see
+// open-sse/translator/request/openai-to-claude.js). Cloaking adds an
+// _toolNameMap on `state` for the downstream stream/json layer to undo, so
+// no name rewriting is needed here.
 
 // Helper: stop thinking block if started
 function stopThinkingBlock(state, results) {
@@ -150,14 +149,9 @@ export function openaiToClaudeResponse(chunk, state) {
         stopTextBlock(state, results);
 
         const toolBlockIndex = state.nextBlockIndex++;
-        state.toolCalls.set(idx, { id: tc.id, name: tc.function?.name || "", blockIndex: toolBlockIndex });
-        
-        // Strip prefix from tool name for response
-        let toolName = tc.function?.name || "";
-        if (toolName.startsWith(CLAUDE_OAUTH_TOOL_PREFIX)) {
-          toolName = toolName.slice(CLAUDE_OAUTH_TOOL_PREFIX.length);
-        }
-        
+        const toolName = tc.function?.name || "";
+        state.toolCalls.set(idx, { id: tc.id, name: toolName, blockIndex: toolBlockIndex });
+
         results.push({
           type: "content_block_start",
           index: toolBlockIndex,
