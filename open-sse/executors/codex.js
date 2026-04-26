@@ -47,6 +47,45 @@ function generateSessionId() {
   return `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
+// Mirror of CLIProxyAPI's ensureImageGenerationTool. Adds the image_generation
+// tool to body.tools (creating the array if absent) so the Codex backend
+// enables multimodal input (input_image / input_file) on the request.
+//
+// Skipped for "spark" models and Codex free-plan accounts, matching upstream.
+function isCodexFreePlanCredentials(credentials) {
+  if (!credentials || typeof credentials !== "object") return false;
+  const candidates = [
+    credentials.plan_type,
+    credentials.planType,
+    credentials.plan,
+    credentials?.attributes?.plan_type,
+    credentials?.attributes?.planType,
+    credentials?.attributes?.plan,
+    credentials?.account?.plan_type,
+    credentials?.account?.planType,
+    credentials?.account?.plan,
+  ];
+  return candidates.some((v) => typeof v === "string" && v.trim().toLowerCase() === "free");
+}
+
+function ensureImageGenerationTool(body, baseModel, credentials) {
+  if (!body || typeof body !== "object") return body;
+  const modelName = typeof baseModel === "string" ? baseModel : "";
+  if (modelName.endsWith("spark")) return body;
+  if (isCodexFreePlanCredentials(credentials)) return body;
+
+  const tool = { type: "image_generation", output_format: "png" };
+  if (!Array.isArray(body.tools)) {
+    body.tools = [tool];
+    return body;
+  }
+  for (const t of body.tools) {
+    if (t && typeof t === "object" && t.type === "image_generation") return body;
+  }
+  body.tools.push(tool);
+  return body;
+}
+
 // Extract text content from an input item
 function extractItemText(item) {
   if (!item) return "";
@@ -255,6 +294,15 @@ export class CodexExecutor extends BaseExecutor {
     delete body.metadata; // Cursor sends this but Codex doesn't support it
     delete body.stream_options; // Cursor sends this but Codex doesn't support it
     delete body.safety_identifier; // Droid CLI sends this but Codex doesn't support it
+    delete body.previous_response_id; // Stateless mode — Codex backend does not retain conversation state
+
+    // Ensure the image_generation tool is registered on the request. The Codex
+    // backend gates multimodal *input* (input_image / input_file) behind this
+    // tool being present in the tools array; without it, vision is disabled
+    // and the model replies "I don't support image input" even if the user
+    // sent a clipboard image. CLIProxyAPI does the same in
+    // internal/runtime/executor/codex_executor.go::ensureImageGenerationTool.
+    ensureImageGenerationTool(body, body.model || model, credentials);
 
     return body;
   }
