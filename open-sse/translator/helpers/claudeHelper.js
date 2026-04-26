@@ -24,22 +24,38 @@ export function fixToolUseOrdering(messages) {
   if (messages.length <= 1) return messages;
 
   // Pass 1: Fix assistant messages with tool_use — drop text-like blocks after the
-  // first tool_use. Single-pass with an early-exit when no tool_use is present.
+  // first tool_use. Single-pass with early-exits when no tool_use is present
+  // and when no block actually needs dropping (keep the original array to
+  // avoid an allocation).
   for (const msg of messages) {
     if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
 
+    const content = msg.content;
     let firstToolUseAt = -1;
-    for (let i = 0; i < msg.content.length; i++) {
-      if (msg.content[i].type === "tool_use") {
+    for (let i = 0; i < content.length; i++) {
+      if (content[i].type === "tool_use") {
         firstToolUseAt = i;
         break;
       }
     }
     if (firstToolUseAt === -1) continue;
 
+    // Detect whether anything actually needs dropping. If every block past the
+    // first tool_use is itself tool_use/thinking/redacted_thinking, the
+    // existing array is already valid — skip the rebuild.
+    let needsRebuild = false;
+    for (let i = firstToolUseAt + 1; i < content.length; i++) {
+      const t = content[i].type;
+      if (t !== "tool_use" && t !== "thinking" && t !== "redacted_thinking") {
+        needsRebuild = true;
+        break;
+      }
+    }
+    if (!needsRebuild) continue;
+
     const newContent = [];
-    for (let i = 0; i < msg.content.length; i++) {
-      const block = msg.content[i];
+    for (let i = 0; i < content.length; i++) {
+      const block = content[i];
       const t = block.type;
       // Always keep thinking + tool_use blocks (Claude requires them); drop other
       // block types positioned AFTER the first tool_use.
@@ -130,14 +146,18 @@ export function prepareClaudeRequest(body, provider = null, apiKey = null, conne
     const len = body.messages.length;
     let filtered = [];
 
-    // Pass 1: remove cache_control + filter empty messages
+    // Pass 1: remove cache_control + filter empty messages.
+    // `delete` on a missing key still mutates the object's hidden class in
+    // V8 — guard with an `in`-check so messages without cache_control (the
+    // overwhelming majority) keep their shape stable.
     for (let i = 0; i < len; i++) {
       const msg = body.messages[i];
 
-      // Remove cache_control from content blocks
       if (Array.isArray(msg.content)) {
         for (const block of msg.content) {
-          delete block.cache_control;
+          if (block && "cache_control" in block) {
+            delete block.cache_control;
+          }
         }
       }
 
@@ -212,18 +232,42 @@ export function prepareClaudeRequest(body, provider = null, apiKey = null, conne
       body.tools = body.tools.filter(tool => !tool.type || tool.type === "function");
     }
 
-    body.tools = body.tools.map((tool, i) => {
-      const { cache_control, ...rest } = tool;
-      if (i === body.tools.length - 1) {
-        return { ...rest, cache_control: { type: "ephemeral", ttl: "1h" } };
-      }
-      return rest;
-    });
+    const tools = body.tools;
+    const toolsLen = tools.length;
 
-    // Remove tools array and tool_choice if empty after filtering
-    if (body.tools.length === 0) {
+    if (toolsLen === 0) {
       delete body.tools;
       delete body.tool_choice;
+    } else {
+      // Fast path: rebuild only when an earlier tool carries cache_control or
+      // the last tool's cache_control is not already canonical. Otherwise
+      // mutate the last tool in place to set the canonical cache mark.
+      const lastIdx = toolsLen - 1;
+      const targetCacheControl = { type: "ephemeral", ttl: "1h" };
+
+      let needsRebuild = false;
+      for (let i = 0; i < lastIdx; i++) {
+        if (tools[i] && tools[i].cache_control !== undefined) {
+          needsRebuild = true;
+          break;
+        }
+      }
+
+      if (!needsRebuild) {
+        const lastTool = tools[lastIdx];
+        const cc = lastTool?.cache_control;
+        if (!cc || cc.type !== "ephemeral" || cc.ttl !== "1h") {
+          if (lastTool) lastTool.cache_control = targetCacheControl;
+        }
+      } else {
+        body.tools = tools.map((tool, i) => {
+          const { cache_control, ...rest } = tool;
+          if (i === lastIdx) {
+            return { ...rest, cache_control: targetCacheControl };
+          }
+          return rest;
+        });
+      }
     }
   }
 
