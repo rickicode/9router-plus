@@ -1,10 +1,15 @@
 /**
  * Credential import orchestration
+ *
+ * Behavior:
+ *   - Always upserts: existing connections matched by id/email/name/fingerprint
+ *     are updated, anything else becomes a new connection.
+ *   - Never deletes existing connections that are not present in the payload.
+ *     Imports are strictly additive — there is no "replace" mode anymore.
  */
 
 import {
   createProviderConnection,
-  deleteProviderConnection,
   getProviderConnections,
   updateProviderConnection,
 } from "@/lib/localDb";
@@ -20,8 +25,6 @@ export async function importCredentials(payload) {
     error.status = 400;
     throw error;
   }
-
-  const replaceMode = payload?.mode === "replace";
 
   // Normalize all records first
   const normalizedRecords = [];
@@ -41,11 +44,6 @@ export async function importCredentials(payload) {
 
     try {
       const sanitized = sanitizeCredentialRecord(normalized);
-      if (replaceMode && sanitized.authType === "apikey" && !sanitized.name) {
-        const error = new Error("API key credential record is missing name");
-        error.code = "INVALID_RECORD";
-        throw error;
-      }
 
       normalizedRecords.push({
         index,
@@ -75,92 +73,44 @@ export async function importCredentials(payload) {
     throw error;
   }
 
-  if (replaceMode && skipReasons.length > 0) {
-    const error = new Error("Replace-mode restore aborted because one or more credential records are invalid");
-    error.code = "REPLACE_MODE_VALIDATION_FAILED";
-    error.invalidRecords = skipReasons;
-    throw error;
-  }
-
   // Fetch existing connections and build matcher
   const existing = await getProviderConnections();
   const matcher = new ConnectionMatcher(existing);
   const restoredIds = new Set();
-  const createdConnectionIds = [];
 
   let created = 0;
   let updated = 0;
-  let deleted = 0;
 
-  async function rollbackReplaceMode() {
-    for (const createdId of createdConnectionIds) {
-      try {
-        await deleteProviderConnection(createdId);
-      } catch {}
-    }
+  for (const { sourceId, data } of normalizedRecords) {
+    const existingConnection = matcher.findMatch(data, sourceId);
 
-    const currentConnections = await getProviderConnections();
-    const currentIds = new Set(currentConnections.map((connection) => connection.id));
-
-    for (const originalConnection of existing) {
-      const currentConnection = currentIds.has(originalConnection.id);
-
-      if (!currentConnection) {
-        await createProviderConnection(originalConnection);
+    if (existingConnection) {
+      await updateProviderConnection(existingConnection.id, data);
+      matcher.updateConnection(existingConnection.id, data);
+      matcher.markProcessed(existingConnection.id);
+      restoredIds.add(existingConnection.id);
+      updated += 1;
+    } else {
+      if (data.authType === "apikey" && !data.name) {
+        skipReasons.push({
+          code: "INVALID_RECORD",
+          message: "API key credential record is missing name",
+        });
         continue;
       }
 
-      await updateProviderConnection(originalConnection.id, originalConnection);
+      const createdConnection = await createProviderConnection(data);
+      matcher.addConnection(createdConnection);
+      matcher.markProcessed(createdConnection.id);
+      restoredIds.add(createdConnection.id);
+      created += 1;
     }
-  }
-
-  try {
-    for (const { sourceId, data } of normalizedRecords) {
-      const existingConnection = matcher.findMatch(data, sourceId);
-
-      if (existingConnection) {
-        await updateProviderConnection(existingConnection.id, data);
-        matcher.updateConnection(existingConnection.id, data);
-        matcher.markProcessed(existingConnection.id);
-        restoredIds.add(existingConnection.id);
-        updated += 1;
-      } else {
-        if (data.authType === "apikey" && !data.name) {
-          skipReasons.push({
-            code: "INVALID_RECORD",
-            message: "API key credential record is missing name",
-          });
-          continue;
-        }
-
-        const createdConnection = await createProviderConnection(data);
-        createdConnectionIds.push(createdConnection.id);
-        matcher.addConnection(createdConnection);
-        matcher.markProcessed(createdConnection.id);
-        restoredIds.add(createdConnection.id);
-        created += 1;
-      }
-    }
-
-    if (replaceMode) {
-      for (const connection of existing) {
-        if (!restoredIds.has(connection.id)) {
-          const didDelete = await deleteProviderConnection(connection.id);
-          if (didDelete) deleted += 1;
-        }
-      }
-    }
-  } catch (error) {
-    if (replaceMode) {
-      await rollbackReplaceMode();
-    }
-    throw error;
   }
 
   return {
     created,
     updated,
-    deleted,
+    deleted: 0,
     skipped: skipReasons.length,
     imported: created + updated,
     skipReasons,

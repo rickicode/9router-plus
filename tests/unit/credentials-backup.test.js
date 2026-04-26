@@ -296,7 +296,7 @@ describe("credentials backup round-trip", () => {
     });
   });
 
-  it("replace-mode restore deletes sqlite provider credentials missing from the backup", async () => {
+  it("additive restore preserves unrelated existing credentials and auto-replaces matched ones", async () => {
     const { dataDir, localDb } = await loadRealLocalDbWithTempDataDir();
 
     const restored = await localDb.createProviderConnection({
@@ -308,11 +308,11 @@ describe("credentials backup round-trip", () => {
       routingStatus: "eligible",
       quotaState: "ok",
     });
-    const stale = await localDb.createProviderConnection({
+    const untouched = await localDb.createProviderConnection({
       provider: "openai",
       authType: "apikey",
-      name: "Delete Me",
-      apiKey: "stale-key",
+      name: "Keep Me",
+      apiKey: "kept-key",
     });
 
     vi.doUnmock("@/lib/localDb");
@@ -322,7 +322,6 @@ describe("credentials backup round-trip", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         format: "universal-credentials",
-        mode: "replace",
         entries: [{
           id: restored.id,
           provider: "codex",
@@ -341,7 +340,7 @@ describe("credentials backup round-trip", () => {
       created: 0,
       updated: 1,
       imported: 1,
-      deleted: 1,
+      deleted: 0,
     });
     expect(readProviderConnectionFromSqlite(dataDir, restored.id)).toMatchObject({
       id: restored.id,
@@ -349,11 +348,15 @@ describe("credentials backup round-trip", () => {
       routingStatus: "blocked",
       authState: "expired",
     });
-    expect(readProviderConnectionFromSqlite(dataDir, stale.id)).toBeNull();
-    expect(readProviderConnectionsFromSqlite(dataDir)).toHaveLength(1);
+    // Existing connections that aren't in the backup must NOT be deleted.
+    expect(readProviderConnectionFromSqlite(dataDir, untouched.id)).toMatchObject({
+      id: untouched.id,
+      apiKey: "kept-key",
+    });
+    expect(readProviderConnectionsFromSqlite(dataDir)).toHaveLength(2);
   });
 
-  it("preserves prior state when replace-mode restore fails mid-apply", async () => {
+  it("propagates 500 when an underlying mutation fails mid-restore", async () => {
     const persistedConnections = [
       {
         id: "conn-atomic-1",
@@ -364,33 +367,19 @@ describe("credentials backup round-trip", () => {
         accessToken: "old-token-1",
         routingStatus: "eligible",
       },
-      {
-        id: "conn-atomic-2",
-        provider: "openai",
-        authType: "apikey",
-        name: "Atomic Two",
-        apiKey: "old-key-2",
-        routingStatus: "eligible",
-      },
     ];
 
     vi.resetModules();
     vi.doMock("@/lib/localDb", () => ({
       getProviderConnections: vi.fn(async () => persistedConnections.map((connection) => ({ ...connection }))),
-      updateProviderConnection: vi.fn(async (id, data) => {
-        const index = persistedConnections.findIndex((connection) => connection.id === id);
-        persistedConnections[index] = { ...persistedConnections[index], ...data };
+      updateProviderConnection: vi.fn(async () => {
         throw new Error("forced mid-restore failure");
       }),
-      createProviderConnection: vi.fn(async (data) => {
-        persistedConnections.push({ id: `created-${persistedConnections.length + 1}`, ...data });
-        return persistedConnections[persistedConnections.length - 1];
-      }),
-      deleteProviderConnection: vi.fn(async (id) => {
-        const index = persistedConnections.findIndex((connection) => connection.id === id);
-        if (index >= 0) persistedConnections.splice(index, 1);
-        return true;
-      }),
+      createProviderConnection: vi.fn(async (data) => ({
+        id: `created-${persistedConnections.length + 1}`,
+        ...data,
+      })),
+      deleteProviderConnection: vi.fn(async () => true),
     }));
 
     const { POST: importPOST } = await import("../../src/app/api/credentials/import/route.js");
@@ -399,7 +388,6 @@ describe("credentials backup round-trip", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         format: "universal-credentials",
-        mode: "replace",
         entries: [{
           id: "conn-atomic-1",
           provider: "codex",
@@ -415,23 +403,11 @@ describe("credentials backup round-trip", () => {
     expect(importResponse.body).toEqual({
       error: "Failed to import credentials",
     });
-    expect(persistedConnections).toEqual([
-      expect.objectContaining({
-        id: "conn-atomic-1",
-        accessToken: "old-token-1",
-        routingStatus: "eligible",
-      }),
-      expect.objectContaining({
-        id: "conn-atomic-2",
-        apiKey: "old-key-2",
-        routingStatus: "eligible",
-      }),
-    ]);
 
     vi.doUnmock("@/lib/localDb");
   });
 
-  it("returns 400 and performs zero mutation for partially invalid replace payload", async () => {
+  it("skips records missing required fields without aborting the whole batch", async () => {
     mockConnections.push({
       id: "conn-1",
       provider: "codex",
@@ -446,11 +422,11 @@ describe("credentials backup round-trip", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         format: "universal-credentials",
-        mode: "replace",
         entries: [
           {
             provider: "codex",
             authType: "oauth",
+            email: "new@example.com",
             accessToken: "new-access",
           },
           {
@@ -461,22 +437,15 @@ describe("credentials backup round-trip", () => {
       }),
     }));
 
-    expect(importResponse.status).toBe(400);
+    expect(importResponse.status).toBe(200);
     expect(importResponse.body).toMatchObject({
-      errorCode: "REPLACE_MODE_VALIDATION_FAILED",
-      invalidRecords: [
-        expect.objectContaining({
-          index: 2,
-          code: "INVALID_RECORD",
-        }),
-      ],
+      success: true,
+      skipped: 1,
+      imported: 1,
     });
-    expect(createProviderConnection).not.toHaveBeenCalled();
-    expect(updateProviderConnection).not.toHaveBeenCalled();
-    expect(deleteProviderConnection).not.toHaveBeenCalled();
   });
 
-  it("returns 400 and performs zero mutation for all-invalid replace payload", async () => {
+  it("treats records with no credential payload as skipped, not fatal", async () => {
     mockConnections.push({
       id: "conn-1",
       provider: "codex",
@@ -491,46 +460,38 @@ describe("credentials backup round-trip", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         format: "universal-credentials",
-        mode: "replace",
         entries: [
-          {
-            provider: "codex",
-          },
-          {
-            provider: "openai",
-            authType: "apikey",
-          },
+          { provider: "codex" },
+          { provider: "openai", authType: "apikey" },
         ],
       }),
     }));
 
-    expect(importResponse.status).toBe(400);
+    expect(importResponse.status).toBe(200);
     expect(importResponse.body).toMatchObject({
-      errorCode: "REPLACE_MODE_VALIDATION_FAILED",
-      invalidRecords: [
-        expect.objectContaining({ index: 1, code: "INVALID_RECORD" }),
-        expect.objectContaining({ index: 2, code: "INVALID_RECORD" }),
-      ],
+      success: true,
+      skipped: 2,
+      imported: 0,
     });
-    expect(createProviderConnection).not.toHaveBeenCalled();
-    expect(updateProviderConnection).not.toHaveBeenCalled();
     expect(deleteProviderConnection).not.toHaveBeenCalled();
   });
 
-  it("returns 400 and performs zero mutation when replace payload has api key record missing name", async () => {
+  it("auto-replaces matched OAuth records and creates new ones for unique emails", async () => {
     mockConnections.push({
       id: "conn-1",
       provider: "codex",
       authType: "oauth",
       name: "Existing OAuth",
+      email: "old@example.com",
       accessToken: "old-access",
-    }, {
-      id: "conn-2",
-      provider: "openai",
-      authType: "apikey",
-      name: "Existing API Key",
-      apiKey: "old-key",
     });
+
+    vi.doMock("@/lib/localDb", () => ({
+      createProviderConnection,
+      deleteProviderConnection,
+      getProviderConnections,
+      updateProviderConnection,
+    }));
 
     const { POST: importPOST } = await import("../../src/app/api/credentials/import/route.js");
     const importResponse = await importPOST(new Request("http://localhost/api/credentials/import", {
@@ -538,36 +499,32 @@ describe("credentials backup round-trip", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         format: "universal-credentials",
-        mode: "replace",
         entries: [
           {
             id: "conn-1",
             provider: "codex",
             authType: "oauth",
+            email: "old@example.com",
             accessToken: "new-access",
           },
           {
-            provider: "openai",
-            authType: "apikey",
-            apiKey: "new-key",
+            provider: "codex",
+            authType: "oauth",
+            email: "another@example.com",
+            accessToken: "another-access",
           },
         ],
       }),
     }));
 
-    expect(importResponse.status).toBe(400);
+    expect(importResponse.status).toBe(200);
     expect(importResponse.body).toMatchObject({
-      errorCode: "REPLACE_MODE_VALIDATION_FAILED",
-      invalidRecords: [
-        expect.objectContaining({
-          index: 2,
-          code: "INVALID_RECORD",
-          message: "API key credential record is missing name",
-        }),
-      ],
+      success: true,
+      created: 1,
+      updated: 1,
+      imported: 2,
+      deleted: 0,
     });
-    expect(createProviderConnection).not.toHaveBeenCalled();
-    expect(updateProviderConnection).not.toHaveBeenCalled();
     expect(deleteProviderConnection).not.toHaveBeenCalled();
   });
 

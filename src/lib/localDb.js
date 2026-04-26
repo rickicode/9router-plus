@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from "uuid";
 import path from "node:path";
 import fs from "node:fs";
 import { DATA_DIR } from "@/lib/dataDir.js";
+import { isHotStateKey } from "@/lib/hotStateKeys.js";
 import { DB_SQLITE_FILE, clearHotStateForProvider, deleteEntity, ensureSchema, getSqliteDb, loadAllDataFromSqlite, loadSingletonFromSqlite, markProviderHotStateInvalidated, migrateFromJSON, rebuildHotStateFromConnections, saveAllDataToSqlite, upsertEntities, upsertEntity, upsertSingleton } from "@/lib/sqliteHelpers.js";
 import { getConnectionEffectiveStatus, getConnectionStatusDetails } from "@/lib/connectionStatus.js";
 import { sanitizeConnectionStatusRecord } from "./providerHotState.js";
@@ -15,6 +16,7 @@ import {
 
 const DEFAULT_MITM_ROUTER_BASE = "http://localhost:20128";
 export const DB_BACKUP_FORMAT = "9router-db-v1";
+export const DB_BACKUP_SCHEMA_VERSION = 1;
 const LEGACY_MIRROR_STATUS_FIELDS = new Set([
   "testStatus",
   "lastError",
@@ -37,7 +39,7 @@ function stripLegacyMirrorStatusFields(record = {}) {
   );
 }
 
-const isCloud = typeof caches !== 'undefined' || typeof caches === 'object';
+const isCloud = typeof caches !== 'undefined' && typeof caches === 'object';
 const DB_FILE = isCloud ? null : path.join(DATA_DIR, "db.json");
 
 if (!isCloud && !fs.existsSync(DATA_DIR)) {
@@ -179,6 +181,7 @@ function validateDbImportPayload(payload) {
   const defaults = cloneDefaultData();
   const allowedKeys = new Set([
     "format",
+    "schemaVersion",
     ...Object.keys(defaults),
     "opencodeSync",
     "runtimeConfig",
@@ -492,20 +495,31 @@ async function ensureSqliteBootstrap() {
         if (DB_FILE && fs.existsSync(DB_FILE) && !fs.existsSync(DB_SQLITE_FILE)) {
           migrateFromJSON({ preserveJson: false });
         } else {
+          // getSqliteDb() opens the file (creating it if absent) and
+          // ensureSchema() seeds the schema. We don't need a follow-up
+          // !fs.existsSync(DB_SQLITE_FILE) check; it is always false here
+          // because better-sqlite3 has just created the file. The fresh
+          // empty database picks up its default shape via ensureDbShape()
+          // in the first getDb() call.
           const sqliteDb = getSqliteDb();
           ensureSchema(sqliteDb);
-          if (!fs.existsSync(DB_SQLITE_FILE)) {
-            saveAllDataToStorage(cloneDefaultData());
-          }
         }
       } catch (error) {
         logSafeError("[DB] SQLite bootstrap failed", error);
+        // Reset the promise so subsequent callers can retry bootstrap instead
+        // of being permanently stuck on a poisoned init promise.
+        sqliteInitPromise = null;
         throw error;
       }
     })();
   }
 
-  await sqliteInitPromise;
+  try {
+    await sqliteInitPromise;
+  } catch (error) {
+    sqliteInitPromise = null;
+    throw error;
+  }
 }
 
 function getProviderConnectionsFromLowDbData(db, filter = {}) {
@@ -667,6 +681,12 @@ export async function getDb() {
 
   if (hasFreshDbCache()) {
     dbInstance.data = cloneDbData(dbCache);
+    // Cache hit shortcut: ensure raw snapshot stays in sync with the live data
+    // and clear normalization markers so subsequent persistCollectionEntity*
+    // writes don't fall into the full-collection sync branch with a stale
+    // _rawDataFromStorage reference.
+    dbInstance._rawDataFromStorage = cloneDbData(dbInstance.data);
+    dbInstance._normalizedKeysOnRead = new Set();
     return dbInstance;
   }
 
@@ -711,51 +731,64 @@ export async function getProviderNodeById(id) {
 
 export async function createProviderNode(data) {
   const db = await getDb();
-  if (!db.data.providerNodes) db.data.providerNodes = [];
+  let node;
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    if (!db.data.providerNodes) db.data.providerNodes = [];
 
-  const now = new Date().toISOString();
-  const node = {
-    id: data.id || uuidv4(),
-    type: data.type,
-    name: data.name,
-    prefix: data.prefix,
-    apiType: data.apiType,
-    baseUrl: data.baseUrl,
-    createdAt: now,
-    updatedAt: now,
-  };
+    const now = new Date().toISOString();
+    node = {
+      id: data.id || uuidv4(),
+      type: data.type,
+      name: data.name,
+      prefix: data.prefix,
+      apiType: data.apiType,
+      baseUrl: data.baseUrl,
+      createdAt: now,
+      updatedAt: now,
+    };
 
-  db.data.providerNodes.push(node);
-  await safeWrite(db);
+    db.data.providerNodes.push(node);
+    await persistDbWrite(db);
+  });
   return node;
 }
 
 export async function updateProviderNode(id, data) {
   const db = await getDb();
-  if (!db.data.providerNodes) db.data.providerNodes = [];
+  let result = null;
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    if (!db.data.providerNodes) db.data.providerNodes = [];
 
-  const index = db.data.providerNodes.findIndex((node) => node.id === id);
-  if (index === -1) return null;
+    const index = db.data.providerNodes.findIndex((node) => node.id === id);
+    if (index === -1) return;
 
-  db.data.providerNodes[index] = {
-    ...db.data.providerNodes[index],
-    ...data,
-    updatedAt: new Date().toISOString(),
-  };
+    db.data.providerNodes[index] = {
+      ...db.data.providerNodes[index],
+      ...data,
+      updatedAt: new Date().toISOString(),
+    };
 
-  await safeWrite(db);
-  return db.data.providerNodes[index];
+    await persistDbWrite(db);
+    result = db.data.providerNodes[index];
+  });
+  return result;
 }
 
 export async function deleteProviderNode(id) {
   const db = await getDb();
-  if (!db.data.providerNodes) db.data.providerNodes = [];
+  let removed = null;
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    if (!db.data.providerNodes) db.data.providerNodes = [];
 
-  const index = db.data.providerNodes.findIndex((node) => node.id === id);
-  if (index === -1) return null;
+    const index = db.data.providerNodes.findIndex((node) => node.id === id);
+    if (index === -1) return;
 
-  const [removed] = db.data.providerNodes.splice(index, 1);
-  await safeWrite(db);
+    [removed] = db.data.providerNodes.splice(index, 1);
+    await persistDbWrite(db);
+  });
   return removed;
 }
 
@@ -776,66 +809,83 @@ export async function getProxyPoolById(id) {
 
 export async function createProxyPool(data) {
   const db = await getDb();
-  if (!db.data.proxyPools) db.data.proxyPools = [];
+  let pool;
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    if (!db.data.proxyPools) db.data.proxyPools = [];
 
-  const now = new Date().toISOString();
-  const pool = {
-    id: data.id || uuidv4(),
-    name: data.name,
-    proxyUrl: data.proxyUrl,
-    noProxy: data.noProxy || "",
-    type: data.type || "http",
-    isActive: data.isActive !== undefined ? data.isActive : true,
-    strictProxy: data.strictProxy === true,
-    testStatus: data.testStatus || "unknown",
-    lastTestedAt: data.lastTestedAt || null,
-    lastError: data.lastError || null,
-    createdAt: now,
-    updatedAt: now,
-  };
+    const now = new Date().toISOString();
+    pool = {
+      id: data.id || uuidv4(),
+      name: data.name,
+      proxyUrl: data.proxyUrl,
+      noProxy: data.noProxy || "",
+      type: data.type || "http",
+      isActive: data.isActive !== undefined ? data.isActive : true,
+      strictProxy: data.strictProxy === true,
+      testStatus: data.testStatus || "unknown",
+      lastTestedAt: data.lastTestedAt || null,
+      lastError: data.lastError || null,
+      createdAt: now,
+      updatedAt: now,
+    };
 
-  db.data.proxyPools.push(pool);
-  await safeWrite(db);
+    db.data.proxyPools.push(pool);
+    await persistDbWrite(db);
+  });
   return pool;
 }
 
 export async function updateProxyPool(id, data) {
   const db = await getDb();
-  if (!db.data.proxyPools) db.data.proxyPools = [];
+  let result = null;
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    if (!db.data.proxyPools) db.data.proxyPools = [];
 
-  const index = db.data.proxyPools.findIndex((pool) => pool.id === id);
-  if (index === -1) return null;
+    const index = db.data.proxyPools.findIndex((pool) => pool.id === id);
+    if (index === -1) return;
 
-  db.data.proxyPools[index] = {
-    ...db.data.proxyPools[index],
-    ...data,
-    updatedAt: new Date().toISOString(),
-  };
+    db.data.proxyPools[index] = {
+      ...db.data.proxyPools[index],
+      ...data,
+      updatedAt: new Date().toISOString(),
+    };
 
-  await safeWrite(db);
-  return db.data.proxyPools[index];
+    await persistDbWrite(db);
+    result = db.data.proxyPools[index];
+  });
+  return result;
 }
 
 export async function deleteProxyPool(id) {
   const db = await getDb();
-  if (!db.data.proxyPools) db.data.proxyPools = [];
+  let removed = null;
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    if (!db.data.proxyPools) db.data.proxyPools = [];
 
-  const index = db.data.proxyPools.findIndex((pool) => pool.id === id);
-  if (index === -1) return null;
+    const index = db.data.proxyPools.findIndex((pool) => pool.id === id);
+    if (index === -1) return;
 
-  const [removed] = db.data.proxyPools.splice(index, 1);
-  await safeWrite(db);
+    [removed] = db.data.proxyPools.splice(index, 1);
+    await persistDbWrite(db);
+  });
   return removed;
 }
 
 export async function deleteProviderConnectionsByProvider(providerId) {
   const db = await getDb();
-  const beforeCount = db.data.providerConnections.length;
-  db.data.providerConnections = db.data.providerConnections.filter(
-    (connection) => connection.provider !== providerId
-  );
-  const deletedCount = beforeCount - db.data.providerConnections.length;
-  await safeWrite(db);
+  let deletedCount = 0;
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    const beforeCount = db.data.providerConnections.length;
+    db.data.providerConnections = db.data.providerConnections.filter(
+      (connection) => connection.provider !== providerId
+    );
+    deletedCount = beforeCount - db.data.providerConnections.length;
+    await persistDbWrite(db);
+  });
   if (deletedCount > 0) {
     clearHotStateForProvider(providerId);
     markProviderHotStateInvalidated(providerId);
@@ -973,73 +1023,85 @@ export async function createProviderConnection(data) {
 
     db.data.providerConnections.push(connection);
     await persistCollectionEntityWrite(db, "providerConnections", connection);
+    // Reorder INSIDE the lock to prevent another mutator from observing the
+    // half-applied state (H5).
+    await reorderProviderConnectionsLocked(db, normalizedData.provider);
     result = connection;
   });
-
-  // Reorder outside the lock to avoid holding it too long
-  await reorderProviderConnections(normalizedData.provider);
 
   return result;
 }
 
 export async function updateProviderConnection(id, data) {
   const db = await getDb();
-  const index = db.data.providerConnections.findIndex(c => c.id === id);
-  if (index === -1) return null;
+  let result = null;
 
-  const providerId = db.data.providerConnections[index].provider;
-  const current = db.data.providerConnections[index];
-  const sanitizedInput = stripLegacyMirrorStatusPatch(data || {});
-  const hotStatePatch = extractHotState(sanitizedInput);
-  const hasHotStateUpdates = Object.keys(hotStatePatch).length > 0;
-  const dbPatch = Object.fromEntries(
-    Object.entries(sanitizedInput).filter(([key]) => !(key in hotStatePatch))
-  );
-  const shouldStoreHotState = isHotOnlyUpdate(sanitizedInput);
-  const canUseRedisForHotState = shouldStoreHotState && await isRedisHotStateReady();
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
 
-  if (hasHotStateUpdates) {
-    const hotStateResult = await setConnectionHotState(id, providerId, hotStatePatch);
-    const persistedHotState = hotStateResult?.state || hotStatePatch;
+    const index = db.data.providerConnections.findIndex(c => c.id === id);
+    if (index === -1) {
+      result = null;
+      return;
+    }
+
+    const providerId = db.data.providerConnections[index].provider;
+    const current = db.data.providerConnections[index];
+    const sanitizedInput = stripLegacyMirrorStatusPatch(data || {});
+    const hotStatePatch = extractHotState(sanitizedInput);
+    const hasHotStateUpdates = Object.keys(hotStatePatch).length > 0;
+    const dbPatch = Object.fromEntries(
+      Object.entries(sanitizedInput).filter(([key]) => !(key in hotStatePatch))
+    );
+    const shouldStoreHotState = isHotOnlyUpdate(sanitizedInput);
+    const canUseRedisForHotState = shouldStoreHotState && await isRedisHotStateReady();
+
+    if (hasHotStateUpdates) {
+      const hotStateResult = await setConnectionHotState(id, providerId, hotStatePatch);
+      const persistedHotState = hotStateResult?.state || hotStatePatch;
+
+      db.data.providerConnections[index] = stripLegacyMirrorStatusFields({
+        ...db.data.providerConnections[index],
+        ...dbPatch,
+        ...persistedHotState,
+        updatedAt: new Date().toISOString(),
+      });
+
+      await persistCollectionEntityWrite(db, "providerConnections", db.data.providerConnections[index]);
+
+      if (data.priority !== undefined) await reorderProviderConnectionsLocked(db, providerId);
+
+      if (current && data.isActive === false) {
+        await deleteConnectionHotState(id, providerId);
+      }
+
+      result = db.data.providerConnections[index];
+      return;
+    }
 
     db.data.providerConnections[index] = stripLegacyMirrorStatusFields({
       ...db.data.providerConnections[index],
       ...dbPatch,
-      ...persistedHotState,
       updatedAt: new Date().toISOString(),
     });
 
-    await persistCollectionEntityWrite(db, "providerConnections", db.data.providerConnections[index]);
+    if (shouldSeedEligibility(db.data.providerConnections[index])) {
+      Object.assign(db.data.providerConnections[index], buildEligibilityRecoveryPatch());
+    }
 
-    if (data.priority !== undefined) await reorderProviderConnections(providerId);
+    if (!canUseRedisForHotState) {
+      await persistCollectionEntityWrite(db, "providerConnections", db.data.providerConnections[index]);
+    }
+    if (data.priority !== undefined) await reorderProviderConnectionsLocked(db, providerId);
 
     if (current && data.isActive === false) {
       await deleteConnectionHotState(id, providerId);
     }
 
-    return db.data.providerConnections[index];
-  }
-
-  db.data.providerConnections[index] = stripLegacyMirrorStatusFields({
-    ...db.data.providerConnections[index],
-    ...dbPatch,
-    updatedAt: new Date().toISOString(),
+    result = db.data.providerConnections[index];
   });
 
-  if (shouldSeedEligibility(db.data.providerConnections[index])) {
-    Object.assign(db.data.providerConnections[index], buildEligibilityRecoveryPatch());
-  }
-
-  if (!canUseRedisForHotState) {
-    await persistCollectionEntityWrite(db, "providerConnections", db.data.providerConnections[index]);
-  }
-  if (data.priority !== undefined) await reorderProviderConnections(providerId);
-
-  if (current && data.isActive === false) {
-    await deleteConnectionHotState(id, providerId);
-  }
-
-  return db.data.providerConnections[index];
+  return result;
 }
 
 export async function atomicUpdateProviderConnection(id, mutator) {
@@ -1085,7 +1147,7 @@ export async function atomicUpdateProviderConnection(id, mutator) {
 
       await persistDbWrite(db);
 
-      if (patch.priority !== undefined) await reorderProviderConnections(providerId);
+      if (patch.priority !== undefined) await reorderProviderConnectionsLocked(db, providerId);
 
       if (current && patch.isActive === false) {
         await deleteConnectionHotState(id, providerId);
@@ -1108,7 +1170,7 @@ export async function atomicUpdateProviderConnection(id, mutator) {
     if (!canUseRedisForHotState) {
       await persistDbWrite(db);
     }
-    if (patch.priority !== undefined) await reorderProviderConnections(providerId);
+    if (patch.priority !== undefined) await reorderProviderConnectionsLocked(db, providerId);
 
     if (current && patch.isActive === false) {
       await deleteConnectionHotState(id, providerId);
@@ -1122,20 +1184,39 @@ export async function atomicUpdateProviderConnection(id, mutator) {
 
 export async function deleteProviderConnection(id) {
   const db = await getDb();
-  const index = db.data.providerConnections.findIndex(c => c.id === id);
-  if (index === -1) return false;
+  let success = false;
+  let providerId = null;
 
-  const providerId = db.data.providerConnections[index].provider;
-  db.data.providerConnections.splice(index, 1);
-  await persistCollectionEntityDelete(db, "providerConnections", id);
-  await reorderProviderConnections(providerId);
-  await deleteConnectionHotState(id, providerId);
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
 
-  return true;
+    const index = db.data.providerConnections.findIndex(c => c.id === id);
+    if (index === -1) {
+      success = false;
+      return;
+    }
+
+    providerId = db.data.providerConnections[index].provider;
+    db.data.providerConnections.splice(index, 1);
+    await persistCollectionEntityDelete(db, "providerConnections", id);
+    await reorderProviderConnectionsLocked(db, providerId);
+    success = true;
+  });
+
+  if (success && providerId) {
+    await deleteConnectionHotState(id, providerId);
+  }
+
+  return success;
 }
 
-export async function reorderProviderConnections(providerId) {
-  const db = await getDb();
+/**
+ * Mutex-internal reorder. Assumes the caller already holds the local mutex
+ * and has done a fresh `safeRead`. Use this from inside `withLocalDbMutex`
+ * blocks to avoid the H5 race where a parallel mutator could observe a
+ * half-applied priority update.
+ */
+async function reorderProviderConnectionsLocked(db, providerId) {
   if (!db.data.providerConnections) return;
 
   const providerConnections = db.data.providerConnections
@@ -1153,6 +1234,14 @@ export async function reorderProviderConnections(providerId) {
   await persistCollectionEntitiesWrite(db, "providerConnections", providerConnections);
 }
 
+export async function reorderProviderConnections(providerId) {
+  const db = await getDb();
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    await reorderProviderConnectionsLocked(db, providerId);
+  });
+}
+
 export async function getModelAliases() {
   const db = await getDb();
   return db.data.modelAliases || {};
@@ -1160,14 +1249,22 @@ export async function getModelAliases() {
 
 export async function setModelAlias(alias, model) {
   const db = await getDb();
-  db.data.modelAliases[alias] = model;
-  await safeWrite(db);
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    if (!db.data.modelAliases) db.data.modelAliases = {};
+    db.data.modelAliases[alias] = model;
+    await persistDbWrite(db);
+  });
 }
 
 export async function deleteModelAlias(alias) {
   const db = await getDb();
-  delete db.data.modelAliases[alias];
-  await safeWrite(db);
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    if (!db.data.modelAliases) db.data.modelAliases = {};
+    delete db.data.modelAliases[alias];
+    await persistDbWrite(db);
+  });
 }
 
 // Custom models — user-added models with explicit type (llm/image/tts/embedding/...)
@@ -1178,23 +1275,31 @@ export async function getCustomModels() {
 
 export async function addCustomModel({ providerAlias, id, type = "llm", name }) {
   const db = await getDb();
-  if (!db.data.customModels) db.data.customModels = [];
-  const exists = db.data.customModels.some(
-    (m) => m.providerAlias === providerAlias && m.id === id && (m.type || "llm") === type
-  );
-  if (exists) return false;
-  db.data.customModels.push({ providerAlias, id, type, name: name || id });
-  await safeWrite(db);
-  return true;
+  let added = false;
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    if (!db.data.customModels) db.data.customModels = [];
+    const exists = db.data.customModels.some(
+      (m) => m.providerAlias === providerAlias && m.id === id && (m.type || "llm") === type
+    );
+    if (exists) return;
+    db.data.customModels.push({ providerAlias, id, type, name: name || id });
+    await persistDbWrite(db);
+    added = true;
+  });
+  return added;
 }
 
 export async function deleteCustomModel({ providerAlias, id, type = "llm" }) {
   const db = await getDb();
-  if (!db.data.customModels) return;
-  db.data.customModels = db.data.customModels.filter(
-    (m) => !(m.providerAlias === providerAlias && m.id === id && (m.type || "llm") === type)
-  );
-  await safeWrite(db);
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    if (!db.data.customModels) return;
+    db.data.customModels = db.data.customModels.filter(
+      (m) => !(m.providerAlias === providerAlias && m.id === id && (m.type || "llm") === type)
+    );
+    await persistDbWrite(db);
+  });
 }
 
 export async function getMitmAlias(toolName) {
@@ -1245,49 +1350,63 @@ export async function getComboByName(name) {
 
 export async function createCombo(data) {
   const db = await getDb();
-  if (!db.data.combos) db.data.combos = [];
+  let combo;
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    if (!db.data.combos) db.data.combos = [];
 
-  const now = new Date().toISOString();
-  const combo = {
-    id: uuidv4(),
-    name: data.name,
-    models: data.models || [],
-    createdAt: now,
-    updatedAt: now,
-  };
+    const now = new Date().toISOString();
+    combo = {
+      id: uuidv4(),
+      name: data.name,
+      models: data.models || [],
+      createdAt: now,
+      updatedAt: now,
+    };
 
-  db.data.combos.push(combo);
-  await safeWrite(db);
+    db.data.combos.push(combo);
+    await persistDbWrite(db);
+  });
   return combo;
 }
 
 export async function updateCombo(id, data) {
   const db = await getDb();
-  if (!db.data.combos) db.data.combos = [];
+  let result = null;
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    if (!db.data.combos) db.data.combos = [];
 
-  const index = db.data.combos.findIndex(c => c.id === id);
-  if (index === -1) return null;
+    const index = db.data.combos.findIndex(c => c.id === id);
+    if (index === -1) return;
 
-  db.data.combos[index] = {
-    ...db.data.combos[index],
-    ...data,
-    updatedAt: new Date().toISOString(),
-  };
+    db.data.combos[index] = {
+      ...db.data.combos[index],
+      ...data,
+      updatedAt: new Date().toISOString(),
+    };
 
-  await safeWrite(db);
-  return db.data.combos[index];
+    await persistDbWrite(db);
+    result = db.data.combos[index];
+  });
+  return result;
 }
 
 export async function deleteCombo(id) {
   const db = await getDb();
-  if (!db.data.combos) return false;
+  let success = false;
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    if (!db.data.combos) return;
 
-  const index = db.data.combos.findIndex(c => c.id === id);
-  if (index === -1) return false;
+    const index = db.data.combos.findIndex(c => c.id === id);
+    if (index === -1) return;
 
-  db.data.combos.splice(index, 1);
-  await safeWrite(db);
-  return true;
+    db.data.combos.splice(index, 1);
+    await persistDbWrite(db);
+    success = true;
+  });
+  return success;
 }
 
 export async function getApiKeys() {
@@ -1313,28 +1432,39 @@ export async function createApiKey(name, machineId) {
   const { generateApiKeyWithMachine } = await import("@/shared/utils/apiKey");
   const result = generateApiKeyWithMachine(machineId);
 
-  const apiKey = {
-    id: uuidv4(),
-    name: name,
-    key: result.key,
-    machineId: machineId,
-    isActive: true,
-    createdAt: now,
-  };
+  let apiKey;
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    if (!db.data.apiKeys) db.data.apiKeys = [];
+    apiKey = {
+      id: uuidv4(),
+      name: name,
+      key: result.key,
+      machineId: machineId,
+      isActive: true,
+      createdAt: now,
+    };
 
-  db.data.apiKeys.push(apiKey);
-  await safeWrite(db);
+    db.data.apiKeys.push(apiKey);
+    await persistDbWrite(db);
+  });
   return apiKey;
 }
 
 export async function deleteApiKey(id) {
   const db = await getDb();
-  const index = db.data.apiKeys.findIndex(k => k.id === id);
-  if (index === -1) return false;
+  let success = false;
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    if (!db.data.apiKeys) db.data.apiKeys = [];
+    const index = db.data.apiKeys.findIndex(k => k.id === id);
+    if (index === -1) return;
 
-  db.data.apiKeys.splice(index, 1);
-  await safeWrite(db);
-  return true;
+    db.data.apiKeys.splice(index, 1);
+    await persistDbWrite(db);
+    success = true;
+  });
+  return success;
 }
 
 export async function getApiKeyById(id) {
@@ -1344,11 +1474,17 @@ export async function getApiKeyById(id) {
 
 export async function updateApiKey(id, data) {
   const db = await getDb();
-  const index = db.data.apiKeys.findIndex(k => k.id === id);
-  if (index === -1) return null;
-  db.data.apiKeys[index] = { ...db.data.apiKeys[index], ...data };
-  await safeWrite(db);
-  return db.data.apiKeys[index];
+  let result = null;
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    if (!db.data.apiKeys) db.data.apiKeys = [];
+    const index = db.data.apiKeys.findIndex(k => k.id === id);
+    if (index === -1) return;
+    db.data.apiKeys[index] = { ...db.data.apiKeys[index], ...data };
+    await persistDbWrite(db);
+    result = db.data.apiKeys[index];
+  });
+  return result;
 }
 
 export async function validateApiKey(key) {
@@ -1368,20 +1504,24 @@ export async function cleanupProviderConnections() {
   ];
 
   let cleaned = 0;
-  for (const connection of db.data.providerConnections) {
-    for (const field of fieldsToCheck) {
-      if (connection[field] === null || connection[field] === undefined) {
-        delete connection[field];
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    cleaned = 0;
+    for (const connection of db.data.providerConnections) {
+      for (const field of fieldsToCheck) {
+        if (connection[field] === null || connection[field] === undefined) {
+          delete connection[field];
+          cleaned++;
+        }
+      }
+      if (connection.providerSpecificData && Object.keys(connection.providerSpecificData).length === 0) {
+        delete connection.providerSpecificData;
         cleaned++;
       }
     }
-    if (connection.providerSpecificData && Object.keys(connection.providerSpecificData).length === 0) {
-      delete connection.providerSpecificData;
-      cleaned++;
-    }
-  }
 
-  if (cleaned > 0) await safeWrite(db);
+    if (cleaned > 0) await persistDbWrite(db);
+  });
   return cleaned;
 }
 
@@ -1466,30 +1606,51 @@ export async function updateSettings(updates) {
     ? { ...updates }
     : {};
 
-  db.data.settings = mergeSettingsWithDefaults({
-    ...db.data.settings,
-    ...nextUpdates,
-    quotaScheduler: {
-      ...(db.data.settings?.quotaScheduler || {}),
-      ...(nextUpdates?.quotaScheduler || {}),
-    },
+  let result = null;
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    db.data.settings = mergeSettingsWithDefaults({
+      ...db.data.settings,
+      ...nextUpdates,
+      quotaScheduler: {
+        ...(db.data.settings?.quotaScheduler || {}),
+        ...(nextUpdates?.quotaScheduler || {}),
+      },
+    });
+    await persistDbWrite(db);
+    result = db.data.settings;
   });
-  await safeWrite(db);
-  return db.data.settings;
+  return result;
+}
+
+function stripHotStateFromConnection(connection) {
+  if (!connection || typeof connection !== "object") return connection;
+  const cleaned = {};
+  for (const [key, value] of Object.entries(connection)) {
+    if (isHotStateKey(key)) continue;
+    cleaned[key] = value;
+  }
+  return cleaned;
 }
 
 export async function exportDb() {
   const db = await getDb();
+  const data = db.data || cloneDefaultData();
+  const sanitizedConnections = Array.isArray(data.providerConnections)
+    ? data.providerConnections.map(stripHotStateFromConnection)
+    : [];
   return {
     format: DB_BACKUP_FORMAT,
-    ...(db.data || cloneDefaultData()),
+    schemaVersion: DB_BACKUP_SCHEMA_VERSION,
+    ...data,
+    providerConnections: sanitizedConnections,
   };
 }
 
 export async function importDb(payload) {
   validateDbImportPayload(payload);
 
-  const { format: _format, ...importPayload } = payload;
+  const { format: _format, schemaVersion: _schemaVersion, ...importPayload } = payload;
 
   const nextData = {
     ...cloneDefaultData(),
@@ -1506,12 +1667,18 @@ export async function importDb(payload) {
 
   const { data: normalized } = ensureDbShape(nextData);
   const db = await getDb();
-  const invalidatedProviders = new Set((db.data.providerConnections || []).map((connection) => connection?.provider).filter(Boolean));
-  for (const connection of normalized.providerConnections || []) {
-    if (connection?.provider) invalidatedProviders.add(connection.provider);
-  }
-  db.data = normalized;
-  await safeWrite(db);
+  const invalidatedProviders = new Set();
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    for (const conn of db.data.providerConnections || []) {
+      if (conn?.provider) invalidatedProviders.add(conn.provider);
+    }
+    for (const connection of normalized.providerConnections || []) {
+      if (connection?.provider) invalidatedProviders.add(connection.provider);
+    }
+    db.data = normalized;
+    await persistDbWrite(db);
+  });
   await clearAllHotState();
   rebuildHotStateFromConnections(db.data.providerConnections || []);
   for (const providerId of invalidatedProviders) {
@@ -1583,43 +1750,58 @@ export async function getPricingForModel(provider, model) {
 
 export async function updatePricing(pricingData) {
   const db = await getDb();
-  if (!db.data.pricing) db.data.pricing = {};
+  let result = null;
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    if (!db.data.pricing) db.data.pricing = {};
 
-  for (const [provider, models] of Object.entries(pricingData)) {
-    if (!db.data.pricing[provider]) db.data.pricing[provider] = {};
-    for (const [model, pricing] of Object.entries(models)) {
-      db.data.pricing[provider][model] = pricing;
+    for (const [provider, models] of Object.entries(pricingData)) {
+      if (!db.data.pricing[provider]) db.data.pricing[provider] = {};
+      for (const [model, pricing] of Object.entries(models)) {
+        db.data.pricing[provider][model] = pricing;
+      }
     }
-  }
 
-  await safeWrite(db);
-  return db.data.pricing;
+    await persistDbWrite(db);
+    result = db.data.pricing;
+  });
+  return result;
 }
 
 export async function resetPricing(provider, model) {
   const db = await getDb();
-  if (!db.data.pricing) db.data.pricing = {};
+  let result = null;
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    if (!db.data.pricing) db.data.pricing = {};
 
-  if (model) {
-    if (db.data.pricing[provider]) {
-      delete db.data.pricing[provider][model];
-      if (Object.keys(db.data.pricing[provider]).length === 0) {
-        delete db.data.pricing[provider];
+    if (model) {
+      if (db.data.pricing[provider]) {
+        delete db.data.pricing[provider][model];
+        if (Object.keys(db.data.pricing[provider]).length === 0) {
+          delete db.data.pricing[provider];
+        }
       }
+    } else {
+      delete db.data.pricing[provider];
     }
-  } else {
-    delete db.data.pricing[provider];
-  }
 
-  await safeWrite(db);
-  return db.data.pricing;
+    await persistDbWrite(db);
+    result = db.data.pricing;
+  });
+  return result;
 }
 
 export async function resetAllPricing() {
   const db = await getDb();
-  db.data.pricing = {};
-  await safeWrite(db);
-  return db.data.pricing;
+  let result = null;
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    db.data.pricing = {};
+    await persistDbWrite(db);
+    result = db.data.pricing;
+  });
+  return result;
 }
 
 // --- OpenCode Sync ---
@@ -1645,16 +1827,21 @@ export async function getOpenCodePreferences() {
 
 export async function updateOpenCodePreferences(updates) {
   const db = await getDb();
-  db.data.opencodeSync = normalizeOpenCodeSyncDomain(db.data.opencodeSync);
+  let result = null;
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    db.data.opencodeSync = normalizeOpenCodeSyncDomain(db.data.opencodeSync);
 
-  const current = normalizeOpenCodePreferences(db.data.opencodeSync.preferences);
-  db.data.opencodeSync.preferences = validateOpenCodePreferences({
-    ...current,
-    ...(updates && typeof updates === "object" && !Array.isArray(updates) ? updates : {}),
+    const current = normalizeOpenCodePreferences(db.data.opencodeSync.preferences);
+    db.data.opencodeSync.preferences = validateOpenCodePreferences({
+      ...current,
+      ...(updates && typeof updates === "object" && !Array.isArray(updates) ? updates : {}),
+    });
+
+    await persistDbWrite(db);
+    result = db.data.opencodeSync.preferences;
   });
-
-  await safeWrite(db);
-  return db.data.opencodeSync.preferences;
+  return result;
 }
 
 export async function listOpenCodeTokens() {
@@ -1664,8 +1851,13 @@ export async function listOpenCodeTokens() {
 
 export async function replaceOpenCodeTokens(tokens) {
   const db = await getDb();
-  db.data.opencodeSync = normalizeOpenCodeSyncDomain(db.data.opencodeSync);
-  db.data.opencodeSync.tokens = Array.isArray(tokens) ? [...tokens] : [];
-  await safeWrite(db);
-  return db.data.opencodeSync.tokens;
+  let result = null;
+  await withLocalDbMutex(async () => {
+    await safeRead(db);
+    db.data.opencodeSync = normalizeOpenCodeSyncDomain(db.data.opencodeSync);
+    db.data.opencodeSync.tokens = Array.isArray(tokens) ? [...tokens] : [];
+    await persistDbWrite(db);
+    result = db.data.opencodeSync.tokens;
+  });
+  return result;
 }

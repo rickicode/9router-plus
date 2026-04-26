@@ -46,7 +46,7 @@ export default function Sidebar({ onClose }) {
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [enableTranslator, setEnableTranslator] = useState(false);
-  const [redisInfo, setRedisInfo] = useState(null);
+  const [routingLatency, setRoutingLatency] = useState(null);
   const { copied, copy } = useCopyToClipboard(2000);
 
   useEffect(() => {
@@ -62,11 +62,30 @@ export default function Sidebar({ onClose }) {
     ])
       .then(([settingsData, versionData]) => {
         if (settingsData.enableTranslator) setEnableTranslator(true);
-        setRedisInfo(settingsData.redis || null);
 
         if (versionData.hasUpdate) setUpdateInfo(versionData);
       })
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchLatency = async () => {
+      try {
+        const res = await fetch("/api/routing/latency", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setRoutingLatency(data);
+      } catch {
+        // network errors are expected during shutdown / hot-reload
+      }
+    };
+    fetchLatency();
+    const interval = setInterval(fetchLatency, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
   const isActive = (href) => {
@@ -77,32 +96,53 @@ export default function Sidebar({ onClose }) {
     return pathname.startsWith(href);
   };
 
-  const redisStatus = (() => {
-    if (!redisInfo) return null;
-    const serverName = redisInfo.server?.name || redisInfo.server?.url || "Redis";
-    const ready = redisInfo.lastStatus?.ready === true;
-    const configured = redisInfo.enabled === true || Boolean(redisInfo.server);
-    if (ready) {
+  const routingStatus = (() => {
+    if (!routingLatency) {
       return {
-        label: "Redis Active",
-        detail: serverName,
-        className: "border-[var(--color-success)]/30 text-[var(--color-success)]",
-        dotClassName: "bg-[var(--color-success)]",
+        label: "API Routing",
+        detail: "Measuring…",
+        className: "border-[var(--color-text-muted)]/30 text-[var(--color-text-muted)]",
+        dotClassName: "bg-[var(--color-text-muted)]",
       };
     }
-    if (configured) {
+
+    const formatMs = (value) => {
+      if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+      if (value < 10) return `${value.toFixed(1)} ms`;
+      return `${Math.round(value)} ms`;
+    };
+
+    const { count, p50, p95, lastMs, errorCount } = routingLatency;
+    const sampleCount = typeof count === "number" ? count : 0;
+
+    if (!sampleCount) {
       return {
-        label: "Redis Offline",
-        detail: serverName,
-        className: "border-[var(--color-warning)]/30 text-[var(--color-warning)]",
-        dotClassName: "bg-[var(--color-warning)]",
+        label: "API Routing",
+        detail: "Idle (no traffic)",
+        className: "border-[var(--color-text-muted)]/30 text-[var(--color-text-muted)]",
+        dotClassName: "bg-[var(--color-text-muted)]",
       };
     }
+
+    const headline = formatMs(p50 ?? lastMs);
+    const detail = `${sampleCount} req · p95 ${formatMs(p95)}`;
+
+    let cls = "border-[var(--color-success)]/30 text-[var(--color-success)]";
+    let dot = "bg-[var(--color-success)]";
+    if ((p95 ?? p50 ?? 0) > 500) {
+      cls = "border-[var(--color-warning)]/30 text-[var(--color-warning)]";
+      dot = "bg-[var(--color-warning)]";
+    }
+    if ((p95 ?? p50 ?? 0) > 2000 || (errorCount && errorCount > sampleCount * 0.1)) {
+      cls = "border-[var(--color-danger)]/30 text-[var(--color-danger)]";
+      dot = "bg-[var(--color-danger)]";
+    }
+
     return {
-      label: "Local DB Mode",
-      detail: "Fallback storage",
-      className: "border-[var(--color-text-muted)]/30 text-[var(--color-text-muted)]",
-      dotClassName: "bg-[var(--color-text-muted)]",
+      label: `API ${headline}`,
+      detail,
+      className: cls,
+      dotClassName: dot,
     };
   })();
 
@@ -326,21 +366,21 @@ export default function Sidebar({ onClose }) {
 
         {/* Footer section */}
         <div className="flex flex-col gap-3 border-t border-[var(--color-border)] p-4">
-          {redisStatus && (
+          {routingStatus && (
             <div className={cn(
               "flex items-center justify-between rounded border px-3 py-2.5 text-xs transition-all duration-300",
               "bg-[var(--color-bg-alt)]",
-              redisStatus.className
+              routingStatus.className
             )}>
               <div className="flex items-center gap-2.5">
                 <div className="relative flex size-2 items-center justify-center">
-                  <span className={cn("absolute inline-flex h-full w-full animate-ping rounded-full opacity-30", redisStatus.dotClassName)} />
-                  <span className={cn("relative inline-flex size-2 rounded-full", redisStatus.dotClassName)} />
+                  <span className={cn("absolute inline-flex h-full w-full animate-ping rounded-full opacity-30", routingStatus.dotClassName)} />
+                  <span className={cn("relative inline-flex size-2 rounded-full", routingStatus.dotClassName)} />
                 </div>
-                <span className="font-medium tracking-tight text-[var(--color-text-main)]">{redisStatus.label}</span>
+                <span className="font-medium tracking-tight text-[var(--color-text-main)]">{routingStatus.label}</span>
               </div>
-              <span className="max-w-[100px] truncate text-[10px] font-medium opacity-60 mix-blend-luminosity">
-                {redisStatus.detail}
+              <span className="max-w-[140px] truncate text-[10px] font-medium opacity-60 mix-blend-luminosity">
+                {routingStatus.detail}
               </span>
             </div>
           )}

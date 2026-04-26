@@ -4,6 +4,7 @@ import { getEligibleConnections } from "@/lib/providerHotState";
 import { getConnectionStatusDetails } from "@/lib/connectionStatus";
 import { resolveProviderId } from "@/shared/constants/providers.js";
 import { getInternalProxyTokens } from "@/lib/internalProxyTokens";
+import { recordRoutingLatency } from "@/lib/routingLatency";
 
 const INTERNAL_AUTH_HEADER = "x-internal-auth";
 
@@ -100,61 +101,82 @@ function pickConnections(selectionPool = [], strategy = "fill-first") {
 }
 
 export async function POST(request) {
-  if (!(await hasValidInternalAuth(request))) {
-    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-  }
+  const startedAt = Date.now();
+  let providerForMetric = null;
+  let metricStatus = "ok";
 
-  let payload;
   try {
-    payload = await request.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "invalid_request" }, { status: 400 });
+    if (!(await hasValidInternalAuth(request))) {
+      metricStatus = "unauthorized";
+      return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+    }
+
+    let payload;
+    try {
+      payload = await request.json();
+    } catch {
+      metricStatus = "invalid_request";
+      return NextResponse.json({ ok: false, error: "invalid_request" }, { status: 400 });
+    }
+
+    const providerInput = payload?.provider;
+    const model = payload?.model || null;
+    const protocolFamily = payload?.protocolFamily;
+    const publicPath = payload?.publicPath;
+
+    if (!providerInput || !model || !protocolFamily || !publicPath) {
+      metricStatus = "invalid_request";
+      return NextResponse.json({ ok: false, error: "invalid_request" }, { status: 400 });
+    }
+
+    if (!validateRouteContract(protocolFamily, publicPath)) {
+      metricStatus = "invalid_route_contract";
+      return NextResponse.json({ ok: false, error: "invalid_route_contract" }, { status: 400 });
+    }
+
+    const provider = resolveProviderId(providerInput);
+    providerForMetric = provider;
+    const connections = await getProviderConnections({ provider, isActive: true });
+    const availableConnections = Array.isArray(connections) ? connections : [];
+
+    const centralizedEligibleConnections = await getEligibleConnections(provider, availableConnections);
+    const selectionPool = Array.isArray(centralizedEligibleConnections)
+      ? centralizedEligibleConnections
+      : availableConnections.filter((connection) => getConnectionStatusDetails(connection).status === "eligible");
+
+    if (selectionPool.length === 0) {
+      metricStatus = "no_routable_connection";
+      return NextResponse.json({ ok: false, error: "no_routable_connection", owner: "9router" }, { status: 503 });
+    }
+
+    const settings = await getSettings();
+    const providerOverride = (settings?.providerStrategies || {})[provider] || {};
+    const strategy = providerOverride.fallbackStrategy || settings?.fallbackStrategy || "fill-first";
+
+    const { chosen, fallbackChain } = pickConnections(selectionPool, strategy);
+    const ttlSeconds = normalizeTtlSeconds();
+
+    return NextResponse.json({
+      ok: true,
+      owner: "9router",
+      resolution: {
+        provider,
+        model,
+        protocolFamily,
+        publicPath,
+        ttlSeconds,
+        chosenConnection: sanitizeConnection(chosen),
+        fallbackChain: fallbackChain.length > 0 ? fallbackChain.map(sanitizeConnection) : undefined,
+      },
+    });
+  } catch (error) {
+    metricStatus = "error";
+    throw error;
+  } finally {
+    recordRoutingLatency({
+      ms: Date.now() - startedAt,
+      providerId: providerForMetric,
+      status: metricStatus,
+    });
   }
-
-  const providerInput = payload?.provider;
-  const model = payload?.model || null;
-  const protocolFamily = payload?.protocolFamily;
-  const publicPath = payload?.publicPath;
-
-  if (!providerInput || !model || !protocolFamily || !publicPath) {
-    return NextResponse.json({ ok: false, error: "invalid_request" }, { status: 400 });
-  }
-
-  if (!validateRouteContract(protocolFamily, publicPath)) {
-    return NextResponse.json({ ok: false, error: "invalid_route_contract" }, { status: 400 });
-  }
-
-  const provider = resolveProviderId(providerInput);
-  const connections = await getProviderConnections({ provider, isActive: true });
-  const availableConnections = Array.isArray(connections) ? connections : [];
-
-  const centralizedEligibleConnections = await getEligibleConnections(provider, availableConnections);
-  const selectionPool = Array.isArray(centralizedEligibleConnections)
-    ? centralizedEligibleConnections
-    : availableConnections.filter((connection) => getConnectionStatusDetails(connection).status === "eligible");
-
-  if (selectionPool.length === 0) {
-    return NextResponse.json({ ok: false, error: "no_routable_connection", owner: "9router" }, { status: 503 });
-  }
-
-  const settings = await getSettings();
-  const providerOverride = (settings?.providerStrategies || {})[provider] || {};
-  const strategy = providerOverride.fallbackStrategy || settings?.fallbackStrategy || "fill-first";
-
-  const { chosen, fallbackChain } = pickConnections(selectionPool, strategy);
-  const ttlSeconds = normalizeTtlSeconds();
-
-  return NextResponse.json({
-    ok: true,
-    owner: "9router",
-    resolution: {
-      provider,
-      model,
-      protocolFamily,
-      publicPath,
-      ttlSeconds,
-      chosenConnection: sanitizeConnection(chosen),
-      fallbackChain: fallbackChain.length > 0 ? fallbackChain.map(sanitizeConnection) : undefined,
-    },
-  });
 }
