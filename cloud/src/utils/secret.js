@@ -44,7 +44,7 @@ export function constantTimeEqual(a, b) {
  * Validate that a presented secret matches the secret stored for a machine.
  *
  * @param {string | null} presented - secret extracted from the request
- * @param {Object | null} data - machine data loaded from D1, may be null
+ * @param {Object | null} data - machine data loaded from R2, may be null
  * @returns {boolean}
  */
 export function isSecretValid(presented, data) {

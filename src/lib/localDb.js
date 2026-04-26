@@ -82,6 +82,12 @@ const DEFAULT_SETTINGS = {
   trustedProxyEnabled: false,
   auditLogEnabled: true,
   auditLogMaxSize: 10485760, // 10MB
+
+  // R2 backup settings
+  r2BackupEnabled: false,
+  r2SqliteBackupSchedule: "daily", // "daily", "weekly", "monthly"
+  r2LastBackupAt: null,
+  r2LastRestoreAt: null,
 };
 
 const LEGACY_REMOVED_SETTINGS_KEYS = [
