@@ -1,40 +1,44 @@
+/**
+ * Legacy helpers for the old per-machineId chat path on the Cloudflare Worker.
+ *
+ * The dashboard now drives all cloud configuration; the env-based fallback
+ * (`NEXT_PUBLIC_CLOUD_URL`) has been removed. These helpers stay for the
+ * occasional caller that still references them, but they only work when a
+ * cloud URL has been configured in the dashboard via Endpoint → Cloud.
+ */
 import { getMachineId } from "@/shared/utils/machine";
+import { getCloudUrl as resolveCloudUrl } from "@/lib/cloudUrlResolver";
 
-// Function to get cloud URL with machine ID
-export function getCloudUrl(machineId) {
-  // Get from environment or default to localhost:8787
-  const cloudUrl = process.env.NEXT_PUBLIC_CLOUD_URL || "http://localhost:8787";
-  return `${cloudUrl}/${machineId}/v1/chat/completions`;
+/**
+ * Build the legacy `/{machineId}/v1/chat/completions` URL for a configured
+ * cloud worker. Throws if no worker has been configured.
+ */
+export async function getCloudChatUrl(machineId) {
+  const base = await resolveCloudUrl();
+  return `${base}/${machineId}/v1/chat/completions`;
 }
 
-// Function to call cloud with machine ID
 export async function callCloudWithMachineId(request) {
   const machineId = await getMachineId();
   if (!machineId) {
     throw new Error("Could not get machine ID");
   }
 
-  const cloudUrl = getCloudUrl(machineId);
-  
-  // Get the original request body and headers
+  const cloudUrl = await getCloudChatUrl(machineId);
   const body = await request.json();
   const headers = new Headers(request.headers);
-  
-  // Remove authorization header since cloud won't need it (uses machineId instead)
   headers.delete("authorization");
-  
-  // Call the cloud with machine ID
-  const response = await fetch(cloudUrl, {
+
+  return fetch(cloudUrl, {
     method: "POST",
-    headers: headers,
-    body: JSON.stringify(body)
+    headers,
+    body: JSON.stringify(body),
   });
-  
-  return response;
 }
 
-// Function to periodically sync provider data to cloud (now a no-op)
-export function startProviderSync(cloudUrl, intervalMs = 900000) { // Default 15 minutes
+// Frontend periodic sync was retired; the new sync flow lives in
+// `src/lib/cloudSync.js` and is triggered by the dashboard server-side.
+export function startProviderSync() {
   console.log("Frontend sync is disabled. Use backend sync instead.");
   return null;
 }

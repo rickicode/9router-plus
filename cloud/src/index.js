@@ -15,6 +15,12 @@ import { handleForwardRaw } from "./handlers/forwardRaw.js";
 import { handleEmbeddings } from "./handlers/embeddings.js";
 import { handleUsage } from "./handlers/usage.js";
 import { handleHealth } from "./handlers/health.js";
+import {
+  handleAdminHealth,
+  handleAdminRegister,
+  handleAdminStatusJson,
+  handleAdminStatusHtml
+} from "./handlers/admin.js";
 import { createLandingPageResponse } from "./services/landingPage.js";
 import { cleanupExpiredSessions, limitUsageMapSize } from "./services/state.js";
 
@@ -92,6 +98,31 @@ const worker = {
         return new Response(JSON.stringify({ status: "ok" }), {
           headers: { "Content-Type": "application/json" }
         });
+      }
+
+      // Admin endpoints (secret-protected, except /admin/health which is public)
+      if (path === "/admin/health" && request.method === "GET") {
+        const response = handleAdminHealth();
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
+      }
+
+      if (path === "/admin/register" && request.method === "POST") {
+        const response = await handleAdminRegister(request, env);
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
+      }
+
+      if (path === "/admin/status.json" && request.method === "GET") {
+        const response = await handleAdminStatusJson(request, env);
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
+      }
+
+      if (path === "/admin/status" && request.method === "GET") {
+        const response = await handleAdminStatusHtml(request, env);
+        log.response(response.status, Date.now() - startTime);
+        return response;
       }
 
       // Ollama compatible - list models

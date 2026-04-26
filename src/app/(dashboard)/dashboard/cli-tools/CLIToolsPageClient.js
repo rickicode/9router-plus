@@ -7,7 +7,8 @@ import { getModelsByProviderId, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/
 import { ClaudeToolCard, CodexToolCard, DroidToolCard, OpenClawToolCard, HermesToolCard, DefaultToolCard, OpenCodeToolCard, PiToolCard, MitmLinkCard } from "./components";
 import { MITM_TOOLS } from "@/shared/constants/cliTools";
 
-const CLOUD_URL = process.env.NEXT_PUBLIC_CLOUD_URL;
+// Cloud URL is now sourced from settings.cloudUrls (configured via the
+// dashboard) rather than from build-time NEXT_PUBLIC_CLOUD_URL.
 
 
 const STATUS_ENDPOINTS = {
@@ -26,6 +27,7 @@ export default function CLIToolsPageClient({ machineId }) {
   const [expandedTool, setExpandedTool] = useState(null);
   const [modelMappings, setModelMappings] = useState({});
   const [cloudEnabled, setCloudEnabled] = useState(false);
+  const [cloudUrl, setCloudUrl] = useState("");
   const [tunnelEnabled, setTunnelEnabled] = useState(false);
   const [tunnelPublicUrl, setTunnelPublicUrl] = useState("");
   const [apiKeys, setApiKeys] = useState([]);
@@ -66,6 +68,13 @@ export default function CLIToolsPageClient({ machineId }) {
       if (settingsRes.ok) {
         const data = await settingsRes.json();
         setCloudEnabled(data.cloudEnabled || false);
+        // Pick the first configured cloud URL as the active one. The dashboard
+        // is the single source of truth for cloud worker URLs now — there is
+        // no env var fallback.
+        const firstCloud = Array.isArray(data.cloudUrls)
+          ? data.cloudUrls.find((c) => c?.url)
+          : null;
+        setCloudUrl(firstCloud?.url || "");
       }
       if (tunnelRes.ok) {
         const data = await tunnelRes.json();
@@ -132,7 +141,7 @@ export default function CLIToolsPageClient({ machineId }) {
 
   const getBaseUrl = () => {
     if (tunnelEnabled && tunnelPublicUrl) return tunnelPublicUrl;
-    if (cloudEnabled && CLOUD_URL) return CLOUD_URL;
+    if (cloudEnabled && cloudUrl) return cloudUrl;
     if (typeof window !== "undefined") return window.location.origin;
     return "http://localhost:20128";
   };
@@ -156,6 +165,7 @@ export default function CLIToolsPageClient({ machineId }) {
       isExpanded: expandedTool === toolId,
       onToggle: () => setExpandedTool(expandedTool === toolId ? null : toolId),
       baseUrl: getBaseUrl(),
+      cloudUrl,
       apiKeys,
     };
 

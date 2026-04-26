@@ -1,9 +1,7 @@
 import * as log from "../utils/logger.js";
 import { getMachineData, saveMachineData, deleteMachineData } from "../services/storage.js";
 import { updateLastSync } from "../services/state.js";
-import { errorResponse } from "open-sse/utils/error.js";
-import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
-import { validateApiKey } from "./chat.js";
+import { extractSecret, isSecretValid } from "../utils/secret.js";
 
 const CORS_HEADERS = {
   "Content-Type": "application/json",
@@ -36,26 +34,47 @@ export async function handleSync(request, env, ctx) {
   // Route by method
   switch (request.method) {
     case "GET":
-      return handleGet(machineId, env);
+      return handleGet(request, machineId, env);
     case "POST":
       return handlePost(request, machineId, env);
     case "DELETE":
-      return handleDelete(machineId, env);
+      return handleDelete(request, machineId, env);
     default:
       return jsonResponse({ error: "Method not allowed" }, 405);
   }
 }
 
 /**
- * GET /sync/:machineId - Return merged data for Web to update
+ * Helper: load machine data and verify the presented secret.
+ * Returns either { ok: true, data } or { ok: false, response }.
  */
-async function handleGet(machineId, env) {
+async function authorize(request, machineId, env, { requireExisting = true } = {}) {
   const data = await getMachineData(machineId, env);
+  const presented = extractSecret(request);
 
   if (!data) {
-    log.warn("SYNC", "No data found", { machineId });
-    return jsonResponse({ error: "No data found" }, 404);
+    if (requireExisting) {
+      log.warn("SYNC", "Machine not registered", { machineId });
+      return { ok: false, response: jsonResponse({ error: "Machine not registered. Call POST /admin/register first." }, 404) };
+    }
+    return { ok: true, data: null };
   }
+
+  if (!isSecretValid(presented, data)) {
+    log.warn("SYNC", "Invalid secret", { machineId });
+    return { ok: false, response: jsonResponse({ error: "Unauthorized" }, 401) };
+  }
+
+  return { ok: true, data };
+}
+
+/**
+ * GET /sync/:machineId - Return merged data for Web to update
+ */
+async function handleGet(request, machineId, env) {
+  const auth = await authorize(request, machineId, env);
+  if (!auth.ok) return auth.response;
+  const data = auth.data;
 
   log.info("SYNC", "Data retrieved", { machineId });
   return jsonResponse({
@@ -69,16 +88,12 @@ async function handleGet(machineId, env) {
  * providers stored by ID (supports multiple connections per provider)
  */
 async function handlePost(request, machineId, env) {
-  // Allow sync without auth if no apiKeys exist yet (bootstrap)
-  const data = await getMachineData(machineId, env);
-  const hasApiKeys = data?.apiKeys?.length > 0;
-
-  if (hasApiKeys) {
-    // Validate auth only if keys exist
-    if (!await validateApiKey(request, machineId, env)) {
-      return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Invalid API key");
-    }
-  }
+  // Secret-based auth — machine MUST already be registered via /admin/register.
+  // The previous "bootstrap unauth" path has been removed because it allowed
+  // any caller who knew the machineId to seed initial credentials.
+  const auth = await authorize(request, machineId, env);
+  if (!auth.ok) return auth.response;
+  const data = auth.data;
 
   let body;
   try {
@@ -100,7 +115,7 @@ async function handlePost(request, machineId, env) {
     return jsonResponse({ error: "Invalid settings object" }, 400);
   }
 
-  const existingData = data || { providers: {}, modelAliases: {}, apiKeys: [] };
+  const existingData = data;
 
   // Merge providers by ID
   const mergedProviders = {};
@@ -125,14 +140,22 @@ async function handlePost(request, machineId, env) {
     }
   }
 
-  // Prepare final data - modelAliases, apiKeys, combos always from Web
+  // Prepare final data - modelAliases, apiKeys, combos always from Web.
+  // `meta` (secret, registeredAt, …) is never overwritten by sync payloads.
+  const now = new Date().toISOString();
+  const previousMeta = existingData.meta || {};
   const finalData = {
     providers: mergedProviders,
     modelAliases: body.modelAliases || existingData.modelAliases || {},
     combos: body.combos || existingData.combos || [],
     apiKeys: body.apiKeys || existingData.apiKeys || [],
     settings: body.settings || existingData.settings || {},
-    updatedAt: new Date().toISOString()
+    meta: {
+      ...previousMeta,
+      lastSyncAt: now,
+      syncCount: (previousMeta.syncCount || 0) + 1
+    },
+    updatedAt: now
   };
 
   // Store in D1 + invalidate cache
@@ -158,9 +181,14 @@ async function handlePost(request, machineId, env) {
 }
 
 /**
- * DELETE /sync/:machineId - Clear cache when Worker is disabled
+ * DELETE /sync/:machineId - Clear all data for this machine.
+ * Now requires a valid secret — the previous implementation accepted DELETE
+ * from anyone who knew the machineId, which let strangers wipe state.
  */
-async function handleDelete(machineId, env) {
+async function handleDelete(request, machineId, env) {
+  const auth = await authorize(request, machineId, env);
+  if (!auth.ok) return auth.response;
+
   await deleteMachineData(machineId, env);
 
   log.info("SYNC", "Data deleted", { machineId });

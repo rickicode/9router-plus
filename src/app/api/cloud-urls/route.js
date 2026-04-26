@@ -1,8 +1,30 @@
 import { NextResponse } from "next/server";
 import { atomicUpdateSettings, getSettings } from "@/lib/localDb";
 import { v4 as uuidv4 } from "uuid";
+import {
+  generateCloudSecret,
+  registerWithWorker,
+  probeCloudHealth,
+} from "@/lib/cloudWorkerClient";
 
-const VALID_STATUSES = new Set(["unknown", "online", "offline", "error"]);
+const VALID_STATUSES = new Set([
+  "unknown",
+  "online",
+  "offline",
+  "error",
+  "unauthorized",
+  "not_registered",
+]);
+
+function sanitizeForResponse(entry) {
+  if (!entry || typeof entry !== "object") return entry;
+  const { secret, ...rest } = entry;
+  return { ...rest, hasSecret: typeof secret === "string" && secret.length > 0 };
+}
+
+function sanitizeListForResponse(entries) {
+  return Array.isArray(entries) ? entries.map(sanitizeForResponse) : [];
+}
 
 function normalizeUrl(value) {
   if (typeof value !== "string") return "";
@@ -95,7 +117,7 @@ function getNextId(cloudUrls) {
 
 export async function GET() {
   try {
-    return NextResponse.json({ cloudUrls: await readCloudUrls() });
+    return NextResponse.json({ cloudUrls: sanitizeListForResponse(await readCloudUrls()) });
   } catch (error) {
     return NextResponse.json({ error: error.message || "Failed to load cloud URLs" }, { status: 500 });
   }
@@ -109,14 +131,7 @@ export async function POST(request) {
 
     const body = await request.json();
     const rawUrl = normalizeUrl(body?.url);
-    let lastChecked = body?.lastChecked ?? null;
-
-    if (lastChecked) {
-      const date = new Date(lastChecked);
-      if (Number.isNaN(date.getTime()) || date > new Date()) {
-        lastChecked = null;
-      }
-    }
+    const name = typeof body?.name === "string" ? body.name.trim().slice(0, 80) : "";
 
     if (!rawUrl) {
       return NextResponse.json({ error: "URL is required" }, { status: 400 });
@@ -124,6 +139,30 @@ export async function POST(request) {
 
     const url = validateUrl(rawUrl);
 
+    // Probe liveness first so we fail fast if the URL is wrong.
+    const probe = await probeCloudHealth(url);
+    if (!probe.ok) {
+      return NextResponse.json(
+        { error: `Worker is not reachable: ${probe.error || "unknown error"}` },
+        { status: 502 }
+      );
+    }
+
+    // Generate a fresh per-worker secret and register with the worker before
+    // persisting the entry locally. If register fails we never store the URL
+    // — this keeps the local state and the worker state consistent.
+    const secret = generateCloudSecret();
+    let registerResult;
+    try {
+      registerResult = await registerWithWorker(url, secret);
+    } catch (error) {
+      return NextResponse.json(
+        { error: `Worker registration failed: ${error.message || "unknown error"}` },
+        { status: 502 }
+      );
+    }
+
+    let createdEntry = null;
     const updated = await writeCloudUrls((cloudUrls) => {
       if (cloudUrls.some((entry) => normalizeUrl(entry.url) === url)) {
         throw new Error("Cloud URL already exists");
@@ -131,15 +170,31 @@ export async function POST(request) {
 
       const nextEntry = {
         id: getNextId(cloudUrls),
+        name: name || new URL(url).hostname,
         url,
-        status: VALID_STATUSES.has(body?.status) ? body.status : "unknown",
-        lastChecked,
+        secret,
+        status: "online",
+        version: registerResult?.version || probe.version || null,
+        latencyMs: probe.latencyMs ?? null,
+        lastChecked: new Date().toISOString(),
+        registeredAt: registerResult?.registeredAt || new Date().toISOString(),
+        lastSyncAt: null,
+        lastSyncOk: null,
+        lastSyncError: null,
+        providersCount: null,
       };
 
+      createdEntry = nextEntry;
       return [...cloudUrls, nextEntry];
     });
 
-    return NextResponse.json({ cloudUrls: updated }, { status: 201 });
+    return NextResponse.json(
+      {
+        cloudUrls: sanitizeListForResponse(updated),
+        created: sanitizeForResponse(createdEntry),
+      },
+      { status: 201 }
+    );
   } catch (error) {
     const status = error.message === "Cloud URL already exists" ? 409 : 500;
     return NextResponse.json({ error: error.message || "Failed to create cloud URL" }, { status });
@@ -181,7 +236,7 @@ export async function PATCH(request) {
       return cloudUrls;
     });
 
-    return NextResponse.json({ success: true, cloudUrls: updatedUrls });
+    return NextResponse.json({ success: true, cloudUrls: sanitizeListForResponse(updatedUrls) });
   } catch (error) {
     const statusMap = {
       "Cloud URL not found": 404,
@@ -211,20 +266,16 @@ export async function DELETE(request) {
       if (index === -1) {
         throw new Error("Cloud URL not found");
       }
-      const remainingValidUrls = cloudUrls.filter((entry) => entry.id !== id && normalizeUrl(entry.url));
-      if (remainingValidUrls.length === 0) {
-        throw new Error("At least one cloud URL must remain");
-      }
-
+      // It is now valid for cloudUrls to be empty — the dashboard treats that
+      // as "cloud not configured".
       return cloudUrls.filter((entry) => entry.id !== id);
     });
 
-    return NextResponse.json({ cloudUrls: updated });
+    return NextResponse.json({ cloudUrls: sanitizeListForResponse(updated) });
   } catch (error) {
     const statusMap = {
       "Valid cloud URL id is required": 400,
       "Cloud URL not found": 404,
-      "At least one cloud URL must remain": 400,
     };
     return NextResponse.json({ error: error.message || "Failed to delete cloud URL" }, { status: statusMap[error.message] || 500 });
   }

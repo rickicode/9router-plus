@@ -1,14 +1,44 @@
 import { getSettings } from "./localDb.js";
 
-export async function getCloudUrl() {
-  const envUrl = process.env.NEXT_PUBLIC_CLOUD_URL;
-  if (envUrl) return envUrl.replace(/\/$/, "");
-
+/**
+ * Resolve the active cloud worker entry from settings.
+ *
+ * Returns `null` when no worker has been configured. Callers MUST handle the
+ * null case — there is no implicit default URL anymore. The legacy fallback to
+ * `http://localhost:8787` and the `NEXT_PUBLIC_CLOUD_URL` / `CLOUD_URL` env
+ * vars have been removed so that all configuration lives in the dashboard.
+ */
+export async function getActiveCloudEntry() {
   const settings = await getSettings();
-  const firstUrl = settings.cloudUrls?.[0]?.url;
-  if (firstUrl && typeof firstUrl === "string") {
-    return firstUrl.replace(/\/$/, "");
-  }
+  if (!Array.isArray(settings.cloudUrls)) return null;
 
-  return "http://localhost:8787";
+  return (
+    settings.cloudUrls.find(
+      (entry) => entry?.url && entry?.secret
+    ) || null
+  );
+}
+
+export async function getCloudUrl() {
+  const entry = await getActiveCloudEntry();
+  if (!entry) {
+    throw new Error(
+      "No cloud worker configured. Add one in Endpoint → Cloud."
+    );
+  }
+  return String(entry.url).replace(/\/$/, "");
+}
+
+export async function getCloudCredentials() {
+  const entry = await getActiveCloudEntry();
+  if (!entry) {
+    throw new Error(
+      "No cloud worker configured. Add one in Endpoint → Cloud."
+    );
+  }
+  return {
+    id: entry.id,
+    url: String(entry.url).replace(/\/$/, ""),
+    secret: entry.secret
+  };
 }

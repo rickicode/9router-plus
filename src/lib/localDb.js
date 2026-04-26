@@ -48,9 +48,10 @@ if (!isCloud && !fs.existsSync(DATA_DIR)) {
 
 const DEFAULT_SETTINGS = {
   cloudEnabled: false,
-  cloudUrls: [
-    { id: "default", url: "http://localhost:8787", status: "unknown", lastChecked: null }
-  ],
+  // cloudUrls is intentionally empty by default. Each entry is created via the
+  // dashboard "Add Cloud URL" flow which also generates a per-worker shared
+  // secret used by the Worker's /admin/* endpoints.
+  cloudUrls: [],
   tunnelEnabled: false,
   tunnelUrl: "",
   tunnelProvider: "cloudflare",
@@ -301,9 +302,18 @@ function ensureDbShape(data) {
         }
       }
 
-      if (!Array.isArray(next.settings.cloudUrls) || next.settings.cloudUrls.length === 0) {
-        next.settings.cloudUrls = [{ id: "default", url: "http://localhost:8787", status: "unknown", lastChecked: null }];
-        changed = true;
+      // Drop the legacy localhost:8787 seed if we still have it. It used to be
+      // injected automatically here, which leaked into production setups.
+      if (Array.isArray(next.settings.cloudUrls)) {
+        const filtered = next.settings.cloudUrls.filter((entry) => {
+          const u = String(entry?.url ?? "").toLowerCase();
+          if (!u) return false;
+          return u !== "http://localhost:8787" && u !== "http://localhost:8787/";
+        });
+        if (filtered.length !== next.settings.cloudUrls.length) {
+          next.settings.cloudUrls = filtered;
+          changed = true;
+        }
       }
     }
 
@@ -1693,8 +1703,17 @@ export async function isCloudEnabled() {
 }
 
 export async function getCloudUrl() {
+  // Cloud URL is now sourced exclusively from settings.cloudUrls. The legacy
+  // CLOUD_URL / NEXT_PUBLIC_CLOUD_URL env vars are intentionally ignored so
+  // that all configuration lives in the dashboard.
   const settings = await getSettings();
-  return settings.cloudUrl || process.env.CLOUD_URL || process.env.NEXT_PUBLIC_CLOUD_URL || "";
+  if (typeof settings.cloudUrl === "string" && settings.cloudUrl) {
+    return settings.cloudUrl;
+  }
+  const first = Array.isArray(settings.cloudUrls)
+    ? settings.cloudUrls.find((entry) => typeof entry?.url === "string" && entry.url)
+    : null;
+  return first?.url ? first.url.replace(/\/$/, "") : "";
 }
 
 export async function getPricing() {
