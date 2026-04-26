@@ -18,6 +18,7 @@ import ConnectionRow from "./ConnectionRow";
 import AddApiKeyModal from "./AddApiKeyModal";
 import EditCompatibleNodeModal from "./EditCompatibleNodeModal";
 import AddCustomModelModal from "./AddCustomModelModal";
+import CodexInstructionsCard from "./CodexInstructionsCard";
 
 export default function ProviderDetailPage() {
   const params = useParams();
@@ -1256,6 +1257,9 @@ export default function ProviderDetailPage() {
           )}
         </Card>
       )}
+
+      {/* Codex provider: default instructions config */}
+      {providerId === "codex" && <CodexInstructionsCard />}
 
       {/* Models */}
       <Card>

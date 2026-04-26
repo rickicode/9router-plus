@@ -317,6 +317,79 @@ describe("CodexExecutor image handling", () => {
     }
   });
 
+  it("transformRequest injects built-in CODEX_DEFAULT_INSTRUCTIONS when no resolution stash and no caller instructions", async () => {
+    const executor = new CodexExecutor();
+    const body = {
+      input: [{ role: "user", content: [{ type: "input_text", text: "x" }] }],
+    };
+    const out = executor.transformRequest("gpt-5.4", body, true, { accessToken: "x", accountId: "y" });
+    expect(typeof out.instructions).toBe("string");
+    expect(out.instructions.length).toBeGreaterThan(1000); // built-in is ~11KB
+    expect(out.instructions.startsWith("You are Codex")).toBe(true);
+  });
+
+  it("transformRequest honors user-disabled mode (empty instructions saved by execute())", async () => {
+    const executor = new CodexExecutor();
+    // Simulate execute() having already resolved settings to "disabled".
+    const body = {
+      _resolvedCodexInstructions: "",
+      input: [{ role: "user", content: [{ type: "input_text", text: "x" }] }],
+    };
+    const out = executor.transformRequest("gpt-5.4", body, true, {});
+    expect(out.instructions).toBe("");
+    expect("_resolvedCodexInstructions" in out).toBe(false);
+  });
+
+  it("transformRequest honors user-custom mode (.md content stashed by execute())", async () => {
+    const executor = new CodexExecutor();
+    const body = {
+      _resolvedCodexInstructions: "My custom Codex prompt.",
+      input: [{ role: "user", content: [{ type: "input_text", text: "x" }] }],
+    };
+    const out = executor.transformRequest("gpt-5.4", body, true, {});
+    expect(out.instructions).toBe("My custom Codex prompt.");
+  });
+
+  it("transformRequest preserves caller-supplied instructions verbatim (overrides resolver)", async () => {
+    const executor = new CodexExecutor();
+    const body = {
+      instructions: "You are Codex Mini, custom prompt here.",
+      _resolvedCodexInstructions: "should be ignored because body.instructions is set",
+      input: [{ role: "user", content: [{ type: "input_text", text: "x" }] }],
+    };
+    const out = executor.transformRequest("gpt-5.4", body, true, {});
+    expect(out.instructions).toBe("You are Codex Mini, custom prompt here.");
+  });
+
+  it("transformRequest enables parallel_tool_calls by default", async () => {
+    const executor = new CodexExecutor();
+    const body = {
+      input: [{ role: "user", content: [{ type: "input_text", text: "x" }] }],
+    };
+    const out = executor.transformRequest("gpt-5.4", body, true, {});
+    expect(out.parallel_tool_calls).toBe(true);
+  });
+
+  it("transformRequest preserves caller-supplied parallel_tool_calls=false", async () => {
+    const executor = new CodexExecutor();
+    const body = {
+      parallel_tool_calls: false,
+      input: [{ role: "user", content: [{ type: "input_text", text: "x" }] }],
+    };
+    const out = executor.transformRequest("gpt-5.4", body, true, {});
+    expect(out.parallel_tool_calls).toBe(false);
+  });
+
+  it("transformRequest defaults reasoning.effort to 'low' (token-saving default)", async () => {
+    const executor = new CodexExecutor();
+    const body = {
+      input: [{ role: "user", content: [{ type: "input_text", text: "x" }] }],
+    };
+    const out = executor.transformRequest("gpt-5.4", body, true, {});
+    expect(out.reasoning?.effort).toBe("low");
+    expect(out.reasoning?.summary).toBe("auto");
+  });
+
   it("execute() prefetches images before sending to upstream", async () => {
     global.fetch = vi.fn(async () => mockImageFetch(IMAGE_1MB_BYTES));
 
