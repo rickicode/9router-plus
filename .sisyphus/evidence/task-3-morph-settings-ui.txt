@@ -1,0 +1,28 @@
+Task: Build Morph settings page client UI
+Date: 2026-04-27
+
+Files changed:
+- src/app/(dashboard)/dashboard/morph/MorphPageClient.js
+- src/app/(dashboard)/dashboard/morph/page.js
+- tests/unit/morph-settings-ui.test.js
+
+Verification:
+- Read required references before implementation:
+  - src/app/(dashboard)/dashboard/morph/page.js
+  - src/app/(dashboard)/dashboard/settings/SettingsPageClient.jsx
+  - tests/unit/settings-r2-ui.test.js
+  - src/lib/localDb.js lines 1-100
+- LSP diagnostics attempt result:
+  - Blocked by environment because `typescript-language-server` is not installed for JS/JSX files.
+- Requested test command:
+  - /home/ricki/.local/bin/omni exec npm --prefix tests exec vitest run --reporter=verbose unit/morph-settings-ui.test.js
+- Test output:
+  - Test Files  1 passed (1)
+  - Tests  6 passed (6)
+  - Duration 352ms
+
+Implemented behavior:
+- `MorphPageClient` uses `'use client'` and loads `settings.morph` from `GET /api/settings` on mount.
+- UI includes base URL input, ordered API key editor, add/remove key controls, round-robin toggle, route inventory, inline validation, and save feedback.
+- Save action PATCHes `/api/settings` with `{ morph: { baseUrl, apiKeys, roundRobinEnabled } }`.
+- `page.js` now imports and renders `MorphPageClient`.

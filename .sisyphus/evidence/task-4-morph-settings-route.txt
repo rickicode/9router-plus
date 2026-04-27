@@ -1,0 +1,42 @@
+Task 4 - Morph settings route evidence
+Date: 2026-04-27
+
+Discovery
+- `GET /api/settings` already exposes `morph` because `src/app/api/settings/route.js` spreads `safeSettings`, and `getSettings()` returns `mergeSettingsWithDefaults(...)` from `src/lib/localDb.js`.
+- The gap was partial PATCH behavior: `updateSettings()` in `src/lib/localDb.js` deep-merges `quotaScheduler` only, so `{ morph: { roundRobinEnabled: true } }` would otherwise replace the nested morph object before normalization and reset omitted fields.
+
+Changed files
+- `src/app/api/settings/route.js`
+- `tests/unit/morph-settings-route.test.js`
+
+Verification
+1) `npm --prefix tests exec vitest run --reporter=verbose unit/morph-settings-route.test.js`
+Output:
+```
+npm warn Unknown cli config "--reporter". This will stop working in the next major version of npm.
+
+ RUN  v4.1.4 /workspaces/9router-plus
+
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  22:49:36
+   Duration  812ms (transform 160ms, setup 0ms, import 169ms, tests 135ms, environment 0ms)
+```
+
+2) `npm --prefix tests exec vitest run --reporter=verbose unit/opencode-settings-route.test.js`
+Output:
+```
+npm warn Unknown cli config "--reporter". This will stop working in the next major version of npm.
+
+ RUN  v4.1.4 /workspaces/9router-plus
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  22:49:36
+   Duration  720ms (transform 152ms, setup 0ms, import 156ms, tests 78ms, environment 0ms)
+```
+
+Diagnostics note
+- `lsp_diagnostics` could not run because `typescript-language-server` is not installed in this environment.

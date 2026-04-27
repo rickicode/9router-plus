@@ -1,0 +1,25 @@
+Task: Add protected Morph namespace matcher and shared dispatch helper
+Date: 2026-04-27
+
+Changes made
+- Added `/api/morph/:path*` to the protected matcher list in `src/proxy.js`.
+- Created `src/app/api/morph/_dispatch.js`.
+- Added `tests/unit/morph-namespace.test.js`.
+
+Implementation notes
+- `_dispatch.js` imports `MORPH_CAPABILITY_UPSTREAMS` from `src/lib/localDb.js` for upstream path/method resolution.
+- `_dispatch.js` imports `executeWithMorphKeyFailover` from `src/lib/morph/keySelection.js` for key selection and retry behavior.
+- `_dispatch.js` forwards the raw request body using `req.text()` and passes through upstream status/body unchanged via `new Response(response.body, { status, statusText, headers })`.
+- `_dispatch.js` does not import anything from `src/app/api/v1/`.
+
+Verification
+- Command: `npm --prefix tests exec vitest run --reporter=verbose unit/morph-namespace.test.js`
+  Result: PASS
+  Details: 1 test file passed, 4 tests passed.
+
+- Command: `npm run build`
+  Result: PASS
+  Details: Next.js production build completed successfully with exit 0.
+
+Diagnostics note
+- `lsp_diagnostics` could not run for the modified JavaScript files because `typescript-language-server` is not installed in this environment.

@@ -1,0 +1,8 @@
+
+ RUN  v4.1.4 /workspaces/9router-plus/tests
+
+
+ Test Files  10 passed (10)
+      Tests  55 passed (55)
+   Start at  23:10:56
+   Duration  715ms (transform 1.12s, setup 0ms, import 1.51s, tests 482ms, environment 2ms)

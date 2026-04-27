@@ -3,7 +3,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { DATA_DIR } from "@/lib/dataDir.js";
 import { isHotStateKey } from "@/lib/hotStateKeys.js";
-import { DB_SQLITE_FILE, clearHotStateForProvider, deleteEntity, ensureSchema, getSqliteDb, loadAllDataFromSqlite, loadSingletonFromSqlite, markProviderHotStateInvalidated, migrateFromJSON, rebuildHotStateFromConnections, saveAllDataToSqlite, upsertEntities, upsertEntity, upsertSingleton } from "@/lib/sqliteHelpers.js";
+import { DB_SQLITE_FILE, clearHotStateForProvider, closeSqliteDb, deleteEntity, ensureSchema, getSqliteDb, loadAllDataFromSqlite, loadSingletonFromSqlite, markProviderHotStateInvalidated, migrateFromJSON, rebuildHotStateFromConnections, saveAllDataToSqlite, upsertEntities, upsertEntity, upsertSingleton } from "@/lib/sqliteHelpers.js";
 import { getConnectionEffectiveStatus, getConnectionStatusDetails } from "@/lib/connectionStatus.js";
 import { sanitizeConnectionStatusRecord } from "./providerHotState.js";
 import { normalizeQuotaSchedulerSettings } from "./quotaRefreshPlanner.js";
@@ -17,6 +17,20 @@ import {
 const DEFAULT_MITM_ROUTER_BASE = "http://localhost:20128";
 export const DB_BACKUP_FORMAT = "9router-db-v1";
 export const DB_BACKUP_SCHEMA_VERSION = 1;
+export const MORPH_CAPABILITY_UPSTREAMS = Object.freeze({
+  // Morph is a raw transport proxy only. These mappings document the exact
+  // upstream target each local capability route must hit without translation.
+  apply: { method: "POST", path: "/v1/chat/completions" },
+  warpgrep: { method: "POST", path: "/v1/chat/completions" },
+  compact: { method: "POST", path: "/v1/compact" },
+  embeddings: { method: "POST", path: "/v1/embeddings" },
+  rerank: { method: "POST", path: "/v1/rerank" },
+});
+const DEFAULT_MORPH_SETTINGS = Object.freeze({
+  baseUrl: "https://api.morphllm.com",
+  apiKeys: [],
+  roundRobinEnabled: false,
+});
 const DEFAULT_R2_CONFIG = {
   accountId: "",
   accessKeyId: "",
@@ -107,6 +121,7 @@ const DEFAULT_SETTINGS = {
   r2LastSqliteBackupFingerprint: null,
   r2BackupEncryptionKey: null,
   r2Config: DEFAULT_R2_CONFIG,
+  morph: DEFAULT_MORPH_SETTINGS,
 };
 
 const LEGACY_REMOVED_SETTINGS_KEYS = [
@@ -157,6 +172,45 @@ function normalizeRuntimeCacheTtlSeconds(value) {
     : DEFAULT_SETTINGS.r2RuntimeCacheTtlSeconds;
 }
 
+function isValidAbsoluteUrl(value) {
+  if (typeof value !== "string") return false;
+
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+export function normalizeMorphSettings(morph = {}) {
+  const sourceMorph = isPlainObject(morph) ? morph : {};
+  const candidateBaseUrl =
+    typeof sourceMorph.baseUrl === "string"
+      ? sourceMorph.baseUrl.trim()
+      : DEFAULT_MORPH_SETTINGS.baseUrl;
+
+  if (!isValidAbsoluteUrl(candidateBaseUrl)) {
+    throw new Error("Morph base URL must be a valid absolute http(s) URL");
+  }
+
+  const apiKeys = Array.isArray(sourceMorph.apiKeys)
+    ? sourceMorph.apiKeys.reduce((keys, value) => {
+        if (typeof value !== "string") return keys;
+        const normalized = value.trim();
+        if (!normalized || keys.includes(normalized)) return keys;
+        keys.push(normalized);
+        return keys;
+      }, [])
+    : DEFAULT_MORPH_SETTINGS.apiKeys;
+
+  return {
+    baseUrl: candidateBaseUrl,
+    apiKeys,
+    roundRobinEnabled: sourceMorph.roundRobinEnabled === true,
+  };
+}
+
 function mergeSettingsWithDefaults(settings = {}) {
   const sourceSettings = settings && typeof settings === "object" && !Array.isArray(settings)
     ? { ...settings }
@@ -189,6 +243,7 @@ function mergeSettingsWithDefaults(settings = {}) {
       ? sourceSettings.r2Config
       : {}),
   };
+  merged.morph = normalizeMorphSettings(sourceSettings?.morph);
 
   merged.r2AutoPublishEnabled = sourceSettings?.r2AutoPublishEnabled === true;
   merged.r2RuntimePublicBaseUrl =
@@ -562,6 +617,60 @@ function setDbCache(data) {
 function invalidateDbCache() {
   dbCache = null;
   dbCacheExpiresAt = 0;
+}
+
+export async function prepareLocalDbForExternalRestore() {
+  if (isCloud) return;
+
+  await withLocalDbMutex(async () => {
+    invalidateDbCache();
+    dbInstance = null;
+    sqliteInitPromise = null;
+    closeSqliteDb();
+  });
+}
+
+export async function reloadLocalDbAfterExternalRestore() {
+  if (isCloud) return null;
+
+  let nextData = null;
+  let connectionsForRebuild = [];
+
+  await withLocalDbMutex(async () => {
+    invalidateDbCache();
+    dbInstance = null;
+    sqliteInitPromise = null;
+
+    await ensureSqliteBootstrap();
+
+    if (!dbInstance) {
+      dbInstance = createMemoryDb(cloneDefaultData());
+    }
+
+    await safeRead(dbInstance);
+
+    if (!dbInstance.data) {
+      dbInstance.data = cloneDefaultData();
+    }
+
+    setDbCache(dbInstance.data);
+    nextData = dbInstance.data;
+    connectionsForRebuild = Array.isArray(dbInstance.data.providerConnections)
+      ? dbInstance.data.providerConnections.map((connection) => ({ ...connection }))
+      : [];
+  });
+
+  await clearAllHotState();
+  rebuildHotStateFromConnections(connectionsForRebuild);
+
+  try {
+    const { invalidateInternalProxyTokenCache } = await import("@/lib/internalProxyTokens");
+    invalidateInternalProxyTokenCache();
+  } catch {
+    // Non-fatal: token cache will refresh on TTL expiry.
+  }
+
+  return nextData;
 }
 
 // Read-only access to a single top-level key from the cache without paying

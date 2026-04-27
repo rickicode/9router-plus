@@ -1,0 +1,32 @@
+# Task 7 - Morph apply/compact raw routes
+
+Timestamp: 2026-04-27T16:01:33Z
+
+Implemented:
+- src/app/api/morph/apply/route.js
+- src/app/api/morph/compact/route.js
+- tests/unit/morph-apply-compact.test.js
+
+Verification:
+1. Targeted unit test
+   Command: npm --prefix tests exec vitest run --reporter=verbose unit/morph-apply-compact.test.js
+   Result: PASS
+   Notes:
+   - Test Files 1 passed
+   - Tests 6 passed
+   - npm emitted a warning that --reporter is an unknown npm cli config, but vitest still ran and passed.
+
+2. Production build
+   Command: npm run build
+   Result: PASS
+   Notes:
+   - Next.js compiled successfully
+   - Route manifest included /api/morph/apply and /api/morph/compact
+
+Behavior confirmed by tests:
+- Both routes import getSettings and dispatchMorphCapability
+- Neither route imports translator-backed /api/v1 handlers
+- apply dispatches capability "apply"
+- compact dispatches capability "compact"
+- Empty apiKeys returns HTTP 503
+- Configured route returns raw dispatch response

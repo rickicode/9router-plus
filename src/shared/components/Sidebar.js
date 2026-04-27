@@ -24,6 +24,7 @@ const navItems = [
   { href: "/dashboard/mitm", label: "MITM", icon: "security" },
   { href: "/dashboard/cli-tools", label: "CLI Tools", icon: "terminal" },
   { href: "/dashboard/opencode", label: "OpenCode", icon: "extension" },
+  { href: "/dashboard/morph", label: "Morph", icon: "route" },
 ];
 
 const debugItems = [

@@ -1,0 +1,16 @@
+Task 8 - Morph embeddings/rerank/warpgrep routes
+
+Changed files:
+- src/app/api/morph/embeddings/route.js
+- src/app/api/morph/rerank/route.js
+- src/app/api/morph/warpgrep/route.js
+- tests/unit/morph-erw-routes.test.js
+
+Verification:
+- Command: npm --prefix tests exec vitest run --reporter=verbose unit/morph-erw-routes.test.js
+- Result: PASS (1 test file, 6 tests passed)
+- Note: npm printed a warning about unknown cli config --reporter, but Vitest still ran and passed.
+
+- Command: npm run build
+- Result: PASS
+- Build output included registered routes for /api/morph/embeddings, /api/morph/rerank, and /api/morph/warpgrep.

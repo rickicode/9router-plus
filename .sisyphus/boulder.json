@@ -1,0 +1,89 @@
+{
+  "active_plan": "/workspaces/9router-plus/.sisyphus/plans/morph-routing-menu.md",
+  "started_at": "2026-04-27T15:19:43.926Z",
+  "session_ids": [
+    "ses_230a470d0ffeHcIbk6V0eJrrT3",
+    "ses_230a470d0ffeHcIbk6V0eJrrT3",
+    "ses_230575b50ffenXlDNPL0I5q5qA",
+    "ses_230575a1fffeTD7er1TDRKGZDx",
+    "ses_23047820fffe16L25jwke0n6uf",
+    "ses_2304780b9ffeksG4nAEd1pgYgL",
+    "ses_230477f3effeC2KERXUHX1rnlh",
+    "ses_230477da4ffezbfXKOIseE038W",
+    "ses_2303ff056ffeojYKk2anzoup4O",
+    "ses_2303feee4ffeKaUfSJCo5EwKJz",
+    "ses_2303d6c07ffeNrrT389K0o3HUq",
+    "ses_2303d6ae8ffeqdPzQQpHnEUOM4"
+  ],
+  "session_origins": {
+    "ses_230a470d0ffeHcIbk6V0eJrrT3": "direct",
+    "ses_230575b50ffenXlDNPL0I5q5qA": "appended",
+    "ses_230575a1fffeTD7er1TDRKGZDx": "appended",
+    "ses_23047820fffe16L25jwke0n6uf": "appended",
+    "ses_2304780b9ffeksG4nAEd1pgYgL": "appended",
+    "ses_230477f3effeC2KERXUHX1rnlh": "appended",
+    "ses_230477da4ffezbfXKOIseE038W": "appended",
+    "ses_2303ff056ffeojYKk2anzoup4O": "appended",
+    "ses_2303feee4ffeKaUfSJCo5EwKJz": "appended",
+    "ses_2303d6c07ffeNrrT389K0o3HUq": "appended",
+    "ses_2303d6ae8ffeqdPzQQpHnEUOM4": "appended"
+  },
+  "plan_name": "morph-routing-menu",
+  "agent": "atlas",
+  "task_sessions": {
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "Define Morph settings schema and capability contract",
+      "session_id": "ses_23077ad10ffeM5VSKfiMZb6snH",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-04-27T15:26:55.287Z"
+    },
+    "todo:2": {
+      "task_key": "todo:2",
+      "task_label": "2",
+      "task_title": "Add top-level Morph nav item and dashboard route shell",
+      "session_id": "ses_230707d34ffeBeZh8v18zL0KdP",
+      "agent": "Sisyphus-Junior",
+      "category": "visual-engineering",
+      "updated_at": "2026-04-27T15:34:05.697Z"
+    },
+    "todo:3": {
+      "task_key": "todo:3",
+      "task_label": "3",
+      "task_title": "Build Morph settings page client with route inventory guidance",
+      "session_id": "ses_23064298fffelIQDEnROuf1GFb",
+      "agent": "Sisyphus-Junior",
+      "category": "visual-engineering",
+      "updated_at": "2026-04-27T15:52:39.804Z"
+    },
+    "todo:7": {
+      "task_key": "todo:7",
+      "task_label": "7",
+      "task_title": "Implement Apply and Compact raw proxy routes",
+      "session_id": "ses_230575a1fffeTD7er1TDRKGZDx",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-04-27T16:04:14.596Z"
+    },
+    "todo:9": {
+      "task_key": "todo:9",
+      "task_label": "9",
+      "task_title": "Add regression and capability-level HTTP verification coverage",
+      "session_id": "ses_2304f5c23ffec4Xl9Mc7LyBvEv",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-04-27T16:12:12.082Z"
+    },
+    "final-wave:f1": {
+      "task_key": "final-wave:f1",
+      "task_label": "F1",
+      "task_title": "Plan Compliance Audit — oracle",
+      "session_id": "ses_2303d6ae8ffeqdPzQQpHnEUOM4",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-04-27T16:27:15.165Z"
+    }
+  }
+}

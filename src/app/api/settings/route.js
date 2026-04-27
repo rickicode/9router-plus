@@ -61,7 +61,7 @@ export async function GET() {
       },
     });
   } catch (error) {
-    console.log("Error getting settings:", error);
+    console.error("Error getting settings:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -70,11 +70,11 @@ export async function PATCH(request) {
   try {
     const body = await request.json();
     const updates = { ...body };
+    const currentSettings = body.newPassword || body.morph ? await getSettings() : null;
 
     // If updating password, hash it
     if (body.newPassword) {
-      const settings = await getSettings();
-      const currentHash = settings.password;
+      const currentHash = currentSettings.password;
 
       // Verify current password if it exists
       if (currentHash) {
@@ -108,6 +108,14 @@ export async function PATCH(request) {
     if (body.stickyDuration !== undefined) {
       updates.stickyDuration = body.stickyDuration;
     }
+    if (body.morph !== undefined) {
+      updates.morph = {
+        ...(currentSettings?.morph || {}),
+        ...(body.morph && typeof body.morph === "object" && !Array.isArray(body.morph)
+          ? body.morph
+          : {}),
+      };
+    }
 
     const settings = await updateSettings(updates);
 
@@ -118,7 +126,7 @@ export async function PATCH(request) {
     if (await isCloudEnabled()) {
       try {
         await syncToCloud();
-        console.log("[API] Settings synced to cloud worker");
+        console.error("[API] Settings synced to cloud worker");
       } catch (error) {
         console.error("[API] Failed to sync settings to cloud:", error.message);
         // Don't fail the request, sync will retry on schedule
@@ -146,7 +154,10 @@ export async function PATCH(request) {
     const safeSettings = sanitizeSettingsResponse(settings);
     return NextResponse.json(safeSettings);
   } catch (error) {
-    console.log("Error updating settings:", error);
+    if (error?.message === "Morph base URL must be a valid absolute http(s) URL") {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    console.error("Error updating settings:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
