@@ -121,9 +121,26 @@ describe("internal proxy report route", () => {
     expect(saveRequestDetail).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "req_usage_evidence_1",
+        provider: "openai",
+        model: "gpt-4.1",
+        connectionId: "conn-primary",
         status: "ok",
+        tokens: {
+          prompt_tokens: 11,
+          completion_tokens: 22,
+        },
+        request: expect.objectContaining({
+          protocolFamily: "openai",
+          publicPath: "/v1/chat/completions",
+        }),
+        providerResponse: expect.objectContaining({
+          status: 200,
+        }),
+        response: expect.objectContaining({
+          outcome: "ok",
+        }),
       }),
-      { propagateError: true }
+      { forceFlush: false, propagateError: true }
     );
 
     expect(writeConnectionHotState).toHaveBeenCalledWith(
@@ -184,8 +201,15 @@ describe("internal proxy report route", () => {
         connectionId: "conn-primary",
         status: "error",
         tokens: {},
+        providerResponse: expect.objectContaining({
+          status: 500,
+          error: expect.objectContaining({
+            message: "stream interrupted before usage trailer",
+            phase: "stream",
+          }),
+        }),
       }),
-      { propagateError: true }
+      { forceFlush: false, propagateError: true }
     );
 
     expect(writeConnectionHotState).toHaveBeenCalledWith(
@@ -284,7 +308,7 @@ describe("internal proxy report route", () => {
       })
     );
     expect(payload.message).toMatch(/persist failed/i);
-    expect(saveRequestDetail).toHaveBeenCalledWith(expect.any(Object), { propagateError: true });
+    expect(saveRequestDetail).toHaveBeenCalledWith(expect.any(Object), { forceFlush: false, propagateError: true });
   });
 
   it("treats reports with missing outcome and upstream errors as failures", async () => {
@@ -319,8 +343,11 @@ describe("internal proxy report route", () => {
       expect.objectContaining({
         id: "req_missing_outcome_http_error_1",
         status: "error",
+        providerResponse: expect.objectContaining({
+          status: 500,
+        }),
       }),
-      { propagateError: true }
+      { forceFlush: false, propagateError: true }
     );
     expect(writeConnectionHotState).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -367,8 +394,15 @@ describe("internal proxy report route", () => {
       expect.objectContaining({
         id: "req_missing_outcome_error_payload_1",
         status: "error",
+        providerResponse: expect.objectContaining({
+          status: null,
+          error: expect.objectContaining({
+            message: "upstream aborted",
+            code: "upstream_abort",
+          }),
+        }),
       }),
-      { propagateError: true }
+      { forceFlush: false, propagateError: true }
     );
     expect(writeConnectionHotState).toHaveBeenCalledWith(
       expect.objectContaining({
