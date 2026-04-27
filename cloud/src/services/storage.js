@@ -1,4 +1,5 @@
 import * as log from "../utils/logger.js";
+import { createRuntimeConfigLoader } from "./runtimeConfig.js";
 
 async function withTimeout(promise, timeoutMs = 5000, operation = "R2 operation") {
   return Promise.race([
@@ -13,6 +14,7 @@ async function withTimeout(promise, timeoutMs = 5000, operation = "R2 operation"
 const requestCache = new Map();
 const MAX_CACHE_SIZE = 100;
 const CACHE_TTL_MS = 5000;
+const runtimeConfigLoader = createRuntimeConfigLoader();
 
 function cleanupCache() {
   if (requestCache.size > MAX_CACHE_SIZE) {
@@ -77,6 +79,54 @@ export async function getMachineData(machineId, env) {
   cleanupCache();
   log.debug("STORAGE", `Retrieved: ${machineId}`);
   return data;
+}
+
+/**
+ * Get runtime registration metadata for a machine.
+ * @param {string} machineId
+ * @param {Object} env
+ * @returns {Promise<Object|null>}
+ */
+export async function getRuntimeRegistration(machineId, env) {
+  const data = await getMachineData(machineId, env);
+  const meta = data?.meta;
+
+  if (!meta?.runtimeUrl) {
+    return null;
+  }
+
+  const registration = {
+    runtimeUrl: meta.runtimeUrl
+  };
+
+  if (meta.routingConfig && typeof meta.routingConfig === "object" && !Array.isArray(meta.routingConfig)) {
+    registration.routingConfig = meta.routingConfig;
+  }
+
+  if (Number.isFinite(meta.cacheTtlSeconds)) {
+    registration.cacheTtlMs = meta.cacheTtlSeconds * 1000;
+  } else if (Number.isFinite(meta.cacheTtlMs)) {
+    registration.cacheTtlMs = meta.cacheTtlMs;
+  }
+
+  return registration;
+}
+
+/**
+ * Get remote runtime config for a machine registration.
+ * @param {string} machineId
+ * @param {Object} env
+ * @param {Object} options
+ * @returns {Promise<Object|null>}
+ */
+export async function getRuntimeConfig(machineId, env, options = {}) {
+  const registration = await getRuntimeRegistration(machineId, env);
+  if (!registration) {
+    return null;
+  }
+
+  const loader = options.runtimeConfigLoader || runtimeConfigLoader;
+  return loader.load(machineId, registration);
 }
 
 /**

@@ -42,35 +42,10 @@ async function authorize(request, machineId, env) {
  * POST /r2/backup/sqlite/:machineId - Upload SQLite backup
  */
 export async function handleSqliteBackupUpload(request, env) {
-  const url = new URL(request.url);
-  const machineId = url.pathname.split("/")[4];
-
-  if (!machineId) {
-    return jsonResponse({ error: "Missing machineId" }, 400);
-  }
-
-  const auth = await authorize(request, machineId, env);
-  if (!auth.ok) return auth.response;
-
-  try {
-    const data = await request.arrayBuffer();
-    if (!data || data.byteLength === 0) {
-      return jsonResponse({ error: "Empty backup data" }, 400);
-    }
-
-    const key = await saveSqliteBackup(data, env);
-    log.info("R2BACKUP", `SQLite backup uploaded for ${machineId}: ${key} (${data.byteLength} bytes)`);
-
-    return jsonResponse({
-      success: true,
-      key,
-      size: data.byteLength,
-      uploadedAt: new Date().toISOString()
-    });
-  } catch (error) {
-    log.error("R2BACKUP", `SQLite backup upload failed: ${error.message}`);
-    return jsonResponse({ error: error.message }, 500);
-  }
+  return jsonResponse({
+    error: "Worker-side SQLite backup upload is deprecated. 9router-plus writes SQLite backups directly to R2.",
+    writer: "9router-plus"
+  }, 410);
 }
 
 /**

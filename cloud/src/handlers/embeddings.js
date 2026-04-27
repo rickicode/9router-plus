@@ -11,7 +11,7 @@ import {
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import * as log from "../utils/logger.js";
 import { parseApiKey, extractBearerToken } from "../utils/apiKey.js";
-import { getMachineData, saveMachineData } from "../services/storage.js";
+import { getMachineData, saveMachineData, getRuntimeConfig } from "../services/storage.js";
 
 /**
  * Handle POST /v1/embeddings and /{machineId}/v1/embeddings requests.
@@ -79,7 +79,8 @@ export async function handleEmbeddings(request, env, ctx, machineIdOverride = nu
   log.info("EMBEDDINGS", `${machineId} | ${modelStr}`);
 
   // Resolve model info
-  const data = await getMachineData(machineId, env);
+  const data = await getRuntimeConfig(machineId, env);
+  if (!data) return errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "Runtime config unavailable");
   const modelInfo = await getModelInfoCore(modelStr, data?.modelAliases || {});
   if (!modelInfo.provider) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid model format");
 
@@ -87,12 +88,15 @@ export async function handleEmbeddings(request, env, ctx, machineIdOverride = nu
   log.info("EMBEDDINGS_MODEL", `${provider.toUpperCase()} | ${model}`);
 
   // Provider credential + fallback loop (mirrors handleChat)
-  let excludeConnectionId = null;
+  const excludedConnectionIds = new Set();
   let lastError = null;
   let lastStatus = null;
+  let retryCount = 0;
+  const MAX_RETRIES = 10;
 
-  while (true) {
-    const credentials = await getProviderCredentials(machineId, provider, env, excludeConnectionId);
+  while (retryCount < MAX_RETRIES) {
+    retryCount++;
+    const credentials = await getProviderCredentials(machineId, provider, env, excludedConnectionIds);
 
     if (!credentials || credentials.allRateLimited) {
       if (credentials?.allRateLimited) {
@@ -114,7 +118,7 @@ export async function handleEmbeddings(request, env, ctx, machineIdOverride = nu
           }
         );
       }
-      if (!excludeConnectionId) {
+      if (excludedConnectionIds.size === 0) {
         return errorResponse(HTTP_STATUS.BAD_REQUEST, `No credentials for provider: ${provider}`);
       }
       log.warn("EMBEDDINGS", `${provider.toUpperCase()} | no more accounts`);
@@ -149,14 +153,21 @@ export async function handleEmbeddings(request, env, ctx, machineIdOverride = nu
     if (shouldFallback) {
       log.warn("EMBEDDINGS_FALLBACK", `${provider.toUpperCase()} | ${credentials.id} | ${result.status}`);
       await markAccountUnavailable(machineId, credentials.id, result.status, result.error, env);
-      excludeConnectionId = credentials.id;
+      excludedConnectionIds.add(credentials.id);
       lastError = result.error;
       lastStatus = result.status;
+      if (retryCount >= MAX_RETRIES) {
+        log.error("EMBEDDINGS", "Max retries exceeded, all accounts failed");
+        return errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "Max retries exceeded, all accounts failed");
+      }
       continue;
     }
 
     return result.response;
   }
+
+  log.error("EMBEDDINGS", "Max retries exceeded, all accounts failed");
+  return errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "Max retries exceeded, all accounts failed");
 }
 
 // ─── Helpers (same as chat.js) ───────────────────────────────────────────────
@@ -166,18 +177,23 @@ async function validateApiKey(request, machineId, env) {
   if (!authHeader?.startsWith("Bearer ")) return false;
 
   const apiKey = authHeader.slice(7);
-  const data = await getMachineData(machineId, env);
-  return data?.apiKeys?.some(k => k.key === apiKey) || false;
+  const data = await getRuntimeConfig(machineId, env);
+  if (!data) return false;
+  return data?.apiKeys?.some(k => k.isActive !== false && k.key === apiKey) || false;
 }
 
-async function getProviderCredentials(machineId, provider, env, excludeConnectionId = null) {
-  const data = await getMachineData(machineId, env);
+async function getProviderCredentials(machineId, provider, env, excludedConnectionIds = new Set()) {
+  const data = await getRuntimeConfig(machineId, env);
   if (!data?.providers) return null;
+
+  const excludedIds = excludedConnectionIds instanceof Set
+    ? excludedConnectionIds
+    : new Set(excludedConnectionIds ? [excludedConnectionIds] : []);
 
   const providerConnections = Object.entries(data.providers)
     .filter(([connId, conn]) => {
       if (conn.provider !== provider || !conn.isActive) return false;
-      if (excludeConnectionId && connId === excludeConnectionId) return false;
+      if (excludedIds.has(connId)) return false;
       if (isAccountUnavailable(conn)) return false;
       return true;
     })

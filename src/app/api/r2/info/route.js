@@ -1,51 +1,116 @@
 import { NextResponse } from "next/server";
 import { getSettings } from "@/lib/localDb";
-import { getR2Info } from "@/lib/r2BackupClient";
+import { readBackupArtifactFromSettings } from "@/lib/r2BackupClient";
+
+function buildDirectStatus({ configured, settings, artifactError = null, backupArtifact = null }) {
+  if (!configured) {
+    return {
+      state: "idle",
+      summary: "Direct R2 not configured.",
+    };
+  }
+
+  if (backupArtifact?.sqlite?.url || backupArtifact?.sqlite?.key) {
+    return {
+      state: "ready",
+      summary: "Direct R2 configured and backup artifact available.",
+    };
+  }
+
+  if (settings?.r2LastRuntimePublishAt) {
+    return {
+      state: "published",
+      summary: artifactError
+        ? "Direct R2 configured and runtime artifacts were published, but backup artifact is unavailable."
+        : "Direct R2 configured and runtime artifacts were published.",
+    };
+  }
+
+  if (artifactError) {
+    return {
+      state: "configured",
+      summary: "Direct R2 configured, but backup artifact is unavailable.",
+    };
+  }
+
+  return {
+    state: "configured",
+    summary: "Direct R2 configured.",
+  };
+}
+
+function buildBackupArtifactSummary(backupArtifact) {
+  if (!backupArtifact || typeof backupArtifact !== "object") return null;
+
+  const sqlite = backupArtifact.sqlite && typeof backupArtifact.sqlite === "object"
+    ? backupArtifact.sqlite
+    : null;
+
+  return {
+    generatedAt: typeof backupArtifact.generatedAt === "string" ? backupArtifact.generatedAt : null,
+    machineId: typeof backupArtifact.machineId === "string" ? backupArtifact.machineId : null,
+    sqlite: sqlite
+      ? {
+          key: typeof sqlite.key === "string" ? sqlite.key : null,
+          size: Number.isFinite(sqlite.size) ? sqlite.size : null,
+        }
+      : null,
+  };
+}
+
+function hasPrivateR2Config(settings = {}) {
+  const config = settings.r2Config || {};
+  return [config.endpoint, config.bucket, config.accessKeyId, config.secretAccessKey].every(
+    (value) => String(value || "").trim() !== ""
+  );
+}
 
 /**
- * GET /api/r2/info - Get R2 storage status from all workers
+ * GET /api/r2/info - Get direct R2 publish status for Settings page
  */
 export async function GET() {
   try {
     const settings = await getSettings();
-    const cloudUrls = Array.isArray(settings.cloudUrls) ? settings.cloudUrls : [];
-    const eligible = cloudUrls.filter(c => c?.url && c?.secret);
+    const runtimeConfigured = String(settings.r2RuntimePublicBaseUrl || "").trim() !== "";
+    const backupConfigured = hasPrivateR2Config(settings);
+    const configured = runtimeConfigured || backupConfigured;
 
-    if (eligible.length === 0) {
+    if (!configured) {
       return NextResponse.json({
         configured: false,
-        workers: []
+        r2BackupEnabled: settings.r2BackupEnabled || false,
+        r2LastRuntimePublishAt: settings.r2LastRuntimePublishAt || null,
+        r2LastBackupAt: settings.r2LastBackupAt || null,
+        r2LastRestoreAt: settings.r2LastRestoreAt || null,
+        backupArtifactUrl: null,
+        backupArtifact: null,
+        artifactError: null,
+        status: buildDirectStatus({ configured: false, settings }),
       });
     }
 
-    const results = await Promise.allSettled(
-      eligible.map(async (entry) => {
-        const info = await getR2Info(entry.url, entry.secret);
-        return {
-          name: entry.name,
-          url: entry.url,
-          ...info
-        };
-      })
-    );
+    let backupArtifactUrl = null;
+    let backupArtifact = null;
+    let artifactError = null;
 
-    const workers = results.map((r, i) => {
-      if (r.status === "fulfilled") {
-        return { ...r.value, status: "ok" };
-      }
-      return {
-        name: eligible[i].name,
-        url: eligible[i].url,
-        status: "error",
-        error: r.reason?.message || "unknown"
-      };
-    });
+    try {
+      const backupArtifactResult = await readBackupArtifactFromSettings({ settings });
+      backupArtifactUrl = backupArtifactResult.artifactUrl;
+      backupArtifact = backupArtifactResult.artifact;
+    } catch (error) {
+      artifactError = error?.message || "Failed to read backup artifact";
+    }
 
     return NextResponse.json({
       configured: true,
       r2BackupEnabled: settings.r2BackupEnabled || false,
+      r2LastRuntimePublishAt: settings.r2LastRuntimePublishAt || null,
       r2LastBackupAt: settings.r2LastBackupAt || null,
-      workers
+      r2LastRestoreAt: settings.r2LastRestoreAt || null,
+      backupArtifactUrl,
+      backupArtifact: buildBackupArtifactSummary(backupArtifact),
+      artifactError,
+      status: buildDirectStatus({ configured: true, settings, artifactError, backupArtifact }),
     });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

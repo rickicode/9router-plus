@@ -28,7 +28,14 @@ function maskSecret(secret) {
 }
 
 function shouldRevealSecret(request) {
-  return request.nextUrl?.searchParams?.get("includeSecret") === "1";
+  const includeSecret = request.nextUrl?.searchParams?.get("includeSecret");
+  if (includeSecret != null) return includeSecret === "1";
+
+  try {
+    return new URL(request.url).searchParams.get("includeSecret") === "1";
+  } catch {
+    return false;
+  }
 }
 
 /**

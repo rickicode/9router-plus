@@ -1,20 +1,15 @@
 import { NextResponse } from "next/server";
-import { uploadSqliteBackupToAll } from "@/lib/r2BackupClient";
-import { updateSettings } from "@/lib/localDb";
+import { publishRuntimeArtifactsFromSettings } from "@/lib/r2BackupClient";
 
 /**
  * POST /api/r2/backup - Trigger immediate SQLite backup to R2
  */
 export async function POST() {
   try {
-    const result = await uploadSqliteBackupToAll();
-
-    if (result.successes > 0) {
-      await updateSettings({ r2LastBackupAt: new Date().toISOString() });
-    }
+    const result = await publishRuntimeArtifactsFromSettings();
 
     return NextResponse.json({
-      success: result.successes > 0,
+      success: result.backup?.ok === true && result.runtime?.ok === true && result.sqlite?.ok === true,
       ...result
     });
   } catch (error) {

@@ -54,14 +54,26 @@ export async function probeCloudHealth(workerUrl) {
  * request if the machineId already has a different secret stored — preventing
  * silent hijacking of an existing record.
  */
-export async function registerWithWorker(workerUrl, secret, machineId) {
+export async function registerWithWorker(workerUrl, secret, machineId, metadata = {}) {
   const mid = machineId || (await getConsistentMachineId());
   const url = `${normalizeUrl(workerUrl)}/admin/register`;
+  const payload = {
+    machineId: mid,
+    secret,
+  };
+
+  if (metadata.runtimeUrl) payload.runtimeUrl = metadata.runtimeUrl;
+  if (metadata.routingConfig && typeof metadata.routingConfig === "object") {
+    payload.routingConfig = metadata.routingConfig;
+  }
+  if (Number.isFinite(metadata.cacheTtlSeconds)) {
+    payload.cacheTtlSeconds = metadata.cacheTtlSeconds;
+  }
 
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ machineId: mid, secret }),
+    body: JSON.stringify(payload),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
 

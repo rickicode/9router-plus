@@ -36,9 +36,15 @@ export async function handleSync(request, env, ctx) {
     case "GET":
       return handleGet(request, machineId, env);
     case "POST":
-      return handlePost(request, machineId, env);
+      return jsonResponse({
+        error: "Sync writes are deprecated for runtime state. Publish backup.json and runtime.json from 9router-plus, then register runtimeUrl via /admin/register.",
+        runtimeUrlRequired: true
+      }, 410);
     case "DELETE":
-      return handleDelete(request, machineId, env);
+      return jsonResponse({
+        error: "Sync deletes are deprecated. Runtime configuration is owned by the direct R2 artifacts written by 9router-plus.",
+        runtimeUrlRequired: true
+      }, 410);
     default:
       return jsonResponse({ error: "Method not allowed" }, 405);
   }

@@ -20,6 +20,54 @@ function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: JSON_HEADERS });
 }
 
+function normalizeRuntimeUrl(value) {
+  if (value === undefined || value === null || value === "") return null;
+
+  let url;
+  try {
+    url = new URL(String(value).trim());
+  } catch {
+    return { error: "Invalid runtimeUrl" };
+  }
+
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return { error: "Invalid runtimeUrl" };
+  }
+
+  return url.toString().replace(/\/$/, "");
+}
+
+function normalizeRoutingConfig(value) {
+  if (value === undefined || value === null) return null;
+  if (Array.isArray(value) || typeof value !== "object") {
+    return { error: "Invalid routingConfig" };
+  }
+
+  const entries = Object.entries(value);
+  if (entries.length > 16) return { error: "Invalid routingConfig" };
+
+  const hasInvalidEntry = entries.some(([, entryValue]) => {
+    const type = typeof entryValue;
+    return entryValue === null || (type !== "string" && type !== "number" && type !== "boolean");
+  });
+
+  if (hasInvalidEntry) return { error: "Invalid routingConfig" };
+  return Object.fromEntries(entries);
+}
+
+function normalizeCacheTtlSeconds(value) {
+  if (value === undefined || value === null) return null;
+  if (!Number.isInteger(value) || value < 1 || value > 300) {
+    return { error: "Invalid cacheTtlSeconds" };
+  }
+
+  return value;
+}
+
+function resolveRegistrationMetaField(bodyValue, existingValue) {
+  return bodyValue === null ? existingValue ?? null : bodyValue;
+}
+
 /**
  * GET /admin/health
  * Public liveness probe used by the dashboard to render an "online/offline" pill.
@@ -59,12 +107,24 @@ export async function handleAdminRegister(request, env) {
 
   const machineId = String(body?.machineId || "").trim();
   const secret = String(body?.secret || "").trim();
+  const runtimeUrl = normalizeRuntimeUrl(body?.runtimeUrl);
+  const routingConfig = normalizeRoutingConfig(body?.routingConfig);
+  const cacheTtlSeconds = normalizeCacheTtlSeconds(body?.cacheTtlSeconds);
 
   if (!machineId || machineId.length < 3) {
     return jsonResponse({ error: "Invalid machineId" }, 400);
   }
   if (!secret || secret.length < 16) {
     return jsonResponse({ error: "Secret must be at least 16 characters" }, 400);
+  }
+  if (runtimeUrl?.error) {
+    return jsonResponse({ error: runtimeUrl.error }, 400);
+  }
+  if (routingConfig?.error) {
+    return jsonResponse({ error: routingConfig.error }, 400);
+  }
+  if (cacheTtlSeconds?.error) {
+    return jsonResponse({ error: cacheTtlSeconds.error }, 400);
   }
 
   const existing = await getMachineData(machineId, env);
@@ -78,11 +138,17 @@ export async function handleAdminRegister(request, env) {
         return jsonResponse({ error: "Secret mismatch — machine already registered" }, 401);
       }
       // Idempotent re-register; refresh registeredAt for visibility
+      const nextRuntimeUrl = resolveRegistrationMetaField(runtimeUrl, existing.meta?.runtimeUrl);
+      const nextRoutingConfig = resolveRegistrationMetaField(routingConfig, existing.meta?.routingConfig);
+      const nextCacheTtlSeconds = resolveRegistrationMetaField(cacheTtlSeconds, existing.meta?.cacheTtlSeconds);
       existing.meta = {
         ...existing.meta,
         secret,
         registeredAt: existing.meta?.registeredAt || now,
-        rotatedAt: now
+        rotatedAt: now,
+        runtimeUrl: nextRuntimeUrl,
+        routingConfig: nextRoutingConfig,
+        cacheTtlSeconds: nextCacheTtlSeconds
       };
       await saveMachineData(machineId, existing, env);
       log.info("ADMIN", "Re-registered (matching secret)", { machineId });
@@ -90,6 +156,8 @@ export async function handleAdminRegister(request, env) {
         success: true,
         rotated: false,
         registeredAt: existing.meta.registeredAt,
+        runtimeUrl: nextRuntimeUrl,
+        cacheTtlSeconds: nextCacheTtlSeconds,
         version: WORKER_VERSION
       });
     }
@@ -99,7 +167,10 @@ export async function handleAdminRegister(request, env) {
       ...(existing.meta || {}),
       secret,
       registeredAt: now,
-      claimedLegacy: true
+      claimedLegacy: true,
+      runtimeUrl,
+      routingConfig,
+      cacheTtlSeconds
     };
     await saveMachineData(machineId, existing, env);
     log.info("ADMIN", "Claimed legacy machine record", { machineId });
@@ -107,6 +178,8 @@ export async function handleAdminRegister(request, env) {
       success: true,
       claimedLegacy: true,
       registeredAt: now,
+      runtimeUrl,
+      cacheTtlSeconds,
       version: WORKER_VERSION
     });
   }
@@ -121,7 +194,10 @@ export async function handleAdminRegister(request, env) {
     settings: {},
     meta: {
       secret,
-      registeredAt: now
+      registeredAt: now,
+      runtimeUrl,
+      routingConfig,
+      cacheTtlSeconds
     }
   };
   await saveMachineData(machineId, fresh, env);
@@ -129,6 +205,8 @@ export async function handleAdminRegister(request, env) {
   return jsonResponse({
     success: true,
     registeredAt: now,
+    runtimeUrl,
+    cacheTtlSeconds,
     version: WORKER_VERSION
   });
 }

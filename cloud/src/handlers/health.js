@@ -1,5 +1,5 @@
 // cloud/src/handlers/health.js
-import { getMachineData } from "../services/storage.js";
+import { getRuntimeConfig } from "../services/storage.js";
 import { getState, getUptime } from "../services/state.js";
 import * as log from "../utils/logger.js";
 
@@ -24,7 +24,7 @@ export async function handleHealth(request, env, machineId) {
   }
 
   const state = getState();
-  const data = await getMachineData(machineId, env);
+  const data = await getRuntimeConfig(machineId, env);
 
   // Calculate sync age
   let syncAge = null;

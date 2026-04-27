@@ -96,6 +96,23 @@ async function readCloudUrls() {
   return Array.isArray(settings.cloudUrls) ? settings.cloudUrls : [];
 }
 
+function buildWorkerRegistrationMetadata(settings = {}) {
+  const runtimeUrl = normalizeUrl(settings.r2RuntimePublicBaseUrl);
+  const cacheTtlSeconds = Number.isInteger(settings.r2RuntimeCacheTtlSeconds)
+    ? settings.r2RuntimeCacheTtlSeconds
+    : undefined;
+
+  return {
+    ...(runtimeUrl ? { runtimeUrl } : {}),
+    ...(cacheTtlSeconds ? { cacheTtlSeconds } : {}),
+    routingConfig: {
+      roundRobin: settings?.routingConfig?.roundRobin === true,
+      stickySessions: settings?.routingConfig?.stickySessions === true,
+      preferForwardRaw: settings?.routingConfig?.preferForwardRaw === true,
+    },
+  };
+}
+
 async function writeCloudUrls(mutator) {
   const settings = await atomicUpdateSettings(async (currentSettings) => {
     const currentUrls = Array.isArray(currentSettings.cloudUrls) ? currentSettings.cloudUrls : [];
@@ -154,7 +171,8 @@ export async function POST(request) {
     const secret = generateCloudSecret();
     let registerResult;
     try {
-      registerResult = await registerWithWorker(url, secret);
+      const settings = await getSettings();
+      registerResult = await registerWithWorker(url, secret, null, buildWorkerRegistrationMetadata(settings));
     } catch (error) {
       return NextResponse.json(
         { error: `Worker registration failed: ${error.message || "unknown error"}` },

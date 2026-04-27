@@ -63,6 +63,25 @@ describe("cloud-urls race condition", () => {
       "https://worker2.example.com",
       "https://worker3.example.com",
     ];
+    vi.stubGlobal("fetch", vi.fn(async (url, options = {}) => {
+      if (String(url).endsWith("/admin/health")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ version: "0.3.0" }),
+        };
+      }
+
+      if (String(url).endsWith("/admin/register") && options.method === "POST") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true, version: "0.3.0", registeredAt: "2026-04-27T00:00:00.000Z" }),
+        };
+      }
+
+      return { ok: false, status: 404, json: async () => ({ error: "not found" }) };
+    }));
 
     const results = await Promise.all(
       urls.map((url) =>

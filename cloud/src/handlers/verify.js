@@ -1,5 +1,5 @@
 import { parseApiKey, extractBearerToken } from "../utils/apiKey.js";
-import { getMachineData } from "../services/storage.js";
+import { getRuntimeConfig } from "../services/storage.js";
 
 /**
  * Verify API key endpoint
@@ -29,13 +29,13 @@ export async function handleVerify(request, env, machineIdOverride = null) {
     machineId = parsed.machineId;
   }
 
-  const data = await getMachineData(machineId, env);
+  const data = await getRuntimeConfig(machineId, env);
   
   if (!data) {
     return jsonResponse({ error: "Machine not found" }, 404);
   }
 
-  const isValid = data.apiKeys?.some(k => k.key === apiKey) || false;
+  const isValid = data.apiKeys?.some(k => k.isActive !== false && k.key === apiKey) || false;
   
   if (!isValid) {
     return jsonResponse({ error: "Invalid API key" }, 401);
@@ -57,4 +57,3 @@ function jsonResponse(data, status = 200) {
     }
   });
 }
-

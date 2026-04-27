@@ -9,13 +9,16 @@ import { refreshTokenByProvider } from "../services/tokenRefresh.js";
 import { parseApiKey, extractBearerToken } from "../utils/apiKey.js";
 import { selectCredential } from "../services/routing.js";
 import { recordUsage } from "../services/usage.js";
-import { getMachineData, saveMachineData } from "../services/storage.js";
+import { getMachineData, saveMachineData, getRuntimeConfig } from "../services/storage.js";
 
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 const refreshLocks = new Map();
 
 async function getModelInfo(modelStr, machineId, env) {
-  const data = await getMachineData(machineId, env);
+  const data = await getRuntimeConfig(machineId, env);
+  if (!data) {
+    return getModelInfoCore(modelStr, {});
+  }
   return getModelInfoCore(modelStr, data?.modelAliases || {});
 }
 
@@ -72,7 +75,10 @@ export async function handleChat(request, env, ctx, machineIdOverride = null) {
   if (!modelStr) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing model");
 
   // Check if model is a combo
-  const data = await getMachineData(machineId, env);
+  const data = await getRuntimeConfig(machineId, env);
+  if (!data) {
+    return errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "Runtime config unavailable");
+  }
   const comboModels = getComboModelsFromData(modelStr, data?.combos || []);
   
   if (comboModels) {
@@ -99,7 +105,7 @@ async function handleSingleModelChat(body, modelStr, machineId, env, request) {
   const { provider, model } = modelInfo;
   log.info("MODEL", `${provider.toUpperCase()} | ${model}`);
 
-  let excludeConnectionId = null;
+  const excludedConnectionIds = new Set();
   let lastError = null;
   let lastStatus = null;
   let retryCount = 0;
@@ -107,7 +113,10 @@ async function handleSingleModelChat(body, modelStr, machineId, env, request) {
 
   while (retryCount < MAX_RETRIES) {
     retryCount++;
-    const data = await getMachineData(machineId, env);
+    const data = await getRuntimeConfig(machineId, env);
+    if (!data) {
+      return errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "Runtime config unavailable");
+    }
     let connection;
     try {
       const apiKey = extractBearerToken(request);
@@ -125,8 +134,8 @@ async function handleSingleModelChat(body, modelStr, machineId, env, request) {
     }
 
     let credentials = connection;
-    if (excludeConnectionId && credentials?.id === excludeConnectionId) {
-      credentials = await getProviderCredentials(machineId, provider, env, excludeConnectionId);
+    if (excludedConnectionIds.has(credentials?.id)) {
+      credentials = await getProviderCredentials(machineId, provider, env, excludedConnectionIds);
     }
     if (!credentials || credentials.allRateLimited) {
       if (credentials?.allRateLimited) {
@@ -140,7 +149,7 @@ async function handleSingleModelChat(body, modelStr, machineId, env, request) {
           { status, headers: { "Content-Type": "application/json", "Retry-After": String(Math.max(retryAfterSec, 1)) } }
         );
       }
-      if (!excludeConnectionId) {
+      if (excludedConnectionIds.size === 0) {
         return errorResponse(HTTP_STATUS.BAD_REQUEST, `No credentials for provider: ${provider}`);
       }
       log.warn("CHAT", `${provider.toUpperCase()} | no more accounts`);
@@ -193,7 +202,7 @@ async function handleSingleModelChat(body, modelStr, machineId, env, request) {
       }
       log.warn("FALLBACK", `${provider.toUpperCase()} | ${credentials.id} | ${result.status}`);
       await markAccountUnavailable(machineId, credentials.id, result.status, result.error, env);
-      excludeConnectionId = credentials.id;
+      excludedConnectionIds.add(credentials.id);
       lastError = result.error;
       lastStatus = result.status;
       if (retryCount >= MAX_RETRIES) {
@@ -254,18 +263,23 @@ export async function validateApiKey(request, machineId, env) {
   if (!authHeader?.startsWith("Bearer ")) return false;
 
   const apiKey = authHeader.slice(7);
-  const data = await getMachineData(machineId, env);
-  return data?.apiKeys?.some(k => k.key === apiKey) || false;
+  const data = await getRuntimeConfig(machineId, env);
+  if (!data) return false;
+  return data?.apiKeys?.some(k => k.isActive !== false && k.key === apiKey) || false;
 }
 
-async function getProviderCredentials(machineId, provider, env, excludeConnectionId = null) {
-  const data = await getMachineData(machineId, env);
+async function getProviderCredentials(machineId, provider, env, excludedConnectionIds = new Set()) {
+  const data = await getRuntimeConfig(machineId, env);
   if (!data?.providers) return null;
+
+  const excludedIds = excludedConnectionIds instanceof Set
+    ? excludedConnectionIds
+    : new Set(excludedConnectionIds ? [excludedConnectionIds] : []);
 
   const providerConnections = Object.entries(data.providers)
     .filter(([connId, conn]) => {
       if (conn.provider !== provider || !conn.isActive) return false;
-      if (excludeConnectionId && connId === excludeConnectionId) return false;
+      if (excludedIds.has(connId)) return false;
       if (isAccountUnavailable(conn)) return false;
       return true;
     })

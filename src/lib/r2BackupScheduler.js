@@ -1,5 +1,5 @@
 import { getSettings } from "./localDb.js";
-import { uploadSqliteBackupToAll, backupUsageToAll } from "./r2BackupClient.js";
+import { publishRuntimeArtifactsFromSettings, backupUsageToAll } from "./r2BackupClient.js";
 
 const SCHEDULE_INTERVALS_MS = {
   daily: 24 * 60 * 60 * 1000,
@@ -16,7 +16,7 @@ let initialized = false;
 async function isR2BackupEnabled() {
   try {
     const settings = await getSettings();
-    return settings.r2BackupEnabled === true;
+    return settings.r2BackupEnabled === true || settings.r2AutoPublishEnabled === true;
   } catch {
     return false;
   }
@@ -36,13 +36,15 @@ async function runSqliteBackup() {
   if (!await isR2BackupEnabled()) return;
 
   try {
-    const result = await uploadSqliteBackupToAll();
-    console.log(`[R2Backup] SQLite backup: ${result.successes}/${result.total} workers OK`);
-    if (result.failures.length > 0) {
-      console.warn(`[R2Backup] SQLite backup failures:`, result.failures);
+    const result = await publishRuntimeArtifactsFromSettings();
+    const configOk = result.backup?.ok === true && result.runtime?.ok === true;
+    const sqliteOk = result.sqlite?.ok === true;
+    console.log(`[R2Backup] Direct publish: config=${configOk ? "ok" : "failed"}, sqlite=${sqliteOk ? "ok" : "failed"}`);
+    if (!configOk || !sqliteOk) {
+      console.warn(`[R2Backup] Direct publish details:`, result);
     }
   } catch (error) {
-    console.error(`[R2Backup] SQLite backup failed:`, error.message);
+    console.error(`[R2Backup] Direct publish failed:`, error.message);
   }
 }
 
