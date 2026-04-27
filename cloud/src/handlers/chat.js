@@ -135,6 +135,10 @@ async function handleSingleModelChat(body, modelStr, machineId, env, request) {
 
     let credentials = connection;
     if (excludedConnectionIds.has(credentials?.id)) {
+      // Mark initially selected credential as excluded before fallback
+      if (credentials?.id) {
+        excludedConnectionIds.add(credentials.id);
+      }
       credentials = await getProviderCredentials(machineId, provider, env, excludedConnectionIds);
     }
     if (!credentials || credentials.allRateLimited) {

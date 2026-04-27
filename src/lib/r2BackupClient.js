@@ -45,14 +45,21 @@ function buildRuntimeObjectKey(settingsOrConfig = {}) {
 
   if (!runtimeBaseUrl) return "runtime.json";
 
-  const { pathname } = new URL(runtimeBaseUrl);
-  const prefix = pathname.replace(/^\/+|\/+$/g, "");
+  try {
+    const { pathname } = new URL(runtimeBaseUrl);
+    const prefix = pathname.replace(/^\/+|\/+$/g, "");
 
-  if (!prefix) {
-    throw new Error("Runtime public base URL must include a path prefix");
+    if (!prefix) {
+      throw new Error("Runtime public base URL must include a path prefix");
+    }
+
+    return `${prefix}/runtime.json`;
+  } catch (error) {
+    if (error.message === "Runtime public base URL must include a path prefix") {
+      throw error;
+    }
+    throw new Error(`Invalid runtime public base URL: ${error.message}`);
   }
-
-  return `${prefix}/runtime.json`;
 }
 
 function buildArtifactWriteUrls(settingsOrConfig) {
@@ -330,16 +337,30 @@ export async function publishRuntimeArtifactsFromSettings({
   putObject = putObjectWithRetry,
   fingerprintReader = computeSqliteFingerprint,
   settingsUpdater = updateSettings,
+  settingsReader = getSettings,
 } = {}) {
-  const resolvedSettings = settings || await getSettings();
-  const needsBackupEncryptionKey = Boolean(resolvedSettings?.r2Config && !resolvedSettings?.r2BackupEncryptionKey);
-  const backupEncryptionKey = resolvedSettings?.r2Config
-    ? ensureBackupEncryptionKey(resolvedSettings)
+  const initialSettings = settings || await settingsReader();
+  const needsBackupEncryptionKey = Boolean(initialSettings?.r2Config && !initialSettings?.r2BackupEncryptionKey);
+  let resolvedSettings = initialSettings;
+  const generatedBackupEncryptionKey = initialSettings?.r2Config
+    ? ensureBackupEncryptionKey(initialSettings)
     : null;
 
   if (needsBackupEncryptionKey) {
-    await settingsUpdater({ r2BackupEncryptionKey: backupEncryptionKey });
+    const updatedSettings = await settingsUpdater({ r2BackupEncryptionKey: generatedBackupEncryptionKey });
+    if (updatedSettings?.r2BackupEncryptionKey) {
+      resolvedSettings = updatedSettings;
+    } else if (!settings) {
+      const rereadSettings = await settingsReader();
+      if (rereadSettings?.r2BackupEncryptionKey) {
+        resolvedSettings = rereadSettings;
+      } else {
+        throw new Error("Failed to persist backup encryption key");
+      }
+    }
   }
+
+  const backupEncryptionKey = resolvedSettings?.r2BackupEncryptionKey || generatedBackupEncryptionKey;
 
   const encryptionSettings = backupEncryptionKey
     ? { ...resolvedSettings, r2BackupEncryptionKey: backupEncryptionKey }

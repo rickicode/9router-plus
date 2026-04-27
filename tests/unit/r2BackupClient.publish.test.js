@@ -596,6 +596,104 @@ describe("publishRuntimeArtifactsFromSettings", () => {
     expect(putObject).not.toHaveBeenCalled();
   });
 
+  it("reuses the persisted backup encryption key when a concurrent writer stores one first", async () => {
+    const putObject = vi.fn().mockResolvedValue({ ok: true, attempts: 1 });
+    const persistedKey = "b".repeat(64);
+    const settingsUpdater = vi.fn()
+      .mockImplementationOnce(async (patch) => {
+        expect(patch.r2BackupEncryptionKey).toMatch(/^[a-f0-9]{64}$/);
+        return {
+          ...buildSettings({
+            r2BackupEncryptionKey: persistedKey,
+            r2Config: {
+              endpoint: "https://acct.r2.cloudflarestorage.com",
+              bucket: "media",
+              accessKeyId: "key",
+              secretAccessKey: "current-r2-secret",
+              region: "auto",
+            },
+          }),
+        };
+      })
+      .mockResolvedValue(undefined);
+
+    const { publishRuntimeArtifactsFromSettings } = await import("@/lib/r2BackupClient.js");
+
+    await publishRuntimeArtifactsFromSettings({
+      settings: buildSettings({
+        r2BackupEncryptionKey: null,
+        r2Config: {
+          endpoint: "https://acct.r2.cloudflarestorage.com",
+          bucket: "media",
+          accessKeyId: "key",
+          secretAccessKey: "current-r2-secret",
+          region: "auto",
+        },
+      }),
+      dbSnapshot: buildSnapshot(),
+      putObject,
+      settingsUpdater,
+      fingerprintReader: vi.fn().mockReturnValue({
+        fingerprint: "new-fp",
+        data: Buffer.from("sqlite-bytes"),
+      }),
+    });
+
+    const backupArtifact = JSON.parse(String(putObject.mock.calls[0][0].body));
+    expect(backupArtifact.payload.keyId).toBe("local-r2-backup-key-v1");
+    expect(settingsUpdater).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-reads settings when key persistence does not return updated settings", async () => {
+    const putObject = vi.fn().mockResolvedValue({ ok: true, attempts: 1 });
+    const persistedKey = "c".repeat(64);
+    const settingsUpdater = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValue(undefined);
+    const initialSettings = buildSettings({
+      r2BackupEncryptionKey: null,
+      r2Config: {
+        endpoint: "https://acct.r2.cloudflarestorage.com",
+        bucket: "media",
+        accessKeyId: "key",
+        secretAccessKey: "current-r2-secret",
+        region: "auto",
+      },
+    });
+    const settingsReader = vi.fn()
+      .mockResolvedValueOnce(initialSettings)
+      .mockResolvedValueOnce(
+        buildSettings({
+          r2BackupEncryptionKey: persistedKey,
+          r2Config: {
+            endpoint: "https://acct.r2.cloudflarestorage.com",
+            bucket: "media",
+            accessKeyId: "key",
+            secretAccessKey: "current-r2-secret",
+            region: "auto",
+          },
+        })
+      );
+
+    const { publishRuntimeArtifactsFromSettings } = await import("@/lib/r2BackupClient.js");
+
+    await publishRuntimeArtifactsFromSettings({
+      settings: null,
+      dbSnapshot: buildSnapshot(),
+      putObject,
+      settingsUpdater,
+      settingsReader,
+      fingerprintReader: vi.fn().mockReturnValue({
+        fingerprint: "new-fp",
+        data: Buffer.from("sqlite-bytes"),
+      }),
+    });
+
+    expect(settingsReader).toHaveBeenCalledTimes(2);
+    const backupArtifact = JSON.parse(String(putObject.mock.calls[0][0].body));
+    expect(backupArtifact.payload.keyId).toBe("local-r2-backup-key-v1");
+  });
+
   it("keeps backup and runtime publishing independent when fingerprint reading fails", async () => {
     const putObject = vi.fn().mockResolvedValue({ ok: true, attempts: 1 });
     const settingsUpdater = vi.fn().mockResolvedValue(undefined);

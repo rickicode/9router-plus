@@ -77,10 +77,13 @@ async function refreshRegisteredWorkers(settings) {
     try {
       await registerWithWorker(worker.url, worker.secret, null, metadata);
     } catch (error) {
-      failures.push({
+      const failure = {
         url: worker.url,
         error: error?.message || "Worker registration failed",
-      });
+      };
+      failures.push(failure);
+      // Log worker registration failures for monitoring
+      console.warn(`[R2] Failed to register worker ${worker.url}:`, error?.message);
     }
   }
 

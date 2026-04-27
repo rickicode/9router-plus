@@ -156,10 +156,6 @@ export async function handleEmbeddings(request, env, ctx, machineIdOverride = nu
       excludedConnectionIds.add(credentials.id);
       lastError = result.error;
       lastStatus = result.status;
-      if (retryCount >= MAX_RETRIES) {
-        log.error("EMBEDDINGS", "Max retries exceeded, all accounts failed");
-        return errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "Max retries exceeded, all accounts failed");
-      }
       continue;
     }
 
