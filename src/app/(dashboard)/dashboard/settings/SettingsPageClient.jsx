@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Card from "@/shared/components/Card";
 import Button from "@/shared/components/Button";
 import PricingModal from "@/shared/components/PricingModal";
+import ProfileSettingsContent from "@/shared/components/settings/ProfileSettingsContent";
 import {
   buildR2SettingsPayload,
   DEFAULT_R2_SETTINGS_RESPONSE,
@@ -308,46 +309,97 @@ export default function SettingsPageClient() {
     r2ActionFeedback.type === "error"
       ? "border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10 text-[var(--color-text-main)]"
       : "border-[var(--color-success)]/30 bg-[var(--color-success)]/10 text-[var(--color-text-main)]";
+  const r2Busy = savingR2 || testingR2 || runningBackup || restoringR2 || loadingR2Status;
+  const pricingSummary = [
+    {
+      label: "General Controls",
+      value: "7",
+      tone: "text-[var(--color-primary)]",
+      detail: "Workspace behavior, security, routing, quota",
+    },
+    {
+      label: "R2 Actions",
+      value: "5",
+      tone: "text-[var(--color-info)]",
+      detail: "Connection, publish, backup, restore, status",
+    },
+    {
+      label: "Providers",
+      value: loadingPricing ? "..." : String(providerNames.length),
+      tone: "text-[var(--color-success)]",
+      detail: "Pricing overrides available in one rail",
+    },
+  ];
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-6 p-6">
-      <header className="space-y-2">
-        <p className="text-sm font-medium uppercase tracking-[0.2em] text-[var(--color-text-muted)]">
-          Dashboard
-        </p>
-        <div className="space-y-2">
-          <h1 className="text-3xl font-semibold text-[var(--color-text-main)] sm:text-4xl">
-            Settings
-          </h1>
-          <p className="max-w-3xl text-sm leading-6 text-[var(--color-text-muted)] sm:text-base">
-            Manage workspace-wide configuration in one place. General preferences, R2 storage
-            controls, and pricing overrides now live on a single consolidated settings surface.
-          </p>
-        </div>
-      </header>
+    <div className="flex flex-col gap-6">
+      <Card className="border border-border">
+        <div className="flex flex-col gap-6">
+          <div className="min-w-0">
+            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-[var(--color-bg-alt)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
+              <span className="material-symbols-outlined text-[14px]">tune</span>
+              Settings
+            </div>
+            <h1 className="mt-3 text-2xl font-semibold text-text-main sm:text-3xl">
+              Satu tempat untuk workspace, cloud routing, storage, dan pricing.
+            </h1>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-text-muted">
+              Semua konfigurasi utama sekarang hidup di halaman ini supaya operasional lokal, aturan worker,
+              R2 lifecycle, dan kebijakan pricing tetap konsisten dengan shell dashboard yang sama.
+            </p>
+          </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {pricingSummary.map((item) => (
+              <div key={item.label} className="rounded border border-border bg-[var(--color-bg-alt)] p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
+                  {item.label}
+                </p>
+                <p className={`mt-2 text-2xl font-semibold ${item.tone}`}>{item.value}</p>
+                <p className="mt-1 text-sm leading-6 text-text-muted">{item.detail}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Card>
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_340px]">
         <div className="space-y-6">
           <Card
-            title="General Settings"
-            subtitle="Workspace-level preferences and defaults"
+            title="Workspace Settings"
+            subtitle="Authentication, routing, quota, observability, and local runtime behavior"
+            className="border border-border"
           >
-            <div className="space-y-3 text-sm leading-6 text-[var(--color-text-muted)]">
-              <p>
-                This section is the home for shared dashboard preferences and operational defaults.
-              </p>
-              <p>
-                The full general settings form lands in a follow-up task; this shell keeps the new
-                information architecture visible now.
-              </p>
+            <div className="mb-5 flex flex-wrap gap-2 border-b border-[var(--color-border)] pb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
+              <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-3 py-1">General</span>
+              <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-3 py-1">Cloud Routing</span>
+              <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-3 py-1">Security</span>
+              <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-3 py-1">Quota</span>
             </div>
+            <ProfileSettingsContent />
           </Card>
 
           <Card
             title="R2 Storage"
             subtitle="Connection details, runtime publishing, backup schedule, and restore controls"
+            className="border border-border"
           >
             <div className="space-y-5">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">Connection</p>
+                  <p className="mt-2 text-lg font-semibold text-[var(--color-text-main)]">{r2ConnectionState.label}</p>
+                </div>
+                <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">Last Backup</p>
+                  <p className="mt-2 text-lg font-semibold text-[var(--color-text-main)]">{formatRelativeTimestamp(r2Settings.r2LastBackupAt, "Not recorded")}</p>
+                </div>
+                <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">Last Publish</p>
+                  <p className="mt-2 text-lg font-semibold text-[var(--color-text-main)]">{formatRelativeTimestamp(r2Settings.r2LastRuntimePublishAt, "Not recorded")}</p>
+                </div>
+              </div>
+
               <div
                 className={`rounded border p-4 ${STATUS_TONE_CLASSNAMES[r2ConnectionState.tone]}`}
                 role="status"
@@ -407,7 +459,7 @@ export default function SettingsPageClient() {
                           value={r2Settings.r2Config[field.key] || ""}
                           onChange={(event) => handleR2FieldChange(field.key, event.target.value)}
                           autoComplete={field.autoComplete}
-                          disabled={testingR2}
+                          disabled={r2Busy}
                           spellCheck={false}
                           className="min-h-11 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-3 py-2 text-sm text-[var(--color-text-main)] outline-none transition focus:border-[var(--color-primary)] focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]/30"
                         />
@@ -425,85 +477,83 @@ export default function SettingsPageClient() {
                     ) : null}
                   </div>
 
-                   <div className="grid gap-4 rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                     <div className="space-y-4 rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-4 sm:col-span-2">
-                       <div className="space-y-1">
-                         <p className="text-sm font-medium text-[var(--color-text-main)]">
-                           Runtime publishing
-                         </p>
-                         <p className="text-sm leading-6 text-[var(--color-text-muted)]">
-                           Control the public runtime URL, cache TTL, and automatic runtime publishes from this page.
-                         </p>
-                       </div>
+                  <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                    <div className="space-y-4 sm:col-span-2">
+                      <div className="space-y-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
+                          Runtime publishing
+                        </p>
+                        <p className="text-sm leading-6 text-[var(--color-text-muted)]">
+                          Control the public runtime URL, cache TTL, and automatic runtime publishes from this page.
+                        </p>
+                      </div>
 
-                       <div className="grid gap-4 sm:grid-cols-2">
-                         <label className="space-y-2 text-sm text-[var(--color-text-main)]">
-                           <span className="block font-medium">Runtime public base URL</span>
-                           <input
-                             type="url"
-                             value={r2Settings.r2RuntimePublicBaseUrl}
-                             onChange={(event) =>
-                               handleR2SettingsChange("r2RuntimePublicBaseUrl", event.target.value)
-                             }
-                             autoComplete="url"
-                             disabled={savingR2 || testingR2 || runningBackup || restoringR2}
-                             className="min-h-11 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)] outline-none transition focus:border-[var(--color-primary)] focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]/30"
-                           />
-                         </label>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <label className="space-y-2 text-sm text-[var(--color-text-main)]">
+                          <span className="block font-medium">Runtime public base URL</span>
+                          <input
+                            type="url"
+                            value={r2Settings.r2RuntimePublicBaseUrl}
+                            onChange={(event) =>
+                              handleR2SettingsChange("r2RuntimePublicBaseUrl", event.target.value)
+                            }
+                            autoComplete="url"
+                            disabled={r2Busy}
+                            className="min-h-11 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-3 py-2 text-sm text-[var(--color-text-main)] outline-none transition focus:border-[var(--color-primary)] focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]/30"
+                          />
+                        </label>
 
-                         <label className="space-y-2 text-sm text-[var(--color-text-main)]">
-                           <span className="block font-medium">Runtime cache TTL</span>
-                           <input
-                             type="number"
-                             min="1"
-                             max="300"
-                              value={r2Settings.r2RuntimeCacheTtlSeconds}
-                              onChange={(event) =>
-                                handleR2SettingsChange(
-                                  "r2RuntimeCacheTtlSeconds",
-                                  sanitizeR2RuntimeCacheTtlSeconds(event.target.value)
-                                )
-                              }
-                             disabled={savingR2 || testingR2 || runningBackup || restoringR2}
-                             className="min-h-11 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)] outline-none transition focus:border-[var(--color-primary)] focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]/30"
-                           />
-                         </label>
-                       </div>
+                        <label className="space-y-2 text-sm text-[var(--color-text-main)]">
+                          <span className="block font-medium">Runtime cache TTL</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max="300"
+                            value={r2Settings.r2RuntimeCacheTtlSeconds}
+                            onChange={(event) =>
+                              handleR2SettingsChange(
+                                "r2RuntimeCacheTtlSeconds",
+                                sanitizeR2RuntimeCacheTtlSeconds(event.target.value)
+                              )
+                            }
+                            disabled={r2Busy}
+                            className="min-h-11 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-3 py-2 text-sm text-[var(--color-text-main)] outline-none transition focus:border-[var(--color-primary)] focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]/30"
+                          />
+                        </label>
+                      </div>
 
-                       <label className="flex gap-3 text-sm text-[var(--color-text-main)]">
-                         <input
-                           type="checkbox"
-                           checked={r2Settings.r2AutoPublishEnabled}
-                           onChange={(event) =>
-                             handleR2SettingsChange("r2AutoPublishEnabled", event.target.checked)
-                           }
-                           disabled={savingR2 || testingR2 || runningBackup || restoringR2}
-                           className="mt-1 h-4 w-4 rounded border-[var(--color-border)] text-[var(--color-primary)] focus:ring-[var(--color-primary)]"
-                         />
-                         <span className="space-y-1">
-                           <span className="block font-medium">Automatic runtime publish</span>
-                           <span className="block leading-6 text-[var(--color-text-muted)]">
-                             Publish runtime artifacts automatically after eligible R2 backup runs.
-                           </span>
-                         </span>
-                       </label>
+                      <label className="flex gap-3 text-sm text-[var(--color-text-main)] rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4">
+                        <input
+                          type="checkbox"
+                          checked={r2Settings.r2AutoPublishEnabled}
+                          onChange={(event) =>
+                            handleR2SettingsChange("r2AutoPublishEnabled", event.target.checked)
+                          }
+                          disabled={r2Busy}
+                          className="mt-1 h-4 w-4 rounded border-[var(--color-border)] text-[var(--color-primary)] focus:ring-[var(--color-primary)]"
+                        />
+                        <span className="space-y-1">
+                          <span className="block font-medium">Automatic runtime publish</span>
+                          <span className="block leading-6 text-[var(--color-text-muted)]">
+                            Publish runtime artifacts automatically after eligible R2 backup runs.
+                          </span>
+                        </span>
+                      </label>
 
-                       <div className="space-y-2 text-sm leading-6 text-[var(--color-text-muted)]">
-                         <p>
-                           Last runtime publish: {formatRelativeTimestamp(r2Settings.r2LastRuntimePublishAt, "Not recorded")}
-                         </p>
-                       </div>
-                     </div>
+                      <p className="text-sm leading-6 text-[var(--color-text-muted)]">
+                        Last runtime publish: {formatRelativeTimestamp(r2Settings.r2LastRuntimePublishAt, "Not recorded")}
+                      </p>
+                    </div>
 
-                     <label className="space-y-2 text-sm text-[var(--color-text-main)]">
+                    <label className="space-y-2 text-sm text-[var(--color-text-main)]">
                        <span className="block font-medium">Automatic backups</span>
                        <select
                         value={r2Settings.r2BackupEnabled ? "enabled" : "disabled"}
                         onChange={(event) =>
                           handleR2SettingsChange("r2BackupEnabled", event.target.value === "enabled")
                         }
-                        disabled={savingR2 || testingR2 || runningBackup || restoringR2}
-                        className="min-h-11 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)] outline-none transition focus:border-[var(--color-primary)] focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]/30"
+                        disabled={r2Busy}
+                        className="min-h-11 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-3 py-2 text-sm text-[var(--color-text-main)] outline-none transition focus:border-[var(--color-primary)] focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]/30"
                       >
                         <option value="disabled">Disabled</option>
                         <option value="enabled">Enabled</option>
@@ -517,8 +567,8 @@ export default function SettingsPageClient() {
                         onChange={(event) =>
                           handleR2SettingsChange("r2SqliteBackupSchedule", event.target.value)
                         }
-                        disabled={savingR2 || testingR2 || runningBackup || restoringR2}
-                        className="min-h-11 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)] outline-none transition focus:border-[var(--color-primary)] focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]/30"
+                        disabled={r2Busy}
+                        className="min-h-11 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-3 py-2 text-sm text-[var(--color-text-main)] outline-none transition focus:border-[var(--color-primary)] focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]/30"
                       >
                         {BACKUP_SCHEDULE_OPTIONS.map((schedule) => (
                           <option key={schedule} value={schedule}>
@@ -540,7 +590,7 @@ export default function SettingsPageClient() {
                   </div>
 
                   <div className="flex flex-wrap gap-3">
-                    <Button onClick={handleSaveR2Settings} disabled={savingR2 || testingR2}>
+                    <Button onClick={handleSaveR2Settings} disabled={r2Busy}>
                       {savingR2 ? "Saving..." : "Save"}
                     </Button>
                     <Button
@@ -578,108 +628,128 @@ export default function SettingsPageClient() {
           </Card>
         </div>
 
-        <Card
-          title="Pricing"
-          subtitle="Cost tracking rates and model pricing overrides"
-          action={
-            <Button onClick={() => setShowPricingModal(true)}>
-              Edit Pricing
-            </Button>
-          }
-          className="h-full"
-        >
-          <div className="space-y-6">
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4">
-                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
-                  Total Models
+        <div className="space-y-6 xl:self-start">
+          <Card
+            title="Pricing"
+            subtitle="Cost tracking rates and model pricing overrides"
+            action={
+              <Button onClick={() => setShowPricingModal(true)}>
+                Edit Pricing
+              </Button>
+            }
+            className="border border-border"
+          >
+            <div className="space-y-6">
+              <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-1">
+                <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
+                    Total Models
+                  </div>
+                  <div className="mt-2 text-2xl font-semibold text-[var(--color-text-main)]">
+                    {loadingPricing ? "..." : getModelCount()}
+                  </div>
                 </div>
-                <div className="mt-2 text-2xl font-semibold text-[var(--color-text-main)]">
-                  {loadingPricing ? "..." : getModelCount()}
+                <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
+                    Providers
+                  </div>
+                  <div className="mt-2 text-2xl font-semibold text-[var(--color-text-main)]">
+                    {loadingPricing ? "..." : providerNames.length}
+                  </div>
+                </div>
+                <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
+                    Status
+                  </div>
+                  <div className="mt-2 text-2xl font-semibold text-[var(--color-success)]">
+                    {loadingPricing ? "..." : "Active"}
+                  </div>
                 </div>
               </div>
-              <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4">
-                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
-                  Providers
-                </div>
-                <div className="mt-2 text-2xl font-semibold text-[var(--color-text-main)]">
-                  {loadingPricing ? "..." : providerNames.length}
-                </div>
+
+              <div className="space-y-3 rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4 text-sm leading-6 text-[var(--color-text-muted)]">
+                <p>
+                  <strong className="text-[var(--color-text-main)]">Cost calculation:</strong> each
+                  request uses input, output, and cached token rates to estimate spend.
+                </p>
+                <p>
+                  <strong className="text-[var(--color-text-main)]">Pricing format:</strong> all
+                  values are stored as dollars per million tokens ($/1M tokens).
+                </p>
+                <p>
+                  <strong className="text-[var(--color-text-main)]">Migration note:</strong> the old
+                  dedicated pricing page now points here so existing workflows continue without a split
+                  settings experience.
+                </p>
               </div>
-              <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4">
-                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
-                  Status
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <h2 className="text-lg font-semibold text-[var(--color-text-main)]">
+                    Current Pricing Overview
+                  </h2>
+                  <Button variant="ghost" size="sm" onClick={() => setShowPricingModal(true)}>
+                    View Full Details
+                  </Button>
                 </div>
-                <div className="mt-2 text-2xl font-semibold text-[var(--color-success)]">
-                  {loadingPricing ? "..." : "Active"}
-                </div>
+
+                {loadingPricing ? (
+                  <div className="rounded border border-dashed border-[var(--color-border)] px-4 py-6 text-sm text-[var(--color-text-muted)]">
+                    Loading pricing data...
+                  </div>
+                ) : currentPricing ? (
+                  <div className="space-y-3 rounded border border-[var(--color-border)] p-4">
+                    {providerNames.slice(0, 5).map((provider) => (
+                      <div key={provider} className="flex items-center justify-between gap-4 text-sm">
+                        <span className="font-semibold uppercase text-[var(--color-text-main)]">
+                          {provider}
+                        </span>
+                        <span className="text-[var(--color-text-muted)]">
+                          {Object.keys(currentPricing[provider]).length} models
+                        </span>
+                      </div>
+                    ))}
+                    {providerNames.length > 5 ? (
+                      <div className="text-sm text-[var(--color-text-muted)]">
+                        + {providerNames.length - 5} more providers
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="rounded border border-dashed border-[var(--color-border)] px-4 py-6 text-sm text-[var(--color-text-muted)]">
+                    No pricing data available.
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="space-y-3 rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4 text-sm leading-6 text-[var(--color-text-muted)]">
-              <p>
-                <strong className="text-[var(--color-text-main)]">Cost calculation:</strong> each
-                request uses input, output, and cached token rates to estimate spend.
-              </p>
-              <p>
-                <strong className="text-[var(--color-text-main)]">Pricing format:</strong> all
-                values are stored as dollars per million tokens ($/1M tokens).
-              </p>
-              <p>
-                <strong className="text-[var(--color-text-main)]">Migration note:</strong> the old
-                dedicated pricing page now points here so existing workflows continue without a split
-                settings experience.
-              </p>
-            </div>
+            {showPricingModal ? (
+              <PricingModal
+                isOpen={showPricingModal}
+                onClose={() => setShowPricingModal(false)}
+                onSave={loadPricing}
+              />
+            ) : null}
+          </Card>
 
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-lg font-semibold text-[var(--color-text-main)]">
-                  Current Pricing Overview
-                </h2>
-                <Button variant="ghost" size="sm" onClick={() => setShowPricingModal(true)}>
-                  View Full Details
-                </Button>
+          <Card
+            title="What lives here"
+            subtitle="Quick scope map"
+            className="border border-border"
+          >
+            <div className="divide-y divide-[var(--color-border)] text-sm leading-6 text-[var(--color-text-muted)]">
+              <div className="py-3 first:pt-0">
+                <p><strong className="text-[var(--color-text-main)]">Workspace:</strong> theme, login, proxy, observability, quota, and worker routing.</p>
               </div>
-
-              {loadingPricing ? (
-                <div className="rounded border border-dashed border-[var(--color-border)] px-4 py-6 text-sm text-[var(--color-text-muted)]">
-                  Loading pricing data...
-                </div>
-              ) : currentPricing ? (
-                <div className="space-y-3 rounded border border-[var(--color-border)] p-4">
-                  {providerNames.slice(0, 5).map((provider) => (
-                    <div key={provider} className="flex items-center justify-between gap-4 text-sm">
-                      <span className="font-semibold uppercase text-[var(--color-text-main)]">
-                        {provider}
-                      </span>
-                      <span className="text-[var(--color-text-muted)]">
-                        {Object.keys(currentPricing[provider]).length} models
-                      </span>
-                    </div>
-                  ))}
-                  {providerNames.length > 5 ? (
-                    <div className="text-sm text-[var(--color-text-muted)]">
-                      + {providerNames.length - 5} more providers
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                <div className="rounded border border-dashed border-[var(--color-border)] px-4 py-6 text-sm text-[var(--color-text-muted)]">
-                  No pricing data available.
-                </div>
-              )}
+              <div className="py-3">
+                <p><strong className="text-[var(--color-text-main)]">Storage:</strong> R2 credentials, runtime publishing, backup cadence, status, and restore.</p>
+              </div>
+              <div className="py-3 last:pb-0">
+                <p><strong className="text-[var(--color-text-main)]">Pricing:</strong> provider cost overrides and live overview in the side rail.</p>
+              </div>
             </div>
-          </div>
-
-          {showPricingModal ? (
-            <PricingModal
-              isOpen={showPricingModal}
-              onClose={() => setShowPricingModal(false)}
-              onSave={loadPricing}
-            />
-          ) : null}
-        </Card>
+          </Card>
+        </div>
       </div>
     </div>
   );
