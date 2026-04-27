@@ -63,9 +63,6 @@ export async function registerWithWorker(workerUrl, secret, machineId, metadata 
   };
 
   if (metadata.runtimeUrl) payload.runtimeUrl = metadata.runtimeUrl;
-  if (metadata.routingConfig && typeof metadata.routingConfig === "object") {
-    payload.routingConfig = metadata.routingConfig;
-  }
   if (Number.isFinite(metadata.cacheTtlSeconds)) {
     payload.cacheTtlSeconds = metadata.cacheTtlSeconds;
   }

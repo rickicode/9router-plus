@@ -99,10 +99,6 @@ export async function getRuntimeRegistration(machineId, env) {
     runtimeUrl: meta.runtimeUrl
   };
 
-  if (meta.routingConfig && typeof meta.routingConfig === "object" && !Array.isArray(meta.routingConfig)) {
-    registration.routingConfig = meta.routingConfig;
-  }
-
   if (Number.isFinite(meta.cacheTtlSeconds)) {
     registration.cacheTtlMs = meta.cacheTtlSeconds * 1000;
   } else if (Number.isFinite(meta.cacheTtlMs)) {

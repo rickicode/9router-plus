@@ -37,24 +37,6 @@ function normalizeRuntimeUrl(value) {
   return url.toString().replace(/\/$/, "");
 }
 
-function normalizeRoutingConfig(value) {
-  if (value === undefined || value === null) return null;
-  if (Array.isArray(value) || typeof value !== "object") {
-    return { error: "Invalid routingConfig" };
-  }
-
-  const entries = Object.entries(value);
-  if (entries.length > 16) return { error: "Invalid routingConfig" };
-
-  const hasInvalidEntry = entries.some(([, entryValue]) => {
-    const type = typeof entryValue;
-    return entryValue === null || (type !== "string" && type !== "number" && type !== "boolean");
-  });
-
-  if (hasInvalidEntry) return { error: "Invalid routingConfig" };
-  return Object.fromEntries(entries);
-}
-
 function normalizeCacheTtlSeconds(value) {
   if (value === undefined || value === null) return null;
   if (!Number.isInteger(value) || value < 1 || value > 300) {
@@ -108,7 +90,6 @@ export async function handleAdminRegister(request, env) {
   const machineId = String(body?.machineId || "").trim();
   const secret = String(body?.secret || "").trim();
   const runtimeUrl = normalizeRuntimeUrl(body?.runtimeUrl);
-  const routingConfig = normalizeRoutingConfig(body?.routingConfig);
   const cacheTtlSeconds = normalizeCacheTtlSeconds(body?.cacheTtlSeconds);
 
   if (!machineId || machineId.length < 3) {
@@ -119,9 +100,6 @@ export async function handleAdminRegister(request, env) {
   }
   if (runtimeUrl?.error) {
     return jsonResponse({ error: runtimeUrl.error }, 400);
-  }
-  if (routingConfig?.error) {
-    return jsonResponse({ error: routingConfig.error }, 400);
   }
   if (cacheTtlSeconds?.error) {
     return jsonResponse({ error: cacheTtlSeconds.error }, 400);
@@ -139,7 +117,6 @@ export async function handleAdminRegister(request, env) {
       }
       // Idempotent re-register; refresh registeredAt for visibility
       const nextRuntimeUrl = resolveRegistrationMetaField(runtimeUrl, existing.meta?.runtimeUrl);
-      const nextRoutingConfig = resolveRegistrationMetaField(routingConfig, existing.meta?.routingConfig);
       const nextCacheTtlSeconds = resolveRegistrationMetaField(cacheTtlSeconds, existing.meta?.cacheTtlSeconds);
       existing.meta = {
         ...existing.meta,
@@ -147,7 +124,6 @@ export async function handleAdminRegister(request, env) {
         registeredAt: existing.meta?.registeredAt || now,
         rotatedAt: now,
         runtimeUrl: nextRuntimeUrl,
-        routingConfig: nextRoutingConfig,
         cacheTtlSeconds: nextCacheTtlSeconds
       };
       await saveMachineData(machineId, existing, env);
@@ -169,7 +145,6 @@ export async function handleAdminRegister(request, env) {
       registeredAt: now,
       claimedLegacy: true,
       runtimeUrl,
-      routingConfig,
       cacheTtlSeconds
     };
     await saveMachineData(machineId, existing, env);
@@ -196,7 +171,6 @@ export async function handleAdminRegister(request, env) {
       secret,
       registeredAt: now,
       runtimeUrl,
-      routingConfig,
       cacheTtlSeconds
     }
   };

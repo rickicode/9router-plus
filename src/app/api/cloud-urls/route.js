@@ -105,11 +105,6 @@ function buildWorkerRegistrationMetadata(settings = {}) {
   return {
     ...(runtimeUrl ? { runtimeUrl } : {}),
     ...(cacheTtlSeconds ? { cacheTtlSeconds } : {}),
-    routingConfig: {
-      roundRobin: settings?.routingConfig?.roundRobin === true,
-      stickySessions: settings?.routingConfig?.stickySessions === true,
-      preferForwardRaw: settings?.routingConfig?.preferForwardRaw === true,
-    },
   };
 }
 
