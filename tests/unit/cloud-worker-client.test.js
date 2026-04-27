@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 describe("cloudWorkerClient", () => {
-  it("registerWithWorker sends runtimeUrl and routing metadata", async () => {
+  it("registerWithWorker sends runtimeUrl and cache metadata", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ success: true, version: "0.3.0" }),
@@ -12,7 +12,6 @@ describe("cloudWorkerClient", () => {
 
     await registerWithWorker("https://worker.example.com/", "secret-1234567890", "machine-1", {
       runtimeUrl: "https://public.example.com/machines/machine-1",
-      routingConfig: { roundRobin: true, stickySessions: false },
       cacheTtlSeconds: 15,
     });
 
@@ -21,7 +20,6 @@ describe("cloudWorkerClient", () => {
       machineId: "machine-1",
       secret: "secret-1234567890",
       runtimeUrl: "https://public.example.com/machines/machine-1",
-      routingConfig: { roundRobin: true, stickySessions: false },
       cacheTtlSeconds: 15,
     });
   });

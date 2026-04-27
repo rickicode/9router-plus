@@ -25,7 +25,7 @@ function createEnv() {
 }
 
 describe("cloud admin register runtime metadata", () => {
-  it("stores runtimeUrl and routingConfig during registration and returns runtimeUrl", async () => {
+  it("stores runtimeUrl during registration and returns runtimeUrl", async () => {
     const env = createEnv();
 
     const request = new Request("https://example.com/admin/register", {
@@ -36,10 +36,6 @@ describe("cloud admin register runtime metadata", () => {
         secret: "super-secret-1234",
         runtimeUrl: "https://runtime.example.com",
         cacheTtlSeconds: 45,
-        routingConfig: {
-          mode: "direct",
-          region: "us"
-        }
       })
     });
 
@@ -56,10 +52,6 @@ describe("cloud admin register runtime metadata", () => {
       secret: "super-secret-1234",
       runtimeUrl: "https://runtime.example.com",
       cacheTtlSeconds: 45,
-      routingConfig: {
-        mode: "direct",
-        region: "us"
-      }
     });
   });
 
@@ -86,33 +78,6 @@ describe("cloud admin register runtime metadata", () => {
     expect(stored).toBeNull();
   });
 
-  it("rejects routingConfig when any entry value is unsupported", async () => {
-    const env = createEnv();
-
-    const request = new Request("https://example.com/admin/register", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        machineId: "machine-bad-routing",
-        secret: "super-secret-1234",
-        runtimeUrl: "https://runtime.example.com",
-        cacheTtlSeconds: 30,
-        routingConfig: {
-          mode: "direct",
-          nested: { region: "us" }
-        }
-      })
-    });
-
-    const response = await handleAdminRegister(request, env);
-    const payload = await response.json();
-    const stored = await getMachineData("machine-bad-routing", env);
-
-    expect(response.status).toBe(400);
-    expect(payload).toMatchObject({ error: "Invalid routingConfig" });
-    expect(stored).toBeNull();
-  });
-
   it("preserves existing runtime metadata on same-secret re-register when omitted", async () => {
     const env = createEnv();
 
@@ -124,10 +89,6 @@ describe("cloud admin register runtime metadata", () => {
         secret: "super-secret-1234",
         runtimeUrl: "https://runtime.example.com",
         cacheTtlSeconds: 30,
-        routingConfig: {
-          mode: "direct",
-          region: "us"
-        }
       })
     });
 
@@ -154,10 +115,6 @@ describe("cloud admin register runtime metadata", () => {
     expect(stored.meta).toMatchObject({
       runtimeUrl: "https://runtime.example.com",
       cacheTtlSeconds: 30,
-      routingConfig: {
-        mode: "direct",
-        region: "us"
-      }
     });
   });
 
@@ -179,10 +136,6 @@ describe("cloud admin register runtime metadata", () => {
         machineId: "machine-legacy",
         secret: "super-secret-1234",
         runtimeUrl: "https://runtime.example.com",
-        routingConfig: {
-          mode: "direct",
-          region: "us"
-        }
       })
     });
 
@@ -200,10 +153,6 @@ describe("cloud admin register runtime metadata", () => {
       claimedLegacy: true,
       secret: "super-secret-1234",
       runtimeUrl: "https://runtime.example.com",
-      routingConfig: {
-        mode: "direct",
-        region: "us"
-      }
     });
   });
 
@@ -217,10 +166,6 @@ describe("cloud admin register runtime metadata", () => {
         machineId: "machine-locked",
         secret: "super-secret-1234",
         runtimeUrl: "https://runtime.example.com",
-        routingConfig: {
-          mode: "direct",
-          region: "us"
-        }
       })
     });
 
@@ -233,10 +178,6 @@ describe("cloud admin register runtime metadata", () => {
         machineId: "machine-locked",
         secret: "wrong-secret-1234",
         runtimeUrl: "https://evil.example.com",
-        routingConfig: {
-          mode: "proxy",
-          region: "eu"
-        }
       })
     });
 
@@ -248,10 +189,6 @@ describe("cloud admin register runtime metadata", () => {
     expect(payload).toMatchObject({ error: "Secret mismatch — machine already registered" });
     expect(stored.meta).toMatchObject({
       runtimeUrl: "https://runtime.example.com",
-      routingConfig: {
-        mode: "direct",
-        region: "us"
-      }
     });
   });
 });

@@ -155,9 +155,6 @@ describe("runtime config loader", () => {
         settings: {},
         meta: {
           runtimeUrl: "https://runtime.example.com/base",
-          routingConfig: {
-            mode: "direct"
-          },
           cacheTtlSeconds: 1
         }
       }
@@ -177,9 +174,6 @@ describe("runtime config loader", () => {
 
     expect(registration).toEqual({
       runtimeUrl: "https://runtime.example.com/base",
-      routingConfig: {
-        mode: "direct"
-      },
       cacheTtlMs: 1_000
     });
     expect(config.settings.source).toBe("remote");
