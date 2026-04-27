@@ -342,11 +342,11 @@ export default function Sidebar({ onClose }) {
 
             {/* Settings */}
             <Link
-              href="/dashboard/profile"
+              href="/dashboard/settings"
               onClick={onClose}
               className={cn(
                 "group flex items-center gap-3 rounded px-4 py-2 transition-all",
-                isActive("/dashboard/profile")
+                isActive("/dashboard/settings") || isActive("/dashboard/profile")
                   ? "bg-[var(--color-primary)]/10 text-[var(--color-accent)]"
                   : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-text-main)]"
               )}
@@ -354,7 +354,7 @@ export default function Sidebar({ onClose }) {
               <span
                 className={cn(
                   "material-symbols-outlined text-[18px]",
-                  isActive("/dashboard/profile") ? "fill-1" : "transition-colors group-hover:text-[var(--color-accent)]"
+                  isActive("/dashboard/settings") || isActive("/dashboard/profile") ? "fill-1" : "transition-colors group-hover:text-[var(--color-accent)]"
                 )}
               >
                 settings

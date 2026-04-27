@@ -6,7 +6,6 @@ import { Button, Input } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import GlassCard from "./shared/GlassCard";
 import StatusBadge from "./shared/StatusBadge";
-import ToggleRow from "./shared/ToggleRow";
 import SectionHeader from "./shared/SectionHeader";
 
 const STATUS_LABELS = {
@@ -97,17 +96,11 @@ function getWorkerMessageStyle(entry, workerError, workerStatus) {
 
 export default function CloudTab() {
   const router = useRouter();
-  const [workerSettings, setWorkerSettings] = useState({
-    roundRobin: false,
-    sticky: false,
-    stickyDuration: 300,
-  });
   const [cloudUrls, setCloudUrls] = useState([]);
   const [statusByUrl, setStatusByUrl] = useState({});
   const [newCloudUrl, setNewCloudUrl] = useState("");
   const [newCloudName, setNewCloudName] = useState("");
   const [adding, setAdding] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [syncingId, setSyncingId] = useState(null);
   const [revealedSecrets, setRevealedSecrets] = useState({});
   const [loadingSecretId, setLoadingSecretId] = useState(null);
@@ -123,20 +116,10 @@ export default function CloudTab() {
 
   const loadSettings = useCallback(async () => {
     try {
-      const [settingsRes, tunnelRes, cloudUrlsRes] = await Promise.all([
-        fetch("/api/settings"),
+      const [tunnelRes, cloudUrlsRes] = await Promise.all([
         fetch("/api/tunnel/status"),
         fetch("/api/cloud-urls"),
       ]);
-
-      if (settingsRes.ok) {
-        const data = await settingsRes.json();
-        setWorkerSettings({
-          roundRobin: data.roundRobin || false,
-          sticky: data.sticky || false,
-          stickyDuration: data.stickyDuration || 300,
-        });
-      }
 
       if (tunnelRes.ok) {
         const data = await tunnelRes.json();
@@ -197,28 +180,6 @@ export default function CloudTab() {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     };
   }, [cloudIdsKey, refreshAllStatuses]);
-
-  const saveWorkerSettings = async () => {
-    setSaving(true);
-    setError("");
-    setInfo("");
-    try {
-      const res = await fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(workerSettings),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to save settings");
-      }
-      setInfo("Settings saved and synced to all workers.");
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const handleAddCloudUrl = async () => {
     if (!newCloudUrl.trim()) return;
@@ -417,7 +378,7 @@ export default function CloudTab() {
         <SectionHeader
           label="CLOUDFLARE WORKER"
           title="Cloud Workers"
-          subtitle="Self-hosted Cloudflare Workers that run routing on the edge. Each worker is registered with a per-machine shared secret."
+          subtitle="Self-hosted Cloudflare Workers that execute the latest synced config from Settings. Each worker is registered with a per-machine shared secret."
           badge={<StatusBadge status={cloudUrls.length > 0 ? `${cloudUrls.length} configured` : "None"} />}
         />
 
@@ -567,6 +528,22 @@ export default function CloudTab() {
             </div>
           </div>
 
+          <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1">
+                <div className="text-sm font-medium text-[var(--color-text-main)]">
+                  Routing behavior is managed in Settings.
+                </div>
+                <div className="text-xs text-[var(--color-text-muted)]">
+                  Round-robin, sticky sessions, and sticky duration live in one place and sync to every worker automatically.
+                </div>
+              </div>
+              <Button size="sm" variant="secondary" onClick={() => router.push("/dashboard/settings")}>
+                Open Settings
+              </Button>
+            </div>
+          </div>
+
           {cloudUrls.length > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--color-border)] pt-3">
               <Button size="sm" variant="secondary" onClick={() => refreshAllStatuses()}>
@@ -577,59 +554,6 @@ export default function CloudTab() {
               </Button>
             </div>
           )}
-        </div>
-      </GlassCard>
-
-      <GlassCard>
-        <SectionHeader
-          label="WORKER POLICY"
-          title="Routing Settings"
-          subtitle="Fine-tune how requests are distributed across credentials"
-          badge={<StatusBadge status="Worker policy" />}
-        />
-
-        <div className="mt-6 space-y-4">
-          <ToggleRow
-            label="Round-Robin"
-            description="Distribute requests across multiple credentials"
-            checked={workerSettings.roundRobin}
-            onChange={(checked) => setWorkerSettings((prev) => ({ ...prev, roundRobin: checked }))}
-          />
-
-          <ToggleRow
-            label="Sticky Sessions"
-            description="Maintain consistent routing per client"
-            checked={workerSettings.sticky}
-            onChange={(checked) => setWorkerSettings((prev) => ({ ...prev, sticky: checked }))}
-          />
-
-          {workerSettings.sticky && (
-            <div className="pl-4">
-              <Input
-                label="Sticky Duration (seconds)"
-                type="number"
-                value={workerSettings.stickyDuration}
-                onChange={(e) =>
-                  setWorkerSettings((prev) => ({ ...prev, stickyDuration: parseInt(e.target.value, 10) }))
-                }
-                min={60}
-                max={3600}
-              />
-              <div className="mt-2 text-xs text-[var(--color-text-muted)]">
-                Defines how long a client stays pinned to the same credential
-              </div>
-            </div>
-          )}
-
-          <div className="flex justify-end pt-4">
-            <Button
-              onClick={saveWorkerSettings}
-              disabled={saving}
-              className="bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)]"
-            >
-              {saving ? "Saving..." : "Save Settings"}
-            </Button>
-          </div>
         </div>
       </GlassCard>
     </div>
