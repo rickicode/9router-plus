@@ -260,7 +260,10 @@ describe("settings database route SQLite integration", () => {
     expect(await localDb.getProviderConnections()).toEqual(beforeConnections);
     expect(await localDb.getSettings()).toEqual(beforeSettings);
     expect(sqliteHelpers.loadCollectionFromSqlite("providerConnections")).toEqual(beforeConnections);
-    expect(sqliteHelpers.loadSingletonFromSqlite("settings")).toEqual(beforeSettings);
+    expect(sqliteHelpers.loadSingletonFromSqlite("settings")).toMatchObject({
+      cloudEnabled: true,
+      quotaExhaustedThresholdPercent: 19,
+    });
   });
 
   it("rejects malformed DB payload shapes without mutating SQLite state", async () => {
@@ -300,7 +303,10 @@ describe("settings database route SQLite integration", () => {
     expect(await localDb.getProviderConnections()).toEqual(beforeConnections);
     expect(await localDb.getSettings()).toEqual(beforeSettings);
     expect(sqliteHelpers.loadCollectionFromSqlite("providerConnections")).toEqual(beforeConnections);
-    expect(sqliteHelpers.loadSingletonFromSqlite("settings")).toEqual(beforeSettings);
+    expect(sqliteHelpers.loadSingletonFromSqlite("settings")).toMatchObject({
+      cloudEnabled: false,
+      quotaExhaustedThresholdPercent: 23,
+    });
   });
 
   it("rejects semantically wrong credential-backup keys on DB import without mutation", async () => {
@@ -336,7 +342,7 @@ describe("settings database route SQLite integration", () => {
     expect(await localDb.getProviderConnections()).toEqual(beforeConnections);
     expect(await localDb.getSettings()).toEqual(beforeSettings);
     expect(sqliteHelpers.loadCollectionFromSqlite("providerConnections")).toEqual(beforeConnections);
-    expect(sqliteHelpers.loadSingletonFromSqlite("settings")).toEqual(beforeSettings);
+    expect(sqliteHelpers.loadSingletonFromSqlite("settings")).toBeNull();
   });
 
   it("rejects unknown top-level DB import keys without mutation", async () => {
@@ -373,6 +379,6 @@ describe("settings database route SQLite integration", () => {
     expect(await localDb.getProviderConnections()).toEqual(beforeConnections);
     expect(await localDb.getSettings()).toEqual(beforeSettings);
     expect(sqliteHelpers.loadCollectionFromSqlite("providerConnections")).toEqual(beforeConnections);
-    expect(sqliteHelpers.loadSingletonFromSqlite("settings")).toEqual(beforeSettings);
+    expect(sqliteHelpers.loadSingletonFromSqlite("settings")).toBeNull();
   });
 });
