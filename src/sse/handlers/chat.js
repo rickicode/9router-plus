@@ -101,9 +101,10 @@ export async function handleChat(request, clientRawRequest = null) {
   requestContext.comboModelsByName.set(modelStr, comboModels);
   if (comboModels) {
     // Check for combo-specific strategy first, fallback to global
-    const comboStrategies = settings.comboStrategies || {};
-    const comboSpecificStrategy = comboStrategies[modelStr]?.fallbackStrategy;
-    const comboStrategy = comboSpecificStrategy || settings.comboStrategy || "fallback";
+    const routing = settings.routing || {};
+    const comboStrategies = routing.comboStrategies || settings.comboStrategies || {};
+    const comboSpecificStrategy = comboStrategies[modelStr]?.strategy || comboStrategies[modelStr]?.fallbackStrategy;
+    const comboStrategy = comboSpecificStrategy || routing.comboStrategy || settings.comboStrategy || "fallback";
     
     log.info("CHAT", `Combo "${modelStr}" with ${comboModels.length} models (strategy: ${comboStrategy})`);
     return handleComboChat({
@@ -146,9 +147,10 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     }
     if (comboModels) {
       // Check for combo-specific strategy first, fallback to global
-      const comboStrategies = settings.comboStrategies || {};
-      const comboSpecificStrategy = comboStrategies[modelStr]?.fallbackStrategy;
-      const comboStrategy = comboSpecificStrategy || settings.comboStrategy || "fallback";
+      const routing = settings.routing || {};
+      const comboStrategies = routing.comboStrategies || settings.comboStrategies || {};
+      const comboSpecificStrategy = comboStrategies[modelStr]?.strategy || comboStrategies[modelStr]?.fallbackStrategy;
+      const comboStrategy = comboSpecificStrategy || routing.comboStrategy || settings.comboStrategy || "fallback";
 
       log.info("CHAT", `Combo "${modelStr}" with ${comboModels.length} models (strategy: ${comboStrategy})`);
       return handleComboChat({

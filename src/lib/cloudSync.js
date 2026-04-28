@@ -74,12 +74,7 @@ async function buildSyncPayload() {
     // payloads; encrypting these end-to-end would require a separate KMS.
     apiKeys,
     settings: {
-      roundRobin: settings.roundRobin || false,
-      sticky: settings.sticky || false,
-      stickyDuration: settings.stickyDuration || 300,
-      comboStrategy: settings.comboStrategy || "fallback",
-      comboStrategies: settings.comboStrategies || {},
-      providerStrategies: settings.providerStrategies || {},
+      routing: settings.routing || {},
     },
   };
 }

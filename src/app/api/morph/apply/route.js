@@ -1,11 +1,11 @@
 import { dispatchMorphCapability } from "@/app/api/morph/_dispatch.js";
-import { getSettings } from "@/lib/localDb.js";
+import { getConfiguredMorphSettings, logMorphApiAccess } from "@/app/api/morph/_shared.js";
 
 export async function POST(req) {
-  const settings = await getSettings();
-  const morphSettings = settings?.morph;
+  logMorphApiAccess(req);
+  const morphSettings = await getConfiguredMorphSettings();
 
-  if (!morphSettings?.baseUrl || !Array.isArray(morphSettings.apiKeys) || morphSettings.apiKeys.length === 0) {
+  if (!morphSettings) {
     return Response.json({ error: "Morph is not configured" }, { status: 503 });
   }
 

@@ -7,9 +7,18 @@ import { publishRuntimeArtifactsFromSettings } from "@/lib/r2BackupClient";
 export async function POST() {
   try {
     const result = await publishRuntimeArtifactsFromSettings();
+    const backupOk = result.backup?.ok === true;
+    const runtimeOk = result.runtime?.ok === true;
+    const sqliteOk = result.sqlite?.ok === true;
+    const sqliteUploaded = result.sqlite?.uploaded === true;
+    const sqliteSkipped = result.sqlite?.skipped === true;
 
     return NextResponse.json({
-      success: result.backup?.ok === true && result.runtime?.ok === true && result.sqlite?.ok === true,
+      success: backupOk && runtimeOk && sqliteOk,
+      backupReady: backupOk && runtimeOk,
+      sqliteUploaded,
+      sqliteSkipped,
+      backupOutcome: sqliteUploaded ? "uploaded" : (sqliteSkipped ? "unchanged" : "failed"),
       ...result
     });
   } catch (error) {

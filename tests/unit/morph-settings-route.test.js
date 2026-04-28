@@ -18,11 +18,15 @@ vi.mock("next/server", () => ({
   },
 }));
 
-vi.mock("@/lib/localDb", () => ({
-  getSettings,
-  updateSettings,
-  isCloudEnabled,
-}));
+vi.mock("@/lib/localDb", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    getSettings,
+    updateSettings,
+    isCloudEnabled,
+  };
+});
 
 vi.mock("@/lib/network/outboundProxy", () => ({
   applyOutboundProxyEnv,
@@ -46,6 +50,7 @@ describe("/api/settings morph settings", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    vi.stubGlobal("fetch", vi.fn());
     readRuntimeConfig.mockResolvedValue({ redis: {} });
     isCloudEnabled.mockResolvedValue(false);
     syncToCloud.mockResolvedValue(undefined);
@@ -85,11 +90,16 @@ describe("/api/settings morph settings", () => {
       ...initialSettings,
       morph: {
         baseUrl: "https://proxy.example.com",
-        apiKeys: ["mk-1", "mk-2"],
+        apiKeys: [
+          { email: "one@example.com", key: "mk-1", status: "active", isExhausted: false, lastCheckedAt: "2026-04-28T00:00:00.000Z", lastError: "" },
+          { email: "two@example.com", key: "mk-2", status: "inactive", isExhausted: false, lastCheckedAt: "2026-04-28T00:00:01.000Z", lastError: "invalid api key" },
+        ],
         roundRobinEnabled: true,
       },
     };
 
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response("invalid api key", { status: 401 }));
     getSettings.mockResolvedValueOnce(initialSettings).mockResolvedValueOnce(updatedSettings);
     updateSettings.mockResolvedValue(updatedSettings);
 
@@ -101,7 +111,10 @@ describe("/api/settings morph settings", () => {
         body: JSON.stringify({
           morph: {
             baseUrl: "https://proxy.example.com",
-            apiKeys: ["mk-1", "mk-2"],
+            apiKeys: [
+              { email: "one@example.com", key: "mk-1", status: "inactive", isExhausted: false, lastCheckedAt: null, lastError: "" },
+              { email: "two@example.com", key: "mk-2", status: "inactive", isExhausted: false, lastCheckedAt: null, lastError: "" },
+            ],
             roundRobinEnabled: true,
           },
         }),
@@ -112,7 +125,10 @@ describe("/api/settings morph settings", () => {
     expect(updateSettings).toHaveBeenCalledWith({
       morph: {
         baseUrl: "https://proxy.example.com",
-        apiKeys: ["mk-1", "mk-2"],
+        apiKeys: [
+          { email: "one@example.com", key: "mk-1", status: "active", isExhausted: false, lastCheckedAt: expect.any(String), lastError: "" },
+          { email: "two@example.com", key: "mk-2", status: "inactive", isExhausted: false, lastCheckedAt: expect.any(String), lastError: "invalid api key" },
+        ],
         roundRobinEnabled: true,
       },
     });
@@ -121,8 +137,94 @@ describe("/api/settings morph settings", () => {
     expect(getResponse.status).toBe(200);
     expect(getResponse.body.morph).toEqual({
       baseUrl: "https://proxy.example.com",
-      apiKeys: ["mk-1", "mk-2"],
+      apiKeys: [
+        { email: "one@example.com", key: "mk-1", status: "active", isExhausted: false, lastCheckedAt: "2026-04-28T00:00:00.000Z", lastError: "" },
+        { email: "two@example.com", key: "mk-2", status: "inactive", isExhausted: false, lastCheckedAt: "2026-04-28T00:00:01.000Z", lastError: "invalid api key" },
+      ],
       roundRobinEnabled: true,
+    });
+  });
+
+  it("PATCH returns 400 for invalid baseUrl before Morph key validation runs", async () => {
+    getSettings.mockResolvedValue({
+      cloudEnabled: false,
+      morph: {
+        baseUrl: "https://api.morphllm.com",
+        apiKeys: [{ email: "one@example.com", key: "mk-1", status: "active", isExhausted: false, lastCheckedAt: null, lastError: "" }],
+        roundRobinEnabled: false,
+      },
+    });
+
+    const { PATCH } = await import("../../src/app/api/settings/route.js");
+    const response = await PATCH(
+      new Request("http://localhost/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          morph: {
+            baseUrl: "not-a-url",
+            apiKeys: [{ email: "one@example.com", key: "mk-1", status: "inactive", isExhausted: false, lastCheckedAt: null, lastError: "" }],
+          },
+        }),
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      error: "Morph base URL must be a valid absolute http(s) URL",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(updateSettings).not.toHaveBeenCalled();
+  });
+
+  it("PATCH keeps keys retryable when Morph validation fails transiently", async () => {
+    const currentSettings = {
+      cloudEnabled: false,
+      morph: {
+        baseUrl: "https://api.morphllm.com",
+        apiKeys: [],
+        roundRobinEnabled: false,
+      },
+    };
+
+    getSettings.mockResolvedValue(currentSettings);
+    fetch.mockRejectedValueOnce(new Error("socket hang up"));
+    updateSettings.mockImplementation(async (updates) => ({
+      ...currentSettings,
+      ...updates,
+    }));
+
+    const { PATCH } = await import("../../src/app/api/settings/route.js");
+    const response = await PATCH(
+      new Request("http://localhost/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          morph: {
+            baseUrl: "https://api.morphllm.com",
+            apiKeys: [{ email: "one@example.com", key: "mk-1", status: "inactive", isExhausted: false, lastCheckedAt: null, lastError: "" }],
+            roundRobinEnabled: true,
+          },
+        }),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(updateSettings).toHaveBeenCalledWith({
+      morph: {
+        baseUrl: "https://api.morphllm.com",
+        apiKeys: [
+          {
+            email: "one@example.com",
+            key: "mk-1",
+            status: "unknown",
+            isExhausted: false,
+            lastCheckedAt: expect.any(String),
+            lastError: "socket hang up",
+          },
+        ],
+        roundRobinEnabled: true,
+      },
     });
   });
 
@@ -131,7 +233,7 @@ describe("/api/settings morph settings", () => {
       cloudEnabled: false,
       morph: {
         baseUrl: "https://persisted.example.com",
-        apiKeys: ["mk-keep"],
+        apiKeys: [{ email: "keep@example.com", key: "mk-keep", status: "active", isExhausted: false, lastCheckedAt: "2026-04-28T00:00:00.000Z", lastError: "" }],
         roundRobinEnabled: false,
       },
     };
@@ -158,13 +260,13 @@ describe("/api/settings morph settings", () => {
     expect(updateSettings).toHaveBeenCalledWith({
       morph: {
         baseUrl: "https://persisted.example.com",
-        apiKeys: ["mk-keep"],
+        apiKeys: [{ email: "keep@example.com", key: "mk-keep", status: "active", isExhausted: false, lastCheckedAt: "2026-04-28T00:00:00.000Z", lastError: "" }],
         roundRobinEnabled: true,
       },
     });
     expect(response.body.morph).toEqual({
       baseUrl: "https://persisted.example.com",
-      apiKeys: ["mk-keep"],
+      apiKeys: [{ email: "keep@example.com", key: "mk-keep", status: "active", isExhausted: false, lastCheckedAt: "2026-04-28T00:00:00.000Z", lastError: "" }],
       roundRobinEnabled: true,
     });
   });
@@ -202,7 +304,7 @@ describe("/api/settings morph settings", () => {
       roundRobin: true,
       morph: {
         baseUrl: "https://persisted.example.com",
-        apiKeys: ["mk-keep"],
+        apiKeys: [{ email: "keep@example.com", key: "mk-keep", status: "active", isExhausted: false, lastCheckedAt: "2026-04-28T00:00:00.000Z", lastError: "" }],
         roundRobinEnabled: false,
       },
     };
@@ -226,7 +328,7 @@ describe("/api/settings morph settings", () => {
     expect(updateSettings).toHaveBeenCalledWith({
       morph: {
         baseUrl: "https://persisted.example.com",
-        apiKeys: ["mk-keep"],
+        apiKeys: [{ email: "keep@example.com", key: "mk-keep", status: "active", isExhausted: false, lastCheckedAt: "2026-04-28T00:00:00.000Z", lastError: "" }],
         roundRobinEnabled: true,
       },
     });

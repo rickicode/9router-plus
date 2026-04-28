@@ -28,7 +28,7 @@ describe("Morph embeddings/rerank/warpgrep routes", () => {
     vi.clearAllMocks();
   });
 
-  it("all three routes import dispatchMorphCapability and getSettings", async () => {
+  it("all three routes import dispatchMorphCapability and the shared Morph config helper", async () => {
     const [embeddingsSource, rerankSource, warpgrepSource] = await Promise.all([
       readRouteSource(embeddingsRoutePath),
       readRouteSource(rerankRoutePath),
@@ -37,7 +37,8 @@ describe("Morph embeddings/rerank/warpgrep routes", () => {
 
     for (const source of [embeddingsSource, rerankSource, warpgrepSource]) {
       expect(source).toContain('import { dispatchMorphCapability } from "@/app/api/morph/_dispatch.js";');
-      expect(source).toContain('import { getSettings } from "@/lib/localDb.js";');
+      expect(source).toContain('import { getConfiguredMorphSettings } from "@/app/api/morph/_shared.js";');
+      expect(source).not.toContain('import { getSettings } from "@/lib/localDb.js";');
     }
   });
 
@@ -95,7 +96,7 @@ describe("Morph embeddings/rerank/warpgrep routes", () => {
   it("dispatches configured requests and returns the upstream response", async () => {
     const morphSettings = {
       baseUrl: "https://proxy.example.com",
-      apiKeys: ["mk-1"],
+      apiKeys: [{ email: "warpgrep@example.com", key: "mk-1", status: "active", isExhausted: false }],
       roundRobinEnabled: true,
     };
     const upstreamResponse = new Response(JSON.stringify({ ok: true }), {

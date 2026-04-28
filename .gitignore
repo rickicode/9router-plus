@@ -98,3 +98,7 @@ session-log.md
 .worktrees/
 .logs/
 tests/tmp/
+.playwright-mcp/
+playwright-*.log
+playwright-*.md
+playwright-*.json

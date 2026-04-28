@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { getSettings, updateSettings } from "@/lib/localDb";
+import { getSettings, normalizeMorphSettings, updateSettings } from "@/lib/localDb";
 import { applyOutboundProxyEnv } from "@/lib/network/outboundProxy";
 import { getQuotaRefreshScheduler } from "@/lib/quotaRefreshScheduler";
 import { readRuntimeConfig } from "@/lib/runtimeConfig";
+import { buildMorphKeyStatusPatch } from "@/app/api/morph/test-key/route.js";
 import bcrypt from "bcryptjs";
 
 const DEFAULT_QUOTA_EXHAUSTED_THRESHOLD_PERCENT = 10;
@@ -26,14 +27,83 @@ function sanitizeSettingsResponse(settings = {}) {
   return safeSettings;
 }
 
+function buildMorphValidationUrl(baseUrl) {
+  return new URL("/v1/chat/completions", `${String(baseUrl).replace(/\/+$/, "")}/`).toString();
+}
+
+async function validateMorphApiKeys(baseUrl, apiKeys = [], previousApiKeys = []) {
+  if (!Array.isArray(apiKeys) || apiKeys.length === 0) {
+    return [];
+  }
+
+  const previousByEmail = new Map(
+    (Array.isArray(previousApiKeys) ? previousApiKeys : [])
+      .filter((entry) => entry?.email)
+      .map((entry) => [entry.email, entry])
+  );
+
+  const validationResults = await Promise.all(apiKeys.map(async (entry) => {
+    if (!entry?.email || !entry?.key) {
+      return entry;
+    }
+
+    const previous = previousByEmail.get(entry.email);
+    if (previous?.key === entry.key && previous?.status) {
+      return {
+        ...entry,
+        status: previous.status,
+        isExhausted: previous.isExhausted === true,
+        lastCheckedAt: previous.lastCheckedAt || entry.lastCheckedAt || null,
+        lastError: previous.lastError || "",
+      };
+    }
+
+    try {
+      const response = await fetch(buildMorphValidationUrl(baseUrl), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${entry.key}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "morph-v3-fast",
+          messages: [
+            {
+              role: "user",
+              content: "<instruction>Reply with exactly OK</instruction>",
+            },
+          ],
+        }),
+      });
+
+      const responseText = await response.text().catch(() => "");
+      return {
+        ...entry,
+        ...buildMorphKeyStatusPatch({
+          status: response.status,
+          responseText,
+          fallbackLabel: `HTTP ${response.status}`,
+        }),
+      };
+    } catch (error) {
+      return {
+        ...entry,
+        status: "unknown",
+        isExhausted: false,
+        lastCheckedAt: new Date().toISOString(),
+        lastError: error?.message || "Failed to validate Morph API key",
+      };
+    }
+  }));
+
+  return validationResults;
+}
+
 export async function GET() {
   try {
     const settings = await getSettings();
     const safeSettings = sanitizeSettingsResponse(settings);
     const password = settings?.password;
-    const roundRobin = settings?.roundRobin;
-    const sticky = settings?.sticky;
-    const stickyDuration = settings?.stickyDuration;
     const quotaExhaustedThresholdPercent = resolveQuotaExhaustedThresholdPercent(
       settings?.quotaExhaustedThresholdPercent
     );
@@ -46,9 +116,6 @@ export async function GET() {
 
     return NextResponse.json({
       ...safeSettings,
-      roundRobin,
-      sticky,
-      stickyDuration,
       quotaExhaustedThresholdPercent,
       enableRequestLogs,
       enableTranslator,
@@ -99,21 +166,82 @@ export async function PATCH(request) {
       delete updates.currentPassword;
     }
 
-    if (body.roundRobin !== undefined) {
-      updates.roundRobin = body.roundRobin;
+    if (
+      body.routing !== undefined
+      || body.fallbackStrategy !== undefined
+      || body.stickyRoundRobinLimit !== undefined
+      || body.providerStrategies !== undefined
+      || body.comboStrategy !== undefined
+      || body.comboStrategies !== undefined
+      || body.roundRobin !== undefined
+      || body.sticky !== undefined
+      || body.stickyDuration !== undefined
+    ) {
+      const baseRouting = currentSettings?.routing || {};
+      const nextRouting = {
+        ...baseRouting,
+        ...(body.routing && typeof body.routing === "object" && !Array.isArray(body.routing)
+          ? body.routing
+          : {}),
+      };
+
+      if (body.fallbackStrategy !== undefined) {
+        nextRouting.strategy = body.fallbackStrategy;
+      }
+      if (body.stickyRoundRobinLimit !== undefined) {
+        nextRouting.stickyLimit = body.stickyRoundRobinLimit;
+      }
+      if (body.providerStrategies !== undefined) {
+        nextRouting.providerStrategies = body.providerStrategies;
+      }
+      if (body.comboStrategy !== undefined) {
+        nextRouting.comboStrategy = body.comboStrategy;
+      }
+      if (body.comboStrategies !== undefined) {
+        nextRouting.comboStrategies = body.comboStrategies;
+      }
+      if (body.roundRobin !== undefined) {
+        nextRouting.strategy = body.roundRobin ? "round-robin" : "fill-first";
+      }
+      if (body.sticky !== undefined || body.stickyDuration !== undefined) {
+        nextRouting.sticky = {
+          ...(baseRouting.sticky || {}),
+          ...(nextRouting.sticky && typeof nextRouting.sticky === "object" ? nextRouting.sticky : {}),
+        };
+        if (body.sticky !== undefined) {
+          nextRouting.sticky.enabled = body.sticky;
+        }
+        if (body.stickyDuration !== undefined) {
+          nextRouting.sticky.durationSeconds = body.stickyDuration;
+        }
+      }
+
+      updates.routing = nextRouting;
+      delete updates.roundRobin;
+      delete updates.sticky;
+      delete updates.stickyDuration;
+      delete updates.fallbackStrategy;
+      delete updates.stickyRoundRobinLimit;
+      delete updates.providerStrategies;
+      delete updates.comboStrategy;
+      delete updates.comboStrategies;
     }
-    if (body.sticky !== undefined) {
-      updates.sticky = body.sticky;
-    }
-    if (body.stickyDuration !== undefined) {
-      updates.stickyDuration = body.stickyDuration;
-    }
+
     if (body.morph !== undefined) {
-      updates.morph = {
+      const nextMorph = normalizeMorphSettings({
         ...(currentSettings?.morph || {}),
         ...(body.morph && typeof body.morph === "object" && !Array.isArray(body.morph)
           ? body.morph
           : {}),
+      });
+
+      updates.morph = {
+        ...nextMorph,
+        apiKeys: await validateMorphApiKeys(
+          nextMorph.baseUrl,
+          nextMorph.apiKeys,
+          currentSettings?.morph?.apiKeys || []
+        ),
       };
     }
 

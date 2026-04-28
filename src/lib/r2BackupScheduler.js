@@ -13,10 +13,10 @@ let usageBackupTimer = null;
 let currentSchedule = null;
 let initialized = false;
 
-async function isR2BackupEnabled() {
+async function isScheduledR2BackupEnabled() {
   try {
     const settings = await getSettings();
-    return settings.r2BackupEnabled === true || settings.r2AutoPublishEnabled === true;
+    return settings.r2BackupEnabled === true;
   } catch {
     return false;
   }
@@ -33,7 +33,7 @@ async function getSqliteBackupIntervalMs() {
 }
 
 async function runSqliteBackup() {
-  if (!await isR2BackupEnabled()) return;
+  if (!await isScheduledR2BackupEnabled()) return;
 
   try {
     const result = await publishRuntimeArtifactsFromSettings();
@@ -49,7 +49,7 @@ async function runSqliteBackup() {
 }
 
 async function runUsageBackup() {
-  if (!await isR2BackupEnabled()) return;
+  if (!await isScheduledR2BackupEnabled()) return;
 
   try {
     const { getUsageDb } = await import("./usageDb.js");
@@ -92,7 +92,7 @@ export async function startR2BackupScheduler() {
 
   // Initial backup after 2 minutes
   setTimeout(async () => {
-    if (await isR2BackupEnabled()) {
+    if (await isScheduledR2BackupEnabled()) {
       runSqliteBackup();
       runUsageBackup();
     }

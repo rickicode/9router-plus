@@ -1,56 +1,298 @@
-import { MORPH_CAPABILITY_UPSTREAMS } from "@/lib/localDb.js";
+import { MORPH_CAPABILITY_UPSTREAMS, atomicUpdateSettings } from "@/lib/localDb.js";
 import {
   createMorphDispatchError,
   executeWithMorphKeyFailover,
 } from "@/lib/morph/keySelection.js";
+import { buildMorphKeyStatusPatch } from "@/app/api/morph/test-key/route.js";
+import { getDefaultMorphModel, saveMorphUsage } from "@/lib/morphUsageDb.js";
+import { trackPendingRequest } from "@/lib/usageDb.js";
 
 function buildUpstreamUrl(baseUrl, upstreamPath) {
   return new URL(upstreamPath, `${baseUrl.replace(/\/+$/, "")}/`).toString();
 }
 
-export async function dispatchMorphCapability({ capability, req, morphSettings }) {
-  const upstreamTarget = MORPH_CAPABILITY_UPSTREAMS[capability];
+function inferMorphModel(payload, capability) {
+  if (typeof payload?.model === "string" && payload.model.trim()) {
+    return payload.model.trim();
+  }
+
+  return getDefaultMorphModel(capability);
+}
+
+function normalizeUsageTokens(usage = {}) {
+  const inputTokens = Number(usage?.prompt_tokens ?? usage?.input_tokens ?? 0) || 0;
+  const outputTokens = Number(usage?.completion_tokens ?? usage?.output_tokens ?? 0) || 0;
+
+  return {
+    prompt_tokens: inputTokens,
+    completion_tokens: outputTokens,
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+  };
+}
+
+function getMorphRequestPath(req) {
+  return req.nextUrl?.pathname || new URL(req.url).pathname;
+}
+
+function getMorphRequestSource(req) {
+  const pathname = getMorphRequestPath(req);
+  return pathname.startsWith("/v1/") ? "v1" : "morph-api";
+}
+
+function logMorphEndpointAccess(req, requestLabel, requestPayload, upstreamPath) {
+  const pathname = getMorphRequestPath(req);
+  if (!pathname.startsWith("/api/morph")) {
+    return;
+  }
+
+  const fallbackCapability = typeof requestLabel === "string" && requestLabel.startsWith("morph:")
+    ? requestLabel.slice("morph:".length)
+    : null;
+  const model = typeof requestPayload?.model === "string" && requestPayload.model.trim()
+    ? requestPayload.model.trim()
+    : getDefaultMorphModel(fallbackCapability);
+  const upstreamLabel = upstreamPath ? ` upstream=${upstreamPath}` : "";
+
+  console.log(`[morph] ${req.method || "POST"} ${pathname}${upstreamLabel} model=${model}`);
+}
+
+function parseMorphRequestPayload(requestBody) {
+  if (!requestBody) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(requestBody);
+  } catch {
+    return null;
+  }
+}
+
+function shouldBufferMorphResponse(response, requestPayload) {
+  if (!response?.ok) return true;
+  if (requestPayload?.stream === true) return false;
+  const contentType = String(response.headers?.get("content-type") || "").toLowerCase();
+  if (contentType.includes("text/event-stream")) return false;
+  return contentType.includes("application/json");
+}
+
+function doesMorphKeyPatchChange(entry, patch) {
+  if (!entry || !patch) return false;
+  return entry.status !== patch.status
+    || entry.isExhausted !== patch.isExhausted
+    || (entry.lastError || "") !== (patch.lastError || "");
+}
+
+async function updateMorphKeyState(email, patch) {
+  if (!email) return false;
+
+  let changed = false;
+  await atomicUpdateSettings((current) => {
+    const morph = current?.morph || {};
+    const apiKeys = Array.isArray(morph.apiKeys) ? morph.apiKeys : [];
+    const nextApiKeys = apiKeys.map((entry) => {
+      if (entry?.email !== email) {
+        return entry;
+      }
+
+      if (!doesMorphKeyPatchChange(entry, patch)) {
+        return entry;
+      }
+
+      changed = true;
+      return { ...entry, ...patch };
+    });
+
+    if (!changed) {
+      return current;
+    }
+
+    return {
+      ...current,
+      morph: {
+        ...morph,
+        apiKeys: nextApiKeys,
+      },
+    };
+  });
+
+  return changed;
+}
+
+async function applyMorphResponseKeyState(email, status, responseText) {
+  if (!email) return;
+
+  const patch = buildMorphKeyStatusPatch({
+    status,
+    responseText,
+    fallbackLabel: `HTTP ${status}`,
+  });
+
+  await updateMorphKeyState(email, patch);
+}
+
+async function persistMorphUsage({ capability, req, requestPayload, response, responseText, error, apiKey, email }) {
+  const model = inferMorphModel(requestPayload, capability);
+  let usagePayload = null;
+
+  if (responseText) {
+    try {
+      usagePayload = JSON.parse(responseText)?.usage || null;
+    } catch {
+      usagePayload = null;
+    }
+  }
+
+  const status = response && response.ok ? "ok" : "error";
+
+  return saveMorphUsage({
+    capability,
+    entrypoint: req.nextUrl?.pathname || new URL(req.url).pathname,
+    source: getMorphRequestSource(req),
+    method: req.method || "POST",
+    model,
+    requestedModel: typeof requestPayload?.model === "string" ? requestPayload.model : null,
+    apiKey,
+    apiKeyLabel: email || "Unknown email",
+    upstreamStatus: response?.status ?? null,
+    status,
+    tokens: normalizeUsageTokens(usagePayload || {}),
+    error: error ? String(error?.message || error) : null,
+  }, { propagateError: true });
+}
+
+export async function dispatchMorphCapability({ capability, req, morphSettings, requestBody: providedRequestBody = null, requestPayload: providedRequestPayload = undefined, upstreamTarget: providedUpstreamTarget = null, requestLabel: providedRequestLabel = null }) {
+  const upstreamTarget = providedUpstreamTarget || MORPH_CAPABILITY_UPSTREAMS[capability];
 
   if (!upstreamTarget) {
     throw new Error(`Unsupported Morph capability: ${capability}`);
   }
 
-  const body = await req.text().catch((cause) => {
-    throw createMorphDispatchError("Failed to read Morph request body", {
-      cause,
-      dispatchStarted: false,
-    });
-  });
+  const requestLabel = providedRequestLabel || `morph:${capability}`;
+  trackPendingRequest(requestLabel, "morph", capability, true);
 
-  const response = await executeWithMorphKeyFailover({
-    apiKeys: morphSettings?.apiKeys,
-    roundRobinEnabled: morphSettings?.roundRobinEnabled,
-    rotationKey: capability,
-    execute: async ({ apiKey }) => {
-      const upstreamResponse = await fetch(
-        buildUpstreamUrl(morphSettings.baseUrl, upstreamTarget.path),
-        {
-          method: upstreamTarget.method,
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-          },
-          body,
-        }
-      ).catch((cause) => {
-        throw createMorphDispatchError("Morph upstream request failed", {
+  let requestBody = typeof providedRequestBody === "string" ? providedRequestBody : null;
+  let requestPayload = providedRequestPayload;
+  let usedApiKey = null;
+  let usedEmail = null;
+
+  try {
+    if (requestBody === null) {
+      requestBody = await req.text().catch((cause) => {
+        throw createMorphDispatchError("Failed to read Morph request body", {
           cause,
-          dispatchStarted: true,
+          dispatchStarted: false,
         });
       });
+    }
 
-      return upstreamResponse;
-    },
-  });
+    if (requestPayload === undefined) {
+      requestPayload = parseMorphRequestPayload(requestBody);
+    }
 
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers,
-  });
+    logMorphEndpointAccess(req, requestLabel, requestPayload, upstreamTarget.path);
+
+    const upstreamResponse = await executeWithMorphKeyFailover({
+      apiKeys: morphSettings?.apiKeys,
+      roundRobinEnabled: morphSettings?.roundRobinEnabled,
+      rotationKey: capability,
+      execute: async ({ apiKey, email, attempt, totalKeys }) => {
+        usedApiKey = apiKey;
+        usedEmail = email;
+        const response = await fetch(
+          buildUpstreamUrl(morphSettings.baseUrl, upstreamTarget.path),
+          {
+            method: upstreamTarget.method,
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: requestBody,
+          }
+        ).catch((cause) => {
+          throw createMorphDispatchError("Morph upstream request failed", {
+            cause,
+            dispatchStarted: true,
+          });
+        });
+
+        if (response.ok) {
+          const nextPatch = buildMorphKeyStatusPatch({
+            status: response.status,
+            responseText: "",
+            fallbackLabel: `HTTP ${response.status}`,
+          });
+          await updateMorphKeyState(email, nextPatch);
+          return response;
+        }
+
+        const responseText = await response.clone().text().catch(() => "");
+        const nextPatch = buildMorphKeyStatusPatch({
+          status: response.status,
+          responseText,
+          fallbackLabel: `HTTP ${response.status}`,
+        });
+
+        await updateMorphKeyState(email, nextPatch);
+
+        if ((nextPatch.status === "inactive" || nextPatch.isExhausted === true) && attempt < totalKeys - 1) {
+          throw createMorphDispatchError(`Morph upstream rejected key ${email || "unknown"}`, {
+            status: response.status,
+            code: nextPatch.status === "inactive" ? "MORPH_API_KEY_INVALID" : "MORPH_API_KEY_EXHAUSTED",
+            dispatchStarted: true,
+          });
+        }
+
+        return response;
+      },
+    });
+
+    const responseText = shouldBufferMorphResponse(upstreamResponse, requestPayload)
+      ? await upstreamResponse.clone().text().catch(() => null)
+      : null;
+
+    const persistUsagePromise = persistMorphUsage({
+      capability,
+      req,
+      requestPayload,
+      response: upstreamResponse,
+      responseText,
+      error: null,
+      apiKey: usedApiKey,
+      email: usedEmail,
+    }).catch((persistError) => {
+      console.error("[morph] Failed to persist Morph usage:", persistError);
+    });
+
+    trackPendingRequest(requestLabel, "morph", capability, false, !upstreamResponse.ok);
+
+    void persistUsagePromise;
+
+    return new Response(upstreamResponse.body, {
+      status: upstreamResponse.status,
+      statusText: upstreamResponse.statusText,
+      headers: upstreamResponse.headers,
+    });
+  } catch (error) {
+    if (requestBody) {
+      try {
+        await persistMorphUsage({
+          capability,
+          req,
+          requestPayload,
+          response: null,
+          responseText: null,
+          error,
+          apiKey: usedApiKey,
+          email: usedEmail,
+        });
+      } catch (persistError) {
+        console.error("[morph] Failed to persist Morph usage after error:", persistError);
+      }
+    }
+
+    trackPendingRequest(requestLabel, "morph", capability, false, true);
+    throw error;
+  }
 }

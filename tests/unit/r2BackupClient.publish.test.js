@@ -818,4 +818,31 @@ describe("direct artifact reads", () => {
       })
     ).rejects.toThrow("Missing R2 configuration for private backup artifact read");
   });
+
+  it("wires direct restore through the local DB drain and reload hooks", async () => {
+    const source = await import("node:fs/promises").then((fs) =>
+      fs.readFile(new URL("../../src/lib/r2BackupClient.js", import.meta.url), "utf8")
+    );
+
+    const prepareIndex = source.indexOf("await prepareLocalDbForExternalRestore();");
+    const writeIndex = source.indexOf("fs.writeFileSync(DB_SQLITE_FILE, backupData);");
+    const reloadIndex = source.indexOf("await reloadLocalDbAfterExternalRestore();");
+
+    expect(prepareIndex).toBeGreaterThan(-1);
+    expect(writeIndex).toBeGreaterThan(prepareIndex);
+    expect(reloadIndex).toBeGreaterThan(writeIndex);
+  });
+
+  it("exposes dedicated local DB restore lifecycle hooks", async () => {
+    const source = await import("node:fs/promises").then((fs) =>
+      fs.readFile(new URL("../../src/lib/localDb.js", import.meta.url), "utf8")
+    );
+
+    expect(source).toContain("export async function prepareLocalDbForExternalRestore()");
+    expect(source).toContain("closeSqliteDb();");
+    expect(source).toContain("export async function reloadLocalDbAfterExternalRestore()");
+    expect(source).toContain("await ensureSqliteBootstrap();");
+    expect(source).toContain("await clearAllHotState();");
+    expect(source).toContain("rebuildHotStateFromConnections(connectionsForRebuild);");
+  });
 });

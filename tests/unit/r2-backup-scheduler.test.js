@@ -21,19 +21,14 @@ describe("r2BackupScheduler", () => {
     backupUsageToAll.mockReset();
   });
 
-  it("triggerSqliteBackupNow publishes direct R2 artifacts when auto publish is enabled", async () => {
+  it("triggerSqliteBackupNow does not publish when only auto publish is enabled", async () => {
     getSettings.mockResolvedValue({ r2AutoPublishEnabled: true, r2BackupEnabled: false });
-    publishRuntimeArtifactsFromSettings.mockResolvedValue({
-      backup: { ok: true, uploaded: true },
-      runtime: { ok: true, uploaded: true },
-      sqlite: { ok: true, skipped: true },
-    });
 
     const { triggerSqliteBackupNow } = await import("@/lib/r2BackupScheduler.js");
 
     await triggerSqliteBackupNow();
 
-    expect(publishRuntimeArtifactsFromSettings).toHaveBeenCalledTimes(1);
+    expect(publishRuntimeArtifactsFromSettings).not.toHaveBeenCalled();
   });
 
   it("triggerSqliteBackupNow does not publish when both R2 backup toggles are off", async () => {

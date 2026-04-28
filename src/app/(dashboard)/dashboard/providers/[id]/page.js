@@ -292,8 +292,8 @@ export default function ProviderDetailPage() {
       }
       // Load per-provider strategy override
       const override = (settingsData.providerStrategies || {})[providerId] || {};
-      setProviderStrategy(override.fallbackStrategy || null);
-      setProviderStickyLimit(override.stickyRoundRobinLimit != null ? String(override.stickyRoundRobinLimit) : "1");
+      setProviderStrategy(override.strategy || override.fallbackStrategy || null);
+      setProviderStickyLimit(override.stickyLimit != null ? String(override.stickyLimit) : (override.stickyRoundRobinLimit != null ? String(override.stickyRoundRobinLimit) : "1"));
       // Load per-provider thinking config
       const thinkingCfg = (settingsData.providerThinking || {})[providerId] || {};
       setThinkingMode(thinkingCfg.mode || "auto");
@@ -344,13 +344,13 @@ export default function ProviderDetailPage() {
     try {
       const settingsRes = await fetch("/api/settings", { cache: "no-store" });
       const settingsData = settingsRes.ok ? await settingsRes.json() : {};
-      const current = settingsData.providerStrategies || {};
+      const current = settingsData.routing?.providerStrategies || settingsData.providerStrategies || {};
 
       // Build override: null strategy means remove override, use global
       const override = {};
-      if (strategy) override.fallbackStrategy = strategy;
+      if (strategy) override.strategy = strategy;
       if (strategy === "round-robin" && stickyLimit !== "") {
-        override.stickyRoundRobinLimit = Number(stickyLimit) || 3;
+        override.stickyLimit = Number(stickyLimit) || 3;
       }
 
       const updated = { ...current };
@@ -363,7 +363,7 @@ export default function ProviderDetailPage() {
       await fetch("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ providerStrategies: updated }),
+        body: JSON.stringify({ routing: { providerStrategies: updated } }),
       });
     } catch (error) {
       console.log("Error saving provider strategy:", error);

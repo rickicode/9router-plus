@@ -31,6 +31,53 @@ const DEFAULT_MORPH_SETTINGS = Object.freeze({
   apiKeys: [],
   roundRobinEnabled: false,
 });
+
+function normalizeMorphApiKeyEntry(value, index = 0) {
+  if (typeof value === "string") {
+    const normalizedKey = value.trim();
+    if (!normalizedKey) return null;
+    return {
+      email: `key${index + 1}@local`,
+      key: normalizedKey,
+      status: "inactive",
+      isExhausted: false,
+      lastCheckedAt: null,
+      lastError: "",
+    };
+  }
+
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const email = typeof value.email === "string" ? value.email.trim().toLowerCase() : "";
+  const key = typeof value.key === "string" ? value.key.trim() : "";
+  if (!email || !key) return null;
+
+  return {
+    email,
+    key,
+    status: ["active", "inactive", "exhausted"].includes(value.status)
+      ? value.status
+      : "inactive",
+    isExhausted: value.isExhausted === true,
+    lastCheckedAt: typeof value.lastCheckedAt === "string" ? value.lastCheckedAt : null,
+    lastError: typeof value.lastError === "string" ? value.lastError : "",
+  };
+}
+
+function normalizeMorphApiKeys(apiKeys = []) {
+  if (!Array.isArray(apiKeys)) return [];
+
+  const byEmail = new Map();
+  for (const [index, value] of apiKeys.entries()) {
+    const normalized = normalizeMorphApiKeyEntry(value, index);
+    if (!normalized) continue;
+    byEmail.set(normalized.email, normalized);
+  }
+
+  return Array.from(byEmail.values());
+}
 const DEFAULT_R2_CONFIG = {
   accountId: "",
   accessKeyId: "",
@@ -83,6 +130,17 @@ const DEFAULT_SETTINGS = {
   tunnelProvider: "cloudflare",
   tailscaleEnabled: false,
   tailscaleUrl: "",
+  routing: {
+    strategy: "fill-first",
+    stickyLimit: 3,
+    sticky: {
+      enabled: false,
+      durationSeconds: 300,
+    },
+    providerStrategies: {},
+    comboStrategy: "fallback",
+    comboStrategies: {},
+  },
   stickyRoundRobinLimit: 3,
   providerStrategies: {},
   comboStrategy: "fallback",
@@ -141,7 +199,7 @@ function buildEligibilityRecoveryPatch() {
     healthStatus: "healthy",
     quotaState: "ok",
     authState: "ok",
-    reasonCode: "unknown",
+    reasonCode: "inactive",
     reasonDetail: null,
     nextRetryAt: null,
     resetAt: null,
@@ -172,6 +230,122 @@ function normalizeRuntimeCacheTtlSeconds(value) {
     : DEFAULT_SETTINGS.r2RuntimeCacheTtlSeconds;
 }
 
+function normalizeRoutingStrategy(value, fallback = "fill-first") {
+  return value === "round-robin" ? "round-robin" : fallback;
+}
+
+function normalizeStickyLimit(value, fallback = 3) {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(1, Math.min(10, Math.trunc(value)));
+}
+
+function normalizeStickyDurationSeconds(value, fallback = 300) {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(60, Math.min(3600, Math.trunc(value)));
+}
+
+function normalizeProviderRoutingStrategies(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+  const normalized = {};
+  for (const [providerId, config] of Object.entries(value)) {
+    if (!config || typeof config !== "object" || Array.isArray(config)) continue;
+    const strategy = normalizeRoutingStrategy(config.strategy || config.fallbackStrategy, "");
+    if (!strategy) continue;
+
+    normalized[providerId] = { strategy };
+
+    if (strategy === "round-robin") {
+      normalized[providerId].stickyLimit = normalizeStickyLimit(
+        config.stickyLimit ?? config.stickyRoundRobinLimit,
+        DEFAULT_SETTINGS.routing.stickyLimit
+      );
+    }
+  }
+
+  return normalized;
+}
+
+function normalizeComboRoutingStrategies(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+  const normalized = {};
+  for (const [comboName, config] of Object.entries(value)) {
+    if (!config || typeof config !== "object" || Array.isArray(config)) continue;
+    const strategy = normalizeRoutingStrategy(config.strategy || config.fallbackStrategy, "");
+    if (!strategy || strategy === "fallback") continue;
+    normalized[comboName] = { strategy };
+  }
+
+  return normalized;
+}
+
+function normalizeRoutingSettings(settings = {}) {
+  const sourceRouting = settings?.routing && typeof settings.routing === "object" && !Array.isArray(settings.routing)
+    ? settings.routing
+    : {};
+
+  const strategy = normalizeRoutingStrategy(
+    sourceRouting.strategy ?? settings?.fallbackStrategy,
+    DEFAULT_SETTINGS.routing.strategy
+  );
+  const stickyLimit = normalizeStickyLimit(
+    sourceRouting.stickyLimit ?? settings?.stickyRoundRobinLimit,
+    DEFAULT_SETTINGS.routing.stickyLimit
+  );
+  const stickyEnabled = sourceRouting?.sticky?.enabled ?? settings?.sticky;
+  const stickyDurationSeconds = normalizeStickyDurationSeconds(
+    sourceRouting?.sticky?.durationSeconds ?? settings?.stickyDuration,
+    DEFAULT_SETTINGS.routing.sticky.durationSeconds
+  );
+
+  return {
+    strategy,
+    stickyLimit,
+    sticky: {
+      enabled: stickyEnabled === true,
+      durationSeconds: stickyDurationSeconds,
+    },
+    providerStrategies: normalizeProviderRoutingStrategies(
+      sourceRouting.providerStrategies ?? settings?.providerStrategies
+    ),
+    comboStrategy: normalizeRoutingStrategy(
+      sourceRouting.comboStrategy ?? settings?.comboStrategy,
+      DEFAULT_SETTINGS.routing.comboStrategy
+    ) === "round-robin"
+      ? "round-robin"
+      : "fallback",
+    comboStrategies: normalizeComboRoutingStrategies(
+      sourceRouting.comboStrategies ?? settings?.comboStrategies
+    ),
+  };
+}
+
+function applyLegacyRoutingAliases(merged) {
+  const routing = merged.routing || DEFAULT_SETTINGS.routing;
+  merged.fallbackStrategy = routing.strategy;
+  merged.stickyRoundRobinLimit = routing.stickyLimit;
+  merged.providerStrategies = Object.fromEntries(
+    Object.entries(routing.providerStrategies || {}).map(([providerId, config]) => [
+      providerId,
+      {
+        fallbackStrategy: config.strategy,
+        ...(config.strategy === "round-robin" ? { stickyRoundRobinLimit: config.stickyLimit } : {}),
+      },
+    ])
+  );
+  merged.comboStrategy = routing.comboStrategy;
+  merged.comboStrategies = Object.fromEntries(
+    Object.entries(routing.comboStrategies || {}).map(([comboName, config]) => [
+      comboName,
+      { fallbackStrategy: config.strategy },
+    ])
+  );
+  merged.roundRobin = routing.strategy === "round-robin";
+  merged.sticky = routing.sticky?.enabled === true;
+  merged.stickyDuration = routing.sticky?.durationSeconds || DEFAULT_SETTINGS.routing.sticky.durationSeconds;
+}
+
 function isValidAbsoluteUrl(value) {
   if (typeof value !== "string") return false;
 
@@ -195,13 +369,7 @@ export function normalizeMorphSettings(morph = {}) {
   }
 
   const apiKeys = Array.isArray(sourceMorph.apiKeys)
-    ? sourceMorph.apiKeys.reduce((keys, value) => {
-        if (typeof value !== "string") return keys;
-        const normalized = value.trim();
-        if (!normalized || keys.includes(normalized)) return keys;
-        keys.push(normalized);
-        return keys;
-      }, [])
+    ? normalizeMorphApiKeys(sourceMorph.apiKeys)
     : DEFAULT_MORPH_SETTINGS.apiKeys;
 
   return {
@@ -244,6 +412,8 @@ function mergeSettingsWithDefaults(settings = {}) {
       : {}),
   };
   merged.morph = normalizeMorphSettings(sourceSettings?.morph);
+  merged.routing = normalizeRoutingSettings(sourceSettings);
+  applyLegacyRoutingAliases(merged);
 
   merged.r2AutoPublishEnabled = sourceSettings?.r2AutoPublishEnabled === true;
   merged.r2RuntimePublicBaseUrl =
@@ -1791,7 +1961,13 @@ export async function atomicUpdateSettings(mutator) {
       throw new Error("Mutator must return settings object");
     }
 
-    db.data.settings = mergeSettingsWithDefaults(updated);
+    const normalizedUpdated = mergeSettingsWithDefaults(updated);
+    if (JSON.stringify(normalizedUpdated) === JSON.stringify(current)) {
+      result = current;
+      return;
+    }
+
+    db.data.settings = normalizedUpdated;
     await persistDbWrite(db);
     result = db.data.settings;
   });

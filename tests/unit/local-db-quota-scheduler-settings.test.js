@@ -480,4 +480,16 @@ describe("localDb quota scheduler settings", () => {
       },
     });
   });
+
+  it("skips SQLite persistence when atomic settings updates are effectively unchanged", async () => {
+    const { localDb, sqliteHelpers } = await loadLocalDb();
+
+    const baseline = sqliteHelpers.loadSingletonFromSqlite("settings");
+    const updated = await localDb.atomicUpdateSettings((current) => ({
+      ...current,
+    }));
+
+    expect(updated).toEqual(await localDb.getSettings());
+    expect(sqliteHelpers.loadSingletonFromSqlite("settings")).toEqual(baseline);
+  });
 });

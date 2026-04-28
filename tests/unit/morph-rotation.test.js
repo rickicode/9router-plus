@@ -9,6 +9,16 @@ import {
   resetMorphKeySelectionState,
 } from "../../src/lib/morph/keySelection.js";
 
+function keyEntry(email, key, overrides = {}) {
+  return {
+    email,
+    key,
+    status: "active",
+    isExhausted: false,
+    ...overrides,
+  };
+}
+
 afterEach(() => {
   resetMorphKeySelectionState();
 });
@@ -20,12 +30,12 @@ describe("Morph key rotation helper", () => {
 
   it("always starts at key 0 when round robin is disabled", () => {
     const first = getMorphKeyOrder({
-      apiKeys: ["primary", "secondary", "tertiary"],
+      apiKeys: [keyEntry("one@example.com", "primary"), keyEntry("two@example.com", "secondary"), keyEntry("three@example.com", "tertiary")],
       roundRobinEnabled: false,
       rotationKey: "apply",
     });
     const second = getMorphKeyOrder({
-      apiKeys: ["primary", "secondary", "tertiary"],
+      apiKeys: [keyEntry("one@example.com", "primary"), keyEntry("two@example.com", "secondary"), keyEntry("three@example.com", "tertiary")],
       roundRobinEnabled: false,
       rotationKey: "apply",
     });
@@ -33,9 +43,9 @@ describe("Morph key rotation helper", () => {
     expect(first).toEqual({
       startIndex: 0,
       keyOrder: [
-        { apiKey: "primary", index: 0, attempt: 0 },
-        { apiKey: "secondary", index: 1, attempt: 1 },
-        { apiKey: "tertiary", index: 2, attempt: 2 },
+        { apiKey: "primary", email: "one@example.com", status: "active", isExhausted: false, index: 0, attempt: 0 },
+        { apiKey: "secondary", email: "two@example.com", status: "active", isExhausted: false, index: 1, attempt: 1 },
+        { apiKey: "tertiary", email: "three@example.com", status: "active", isExhausted: false, index: 2, attempt: 2 },
       ],
     });
     expect(second).toEqual(first);
@@ -43,50 +53,78 @@ describe("Morph key rotation helper", () => {
   });
 
   it("rotates deterministically and wraps around when round robin is enabled", () => {
-    const apiKeys = ["key-a", "key-b", "key-c"];
+    const apiKeys = [keyEntry("a@example.com", "key-a"), keyEntry("b@example.com", "key-b"), keyEntry("c@example.com", "key-c")];
 
     expect(getMorphKeyOrder({ apiKeys, roundRobinEnabled: true, rotationKey: "apply" })).toEqual({
       startIndex: 0,
       keyOrder: [
-        { apiKey: "key-a", index: 0, attempt: 0 },
-        { apiKey: "key-b", index: 1, attempt: 1 },
-        { apiKey: "key-c", index: 2, attempt: 2 },
+        { apiKey: "key-a", email: "a@example.com", status: "active", isExhausted: false, index: 0, attempt: 0 },
+        { apiKey: "key-b", email: "b@example.com", status: "active", isExhausted: false, index: 1, attempt: 1 },
+        { apiKey: "key-c", email: "c@example.com", status: "active", isExhausted: false, index: 2, attempt: 2 },
       ],
     });
     expect(getMorphKeyOrder({ apiKeys, roundRobinEnabled: true, rotationKey: "apply" })).toEqual({
       startIndex: 1,
       keyOrder: [
-        { apiKey: "key-b", index: 1, attempt: 0 },
-        { apiKey: "key-c", index: 2, attempt: 1 },
-        { apiKey: "key-a", index: 0, attempt: 2 },
+        { apiKey: "key-b", email: "b@example.com", status: "active", isExhausted: false, index: 1, attempt: 0 },
+        { apiKey: "key-c", email: "c@example.com", status: "active", isExhausted: false, index: 2, attempt: 1 },
+        { apiKey: "key-a", email: "a@example.com", status: "active", isExhausted: false, index: 0, attempt: 2 },
       ],
     });
     expect(getMorphKeyOrder({ apiKeys, roundRobinEnabled: true, rotationKey: "apply" })).toEqual({
       startIndex: 2,
       keyOrder: [
-        { apiKey: "key-c", index: 2, attempt: 0 },
-        { apiKey: "key-a", index: 0, attempt: 1 },
-        { apiKey: "key-b", index: 1, attempt: 2 },
+        { apiKey: "key-c", email: "c@example.com", status: "active", isExhausted: false, index: 2, attempt: 0 },
+        { apiKey: "key-a", email: "a@example.com", status: "active", isExhausted: false, index: 0, attempt: 1 },
+        { apiKey: "key-b", email: "b@example.com", status: "active", isExhausted: false, index: 1, attempt: 2 },
       ],
     });
     expect(getMorphKeyOrder({ apiKeys, roundRobinEnabled: true, rotationKey: "apply" })).toEqual({
       startIndex: 0,
       keyOrder: [
-        { apiKey: "key-a", index: 0, attempt: 0 },
-        { apiKey: "key-b", index: 1, attempt: 1 },
-        { apiKey: "key-c", index: 2, attempt: 2 },
+        { apiKey: "key-a", email: "a@example.com", status: "active", isExhausted: false, index: 0, attempt: 0 },
+        { apiKey: "key-b", email: "b@example.com", status: "active", isExhausted: false, index: 1, attempt: 1 },
+        { apiKey: "key-c", email: "c@example.com", status: "active", isExhausted: false, index: 2, attempt: 2 },
       ],
     });
   });
 
   it("keeps one-key selection stable even when round robin is enabled", () => {
-    expect(getMorphKeyOrder({ apiKeys: ["solo"], roundRobinEnabled: true, rotationKey: "apply" })).toEqual({
+    expect(getMorphKeyOrder({ apiKeys: [keyEntry("solo@example.com", "solo")], roundRobinEnabled: true, rotationKey: "apply" })).toEqual({
       startIndex: 0,
-      keyOrder: [{ apiKey: "solo", index: 0, attempt: 0 }],
+      keyOrder: [{ apiKey: "solo", email: "solo@example.com", status: "active", isExhausted: false, index: 0, attempt: 0 }],
     });
-    expect(getMorphKeyOrder({ apiKeys: ["solo"], roundRobinEnabled: true, rotationKey: "apply" })).toEqual({
+    expect(getMorphKeyOrder({ apiKeys: [keyEntry("solo@example.com", "solo")], roundRobinEnabled: true, rotationKey: "apply" })).toEqual({
       startIndex: 0,
-      keyOrder: [{ apiKey: "solo", index: 0, attempt: 0 }],
+      keyOrder: [{ apiKey: "solo", email: "solo@example.com", status: "active", isExhausted: false, index: 0, attempt: 0 }],
+    });
+  });
+
+  it("skips exhausted keys entirely", () => {
+    expect(getMorphKeyOrder({
+      apiKeys: [
+        keyEntry("one@example.com", "key-a", { isExhausted: true, status: "exhausted" }),
+        keyEntry("two@example.com", "key-b"),
+      ],
+      roundRobinEnabled: false,
+      rotationKey: "apply",
+    })).toEqual({
+      startIndex: 0,
+      keyOrder: [{ apiKey: "key-b", email: "two@example.com", status: "active", isExhausted: false, index: 0, attempt: 0 }],
+    });
+  });
+
+  it("skips inactive keys entirely", () => {
+    expect(getMorphKeyOrder({
+      apiKeys: [
+        keyEntry("one@example.com", "key-a", { status: "inactive" }),
+        keyEntry("two@example.com", "key-b"),
+      ],
+      roundRobinEnabled: false,
+      rotationKey: "apply",
+    })).toEqual({
+      startIndex: 0,
+      keyOrder: [{ apiKey: "key-b", email: "two@example.com", status: "active", isExhausted: false, index: 0, attempt: 0 }],
     });
   });
 
@@ -97,7 +135,7 @@ describe("Morph key rotation helper", () => {
       .mockResolvedValueOnce({ ok: true, status: 200, body: { ok: true } });
 
     const result = await executeWithMorphKeyFailover({
-      apiKeys: ["primary", "secondary", "tertiary"],
+      apiKeys: [keyEntry("one@example.com", "primary"), keyEntry("two@example.com", "secondary"), keyEntry("three@example.com", "tertiary")],
       roundRobinEnabled: false,
       rotationKey: "apply",
       execute,
@@ -107,6 +145,9 @@ describe("Morph key rotation helper", () => {
     expect(execute).toHaveBeenCalledTimes(2);
     expect(execute).toHaveBeenNthCalledWith(1, {
       apiKey: "primary",
+      email: "one@example.com",
+      status: "active",
+      isExhausted: false,
       index: 0,
       attempt: 0,
       startIndex: 0,
@@ -114,6 +155,9 @@ describe("Morph key rotation helper", () => {
     });
     expect(execute).toHaveBeenNthCalledWith(2, {
       apiKey: "secondary",
+      email: "two@example.com",
+      status: "active",
+      isExhausted: false,
       index: 1,
       attempt: 1,
       startIndex: 0,
@@ -133,7 +177,7 @@ describe("Morph key rotation helper", () => {
       .mockResolvedValueOnce({ ok: true, status: 200 });
 
     const result = await executeWithMorphKeyFailover({
-      apiKeys: ["key-a", "key-b", "key-c"],
+      apiKeys: [keyEntry("a@example.com", "key-a"), keyEntry("b@example.com", "key-b"), keyEntry("c@example.com", "key-c")],
       roundRobinEnabled: true,
       rotationKey: "rerank",
       execute,
@@ -151,7 +195,7 @@ describe("Morph key rotation helper", () => {
 
     await expect(
       executeWithMorphKeyFailover({
-        apiKeys: ["primary", "secondary"],
+        apiKeys: [keyEntry("one@example.com", "primary"), keyEntry("two@example.com", "secondary")],
         roundRobinEnabled: false,
         rotationKey: "compact",
         execute,
@@ -168,7 +212,7 @@ describe("Morph key rotation helper", () => {
         execute: vi.fn(),
       })
     ).rejects.toMatchObject({
-      message: "Morph proxy requires at least one API key",
+      message: "Morph proxy requires at least one active API key",
       code: "MORPH_API_KEY_MISSING",
     });
   });

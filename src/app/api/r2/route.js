@@ -192,12 +192,29 @@ export async function PATCH(request) {
       workerRegistrationFailures = await refreshRegisteredWorkers(settings);
     }
 
-    // Re-schedule the backup timer if schedule changed
-    if (updates.r2SqliteBackupSchedule) {
+    const schedulerRelevantChange =
+      Object.prototype.hasOwnProperty.call(updates, "r2BackupEnabled") ||
+      Object.prototype.hasOwnProperty.call(updates, "r2SqliteBackupSchedule");
+
+    if (schedulerRelevantChange) {
       try {
-        const { updateSqliteBackupSchedule } = await import("@/lib/r2BackupScheduler");
-        await updateSqliteBackupSchedule();
-      } catch { /* scheduler may not be running */ }
+        const {
+          startR2BackupScheduler,
+          stopR2BackupScheduler,
+          updateSqliteBackupSchedule,
+        } = await import("@/lib/r2BackupScheduler");
+
+        if (settings.r2BackupEnabled === true) {
+          await startR2BackupScheduler();
+          if (updates.r2SqliteBackupSchedule) {
+            await updateSqliteBackupSchedule();
+          }
+        } else {
+          stopR2BackupScheduler();
+        }
+      } catch {
+        /* scheduler may be unavailable during tests or startup */
+      }
     }
 
     return NextResponse.json({

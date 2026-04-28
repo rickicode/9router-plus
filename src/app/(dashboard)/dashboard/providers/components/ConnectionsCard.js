@@ -322,27 +322,31 @@ export default function ConnectionsCard({ providerId, isOAuth }) {
       const settingsData = settingsRes.ok ? await settingsRes.json() : {};
       if (connRes.ok) setConnections((connData.connections || []).filter((c) => c.provider === providerId));
       if (proxyRes.ok) setProxyPools(proxyData.proxyPools || []);
-      const override = (settingsData.providerStrategies || {})[providerId] || {};
-      setProviderStrategy(override.fallbackStrategy || null);
-      setProviderStickyLimit(override.stickyRoundRobinLimit != null ? String(override.stickyRoundRobinLimit) : "1");
+      const override = (settingsData.routing?.providerStrategies || settingsData.providerStrategies || {})[providerId] || {};
+      setProviderStrategy(override.strategy || override.fallbackStrategy || null);
+      setProviderStickyLimit(override.stickyLimit != null ? String(override.stickyLimit) : (override.stickyRoundRobinLimit != null ? String(override.stickyRoundRobinLimit) : "1"));
     } catch (e) { console.log("ConnectionsCard fetch error:", e); }
     finally { setLoading(false); }
   }, [providerId]);
 
-  useEffect(() => { fetch_(); }, [fetch_]);
+  useEffect(() => {
+    void Promise.resolve().then(() => {
+      fetch_();
+    });
+  }, [fetch_]);
 
   const saveStrategy = async (strategy, stickyLimit) => {
     try {
       const res = await fetch("/api/settings", { cache: "no-store" });
       const data = res.ok ? await res.json() : {};
-      const current = data.providerStrategies || {};
+      const current = data.routing?.providerStrategies || data.providerStrategies || {};
       const override = {};
-      if (strategy) override.fallbackStrategy = strategy;
-      if (strategy === "round-robin" && stickyLimit !== "") override.stickyRoundRobinLimit = Number(stickyLimit) || 3;
+      if (strategy) override.strategy = strategy;
+      if (strategy === "round-robin" && stickyLimit !== "") override.stickyLimit = Number(stickyLimit) || 3;
       const updated = { ...current };
       if (Object.keys(override).length === 0) delete updated[providerId];
       else updated[providerId] = override;
-      await fetch("/api/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ providerStrategies: updated }) });
+      await fetch("/api/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ routing: { providerStrategies: updated } }) });
     } catch (e) { console.log("saveStrategy error:", e); }
   };
 

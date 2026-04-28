@@ -10,28 +10,82 @@ describe("Morph settings schema", () => {
     });
   });
 
-  it("trims baseUrl and normalizes apiKeys while preserving first-seen order", () => {
+  it("trims baseUrl and normalizes email-based apiKeys while replacing duplicate emails with the latest key", () => {
     expect(
       normalizeMorphSettings({
         baseUrl: "  https://proxy.example.com/base  ",
-        apiKeys: ["  key-a  ", "", " key-b ", "key-a", "   ", "key-c", "key-b"],
+        apiKeys: [
+          { email: "  one@example.com  ", key: "  key-a  " },
+          { email: "two@example.com", key: " key-b " },
+          { email: "one@example.com", key: "key-a-new" },
+        ],
         roundRobinEnabled: true,
       })
     ).toEqual({
       baseUrl: "https://proxy.example.com/base",
-      apiKeys: ["key-a", "key-b", "key-c"],
+      apiKeys: [
+        {
+          email: "one@example.com",
+          key: "key-a-new",
+          status: "inactive",
+          isExhausted: false,
+          lastCheckedAt: null,
+          lastError: "",
+        },
+        {
+          email: "two@example.com",
+          key: "key-b",
+          status: "inactive",
+          isExhausted: false,
+          lastCheckedAt: null,
+          lastError: "",
+        },
+      ],
       roundRobinEnabled: true,
     });
   });
 
-  it("drops non-string apiKeys while keeping exact duplicates out", () => {
+  it("converts legacy string apiKeys into local email entries and drops invalid non-string values", () => {
     expect(
       normalizeMorphSettings({
         apiKeys: ["first", null, "second", 123, "first", undefined, "third"],
       })
     ).toEqual({
       baseUrl: "https://api.morphllm.com",
-      apiKeys: ["first", "second", "third"],
+      apiKeys: [
+        {
+          email: "key1@local",
+          key: "first",
+          status: "inactive",
+          isExhausted: false,
+          lastCheckedAt: null,
+          lastError: "",
+        },
+        {
+          email: "key3@local",
+          key: "second",
+          status: "inactive",
+          isExhausted: false,
+          lastCheckedAt: null,
+          lastError: "",
+        },
+        {
+          email: "key5@local",
+          key: "first",
+          status: "inactive",
+          isExhausted: false,
+          lastCheckedAt: null,
+          lastError: "",
+        },
+        {
+          email: "key7@local",
+          key: "third",
+          status: "inactive",
+          isExhausted: false,
+          lastCheckedAt: null,
+          lastError: "",
+        },
+      ],
       roundRobinEnabled: false,
     });
   });

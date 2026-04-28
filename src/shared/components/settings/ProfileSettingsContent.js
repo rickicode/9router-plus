@@ -32,7 +32,16 @@ function SectionIntro({ icon, title, description, tone = "neutral", eyebrow = "S
 
 export default function ProfileSettingsContent() {
   const { theme, setTheme } = useTheme();
-  const [settings, setSettings] = useState({ fallbackStrategy: "fill-first" });
+  const [settings, setSettings] = useState({
+    routing: {
+      strategy: "fill-first",
+      stickyLimit: 3,
+      sticky: { enabled: false, durationSeconds: 300 },
+      comboStrategy: "fallback",
+      providerStrategies: {},
+      comboStrategies: {},
+    },
+  });
   const [loading, setLoading] = useState(true);
   const [quotaForm, setQuotaForm] = useState({
     enabled: true,
@@ -80,7 +89,7 @@ export default function ProfileSettingsContent() {
           outboundProxyUrl: data?.outboundProxyUrl || "",
           outboundNoProxy: data?.outboundNoProxy || "",
         });
-        setStickyDurationInput(String(data?.stickyDuration || 300));
+        setStickyDurationInput(String(data?.routing?.sticky?.durationSeconds || data?.stickyDuration || 300));
         setLoading(false);
       })
       .catch((err) => {
@@ -95,7 +104,7 @@ export default function ProfileSettingsContent() {
       if (!res.ok) return;
       const data = await res.json();
       setSettings(data);
-      setStickyDurationInput(String(data?.stickyDuration || 300));
+      setStickyDurationInput(String(data?.routing?.sticky?.durationSeconds || data?.stickyDuration || 300));
     } catch (err) {
       console.error("Failed to reload settings:", err);
     }
@@ -286,10 +295,13 @@ export default function ProfileSettingsContent() {
       const res = await fetch("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fallbackStrategy: strategy }),
+        body: JSON.stringify({ routing: { strategy } }),
       });
       if (res.ok) {
-        setSettings((prev) => ({ ...prev, fallbackStrategy: strategy }));
+        setSettings((prev) => ({
+          ...prev,
+          routing: { ...(prev.routing || {}), strategy },
+        }));
       }
     } catch (err) {
       console.error("Failed to update settings:", err);
@@ -301,10 +313,13 @@ export default function ProfileSettingsContent() {
       const res = await fetch("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ comboStrategy: strategy }),
+        body: JSON.stringify({ routing: { comboStrategy: strategy } }),
       });
       if (res.ok) {
-        setSettings((prev) => ({ ...prev, comboStrategy: strategy }));
+        setSettings((prev) => ({
+          ...prev,
+          routing: { ...(prev.routing || {}), comboStrategy: strategy },
+        }));
       }
     } catch (err) {
       console.error("Failed to update combo strategy:", err);
@@ -318,10 +333,13 @@ export default function ProfileSettingsContent() {
       const res = await fetch("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stickyRoundRobinLimit: numLimit }),
+        body: JSON.stringify({ routing: { stickyLimit: numLimit } }),
       });
       if (res.ok) {
-        setSettings((prev) => ({ ...prev, stickyRoundRobinLimit: numLimit }));
+        setSettings((prev) => ({
+          ...prev,
+          routing: { ...(prev.routing || {}), stickyLimit: numLimit },
+        }));
       }
     } catch (err) {
       console.error("Failed to update sticky limit:", err);
@@ -365,15 +383,15 @@ export default function ProfileSettingsContent() {
       const res = await fetch("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
+        body: JSON.stringify({ routing: updates }),
       });
       const data = await res.json();
       if (res.ok) {
         setSettings((prev) => ({ ...prev, ...data }));
-        setStickyDurationInput(String(data?.stickyDuration || 300));
+        setStickyDurationInput(String(data?.routing?.sticky?.durationSeconds || data?.stickyDuration || 300));
         setRoutingStatus({ type: "success", message: successMessage });
       } else {
-        setRoutingStatus({ type: "error", message: data.error || "Failed to update cloud routing settings" });
+        setRoutingStatus({ type: "error", message: data.error || "Failed to update routing settings" });
       }
     } catch {
       setRoutingStatus({ type: "error", message: "An error occurred" });
@@ -384,14 +402,14 @@ export default function ProfileSettingsContent() {
 
   const updateCloudRoundRobin = async (enabled) => {
     await updateCloudRoutingSettings(
-      { roundRobin: enabled },
-      enabled ? "Cloud worker round-robin enabled" : "Cloud worker round-robin disabled"
+      { strategy: enabled ? "round-robin" : "fill-first" },
+      enabled ? "Round-robin enabled" : "Round-robin disabled"
     );
   };
 
   const updateCloudSticky = async (enabled) => {
     await updateCloudRoutingSettings(
-      { sticky: enabled },
+      { sticky: { ...(settings?.routing?.sticky || {}), enabled } },
       enabled ? "Sticky sessions enabled" : "Sticky sessions disabled"
     );
   };
@@ -403,10 +421,13 @@ export default function ProfileSettingsContent() {
         type: "error",
         message: "Sticky duration must be between 60 and 3600 seconds",
       });
-      setStickyDurationInput(String(settings?.stickyDuration || 300));
+      setStickyDurationInput(String(settings?.routing?.sticky?.durationSeconds || settings?.stickyDuration || 300));
       return;
     }
-    await updateCloudRoutingSettings({ stickyDuration: duration }, "Sticky duration updated");
+    await updateCloudRoutingSettings(
+      { sticky: { ...(settings?.routing?.sticky || {}), durationSeconds: duration } },
+      "Sticky duration updated"
+    );
   };
 
   const handleExportDatabase = async () => {
@@ -612,26 +633,26 @@ export default function ProfileSettingsContent() {
           icon="route"
           tone="info"
           title="Routing Strategy"
-          description="Define how local accounts and combo providers rotate under load."
+          description="Use one shared routing configuration for local 9Router and all synced cloud workers."
           eyebrow="Routing"
         />
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <div>
               <p className="font-medium">Round Robin</p>
-              <p className="text-sm text-text-muted">Cycle through accounts to distribute load</p>
+              <p className="text-sm text-text-muted">Cycle through accounts to distribute load everywhere.</p>
             </div>
             <Toggle
-              checked={settings.fallbackStrategy === "round-robin"}
+              checked={settings.routing?.strategy === "round-robin"}
               onChange={() =>
                 updateFallbackStrategy(
-                  settings.fallbackStrategy === "round-robin" ? "fill-first" : "round-robin"
+                  settings.routing?.strategy === "round-robin" ? "fill-first" : "round-robin"
                 )
               }
-              disabled={loading}
+              disabled={loading || routingLoading}
             />
           </div>
-          {settings.fallbackStrategy === "round-robin" ? (
+          {settings.routing?.strategy === "round-robin" ? (
             <div className="flex items-center justify-between border-t border-border/50 pt-2">
               <div>
                 <p className="font-medium">Sticky Limit</p>
@@ -641,9 +662,9 @@ export default function ProfileSettingsContent() {
                 type="number"
                 min="1"
                 max="10"
-                value={settings.stickyRoundRobinLimit || 3}
+                value={settings.routing?.stickyLimit || 3}
                 onChange={(e) => updateStickyLimit(e.target.value)}
-                disabled={loading}
+                disabled={loading || routingLoading}
                 className="w-20 text-center"
               />
             </div>
@@ -654,18 +675,18 @@ export default function ProfileSettingsContent() {
               <p className="text-sm text-text-muted">Cycle through providers in combos instead of always starting with first</p>
             </div>
             <Toggle
-              checked={settings.comboStrategy === "round-robin"}
+              checked={settings.routing?.comboStrategy === "round-robin"}
               onChange={() =>
                 updateComboStrategy(
-                  settings.comboStrategy === "round-robin" ? "fallback" : "round-robin"
+                  settings.routing?.comboStrategy === "round-robin" ? "fallback" : "round-robin"
                 )
               }
-              disabled={loading}
+              disabled={loading || routingLoading}
             />
           </div>
           <p className="border-t border-border/50 pt-3 text-sm text-text-muted">
-            {settings.fallbackStrategy === "round-robin"
-              ? `Currently distributing requests across all available accounts with ${settings.stickyRoundRobinLimit || 3} calls per account.`
+            {settings.routing?.strategy === "round-robin"
+              ? `Currently distributing requests across all available accounts with ${settings.routing?.stickyLimit || 3} calls per account.`
               : "Currently using accounts in priority order (Fill First)."}
           </p>
         </div>
@@ -682,23 +703,12 @@ export default function ProfileSettingsContent() {
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="font-medium">Round Robin</p>
-              <p className="text-sm text-text-muted">Distribute requests across multiple credentials.</p>
-            </div>
-            <Toggle
-              checked={settings.roundRobin === true}
-              onChange={() => updateCloudRoundRobin(!(settings.roundRobin === true))}
-              disabled={loading || routingLoading}
-            />
-          </div>
-          <div className="flex items-center justify-between border-t border-border/50 pt-4">
-            <div>
               <p className="font-medium">Sticky Sessions</p>
-              <p className="text-sm text-text-muted">Maintain consistent routing per client.</p>
+              <p className="text-sm text-text-muted">Keep a client on the same connection across local and cloud routes.</p>
             </div>
             <Toggle
-              checked={settings.sticky === true}
-              onChange={() => updateCloudSticky(!(settings.sticky === true))}
+              checked={settings.routing?.sticky?.enabled === true}
+              onChange={() => updateCloudSticky(!(settings.routing?.sticky?.enabled === true))}
               disabled={loading || routingLoading}
             />
           </div>
@@ -716,10 +726,15 @@ export default function ProfileSettingsContent() {
               }}
               onBlur={(e) => applyCloudStickyDuration(e.target.value)}
               disabled={loading || routingLoading}
-              hint="Duration in seconds. Saved through /api/settings and synced to workers automatically."
+              hint="Duration in seconds. Saved once and used by local + cloud routing together."
               className="w-full"
             />
           </div>
+          <p className="border-t border-border/50 pt-3 text-sm text-text-muted">
+            {settings.routing?.strategy === "round-robin"
+              ? `Currently distributing requests across all available accounts with ${settings.routing?.stickyLimit || 3} calls per account.`
+              : "Currently using accounts in priority order (Fill First)."}
+          </p>
           {routingStatus.message ? (
             <p className={`text-sm ${routingStatus.type === "error" ? "text-[var(--color-danger)]" : "text-[var(--color-success)]"}`}>
               {routingStatus.message}

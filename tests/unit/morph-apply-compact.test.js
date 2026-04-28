@@ -84,7 +84,7 @@ describe("Morph apply/compact routes", () => {
   it("dispatches configured requests and returns the upstream response", async () => {
     const morphSettings = {
       baseUrl: "https://proxy.example.com",
-      apiKeys: ["mk-1"],
+      apiKeys: [{ email: "compact@example.com", key: "mk-1", status: "active", isExhausted: false }],
       roundRobinEnabled: true,
     };
     const upstreamResponse = new Response(JSON.stringify({ ok: true }), {

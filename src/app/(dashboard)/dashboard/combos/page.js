@@ -18,10 +18,12 @@ export default function CombosPage() {
   const { copied, copy } = useCopyToClipboard();
 
   useEffect(() => {
-    fetchData();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    void Promise.resolve().then(() => {
+      fetchData();
+    });
+  }, []);
 
-  const fetchData = async () => {
+  async function fetchData() {
     try {
       const [combosRes, providersRes, settingsRes] = await Promise.all([
         fetch("/api/combos"),
@@ -36,13 +38,13 @@ export default function CombosPage() {
       if (providersRes.ok) {
         setActiveProviders(providersData.connections || []);
       }
-      setComboStrategies(settingsData.comboStrategies || {});
+      setComboStrategies(settingsData.routing?.comboStrategies || settingsData.comboStrategies || {});
     } catch (error) {
       console.log("Error fetching data:", error);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   const handleCreate = async (data) => {
     try {
@@ -98,7 +100,7 @@ export default function CombosPage() {
     try {
       const updated = { ...comboStrategies };
       if (enabled) {
-        updated[comboName] = { fallbackStrategy: "round-robin" };
+        updated[comboName] = { strategy: "round-robin" };
       } else {
         delete updated[comboName];
       }
@@ -106,7 +108,7 @@ export default function CombosPage() {
       await fetch("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ comboStrategies: updated }),
+        body: JSON.stringify({ routing: { comboStrategies: updated } }),
       });
       
       setComboStrategies(updated);
@@ -163,7 +165,7 @@ export default function CombosPage() {
               onCopy={copy}
               onEdit={() => setEditingCombo(combo)}
               onDelete={() => handleDelete(combo.id)}
-              roundRobinEnabled={comboStrategies[combo.name]?.fallbackStrategy === "round-robin"}
+              roundRobinEnabled={(comboStrategies[combo.name]?.strategy || comboStrategies[combo.name]?.fallbackStrategy) === "round-robin"}
               onToggleRoundRobin={(enabled) => handleToggleRoundRobin(combo.name, enabled)}
             />
           ))}
@@ -360,7 +362,10 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders }) {
   };
 
   useEffect(() => {
-    if (isOpen) fetchModalData();
+    if (!isOpen) return;
+    void Promise.resolve().then(() => {
+      fetchModalData();
+    });
   }, [isOpen]);
 
   const validateName = (value) => {

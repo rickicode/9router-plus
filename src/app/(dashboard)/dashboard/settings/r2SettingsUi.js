@@ -186,6 +186,25 @@ export function getR2ConnectionState(config = {}, isTesting = false, isDirty = f
   };
 }
 
+export function isPrivateR2Configured(config = {}) {
+  const normalized = normalizeR2SettingsResponse({ r2Config: config }).r2Config;
+  const requiredFields = [
+    normalized.accountId,
+    normalized.accessKeyId,
+    normalized.secretAccessKey,
+    normalized.bucket,
+    normalized.endpoint,
+    normalized.region,
+  ];
+
+  return requiredFields.every((value) => String(value || "").trim() !== "");
+}
+
+export function isPrivateR2Ready(config = {}, isDirty = false) {
+  const normalized = normalizeR2SettingsResponse({ r2Config: config }).r2Config;
+  return isPrivateR2Configured(normalized) && normalized.connected === true && !isDirty;
+}
+
 function formatTimestamp(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {

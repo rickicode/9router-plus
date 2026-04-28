@@ -126,7 +126,7 @@ export async function initializeApp() {
       }
     }
 
-    // Start R2 backup scheduler if enabled
+    // Start R2 backup scheduler only when scheduled backups are enabled.
     if (settings.r2BackupEnabled) {
       try {
         const { startR2BackupScheduler } = await import("@/lib/r2BackupScheduler");

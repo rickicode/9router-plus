@@ -11,6 +11,8 @@ import {
   getDirtyR2Config,
   getR2ConnectionState,
   hasUnsavedR2Changes,
+  isPrivateR2Configured,
+  isPrivateR2Ready,
   normalizeR2SettingsResponse,
   sanitizeR2RuntimeCacheTtlSeconds,
 } from "./r2SettingsUi";
@@ -92,13 +94,14 @@ export default function SettingsPageClient() {
   const [restoringR2, setRestoringR2] = useState(false);
   const [r2ActionFeedback, setR2ActionFeedback] = useState({ type: "", message: "" });
   const [r2StatusSummary, setR2StatusSummary] = useState("");
+  const [restorePreview, setRestorePreview] = useState(null);
 
   useEffect(() => {
     loadPricing();
     loadR2Settings();
   }, []);
 
-  const loadPricing = async () => {
+  async function loadPricing() {
     setLoadingPricing(true);
     try {
       const response = await fetch("/api/pricing");
@@ -115,9 +118,9 @@ export default function SettingsPageClient() {
     } finally {
       setLoadingPricing(false);
     }
-  };
+  }
 
-  const loadR2Settings = async () => {
+  async function loadR2Settings() {
     setLoadingR2(true);
     try {
       const response = await fetch("/api/r2");
@@ -137,7 +140,7 @@ export default function SettingsPageClient() {
     } finally {
       setLoadingR2(false);
     }
-  };
+  }
 
   const handleR2FieldChange = (field, value) => {
     setR2Settings((current) => ({
@@ -250,9 +253,20 @@ export default function SettingsPageClient() {
       }
 
       setR2StatusSummary(formatDirectR2Status(data));
+      setRestorePreview(
+        data.restoreReady && data.backupArtifact?.sqlite
+          ? {
+              key: data.backupArtifact.sqlite.key,
+              generatedAt: data.backupArtifact.generatedAt,
+              machineId: data.backupArtifact.machineId,
+              size: data.backupArtifact.sqlite.size,
+            }
+          : null
+      );
       setR2ActionFeedback({ type: "success", message: "R2 status loaded." });
     } catch (error) {
       setR2StatusSummary("");
+      setRestorePreview(null);
       setR2ActionFeedback({ type: "error", message: error.message || "Failed to load R2 status" });
     } finally {
       setLoadingR2Status(false);
@@ -269,7 +283,36 @@ export default function SettingsPageClient() {
         throw new Error(restoreListData.error || "Failed to load restore information");
       }
 
-      const response = await fetch("/api/r2/restore", { method: "POST" });
+      const backup = Array.isArray(restoreListData.backups) ? restoreListData.backups[0] : null;
+      if (!backup?.key) {
+        throw new Error("No SQLite backup is available to restore.");
+      }
+
+      setRestorePreview({
+        key: backup.key,
+        generatedAt: backup.generatedAt || null,
+        machineId: backup.machineId || null,
+        size: Number.isFinite(backup.size) ? backup.size : null,
+      });
+
+      const generatedAt = formatRelativeTimestamp(backup.generatedAt, "unknown time");
+      const machineLabel = backup.machineId || "this workspace";
+      const confirmed = window.confirm(
+        `Restore the latest SQLite backup from ${machineLabel} generated at ${generatedAt}? This overwrites the current local database.`
+      );
+      if (!confirmed) {
+        setR2ActionFeedback({
+          type: "error",
+          message: "Restore canceled before any local data was overwritten.",
+        });
+        return;
+      }
+
+      const response = await fetch("/api/r2/restore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmRestore: true, key: backup.key }),
+      });
       const data = await response.json().catch(() => ({}));
       await loadR2Settings();
 
@@ -277,10 +320,11 @@ export default function SettingsPageClient() {
         throw new Error(data.error || "Restore failed");
       }
 
-      const backupCount = Array.isArray(restoreListData.backups) ? restoreListData.backups.length : 0;
       setR2ActionFeedback({
         type: "success",
-        message: `Restore complete from ${restoreListData.workerName || "R2"} (${backupCount} backups available).`,
+        message:
+          `Restore complete from ${data.restoredBackup?.machineId || backup.machineId || "R2"}. ` +
+          `Latest backup timestamp: ${formatRelativeTimestamp(data.restoredBackup?.generatedAt || backup.generatedAt, "unknown")}.`,
       });
     } catch (error) {
       setR2ActionFeedback({ type: "error", message: error.message || "Restore failed" });
@@ -310,6 +354,12 @@ export default function SettingsPageClient() {
       ? "border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10 text-[var(--color-text-main)]"
       : "border-[var(--color-success)]/30 bg-[var(--color-success)]/10 text-[var(--color-text-main)]";
   const r2Busy = savingR2 || testingR2 || runningBackup || restoringR2 || loadingR2Status;
+  const privateR2Configured = isPrivateR2Configured(r2Settings.r2Config);
+  const privateR2Ready = isPrivateR2Ready(r2Settings.r2Config, r2IsDirty);
+  const canTestConnection = !loadingR2 && !savingR2 && !testingR2 && !r2IsDirty && privateR2Configured;
+  const canOperateR2Backup = privateR2Ready && !loadingR2 && !r2Busy;
+  const canViewR2Status = privateR2Ready && !loadingR2 && !savingR2 && !testingR2 && !loadingR2Status && !restoringR2;
+  const canRestoreFromR2 = canOperateR2Backup && Boolean(restorePreview?.key || savedR2Settings.r2LastBackupAt);
   const pricingSummary = [
     {
       label: "General Controls",
@@ -364,7 +414,7 @@ export default function SettingsPageClient() {
       </Card>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_340px]">
-        <div className="space-y-6">
+        <div className="space-y-6 xl:col-span-2">
           <Card
             title="Workspace Settings"
             subtitle="Authentication, routing, quota, observability, and local runtime behavior"
@@ -475,6 +525,12 @@ export default function SettingsPageClient() {
                     {r2IsDirty ? (
                       <p className="mt-2">Test Connection stays disabled until these edits are saved.</p>
                     ) : null}
+                    {!privateR2Configured ? (
+                      <p className="mt-2">Backup, status, and restore stay disabled until the private R2 bucket fields are complete.</p>
+                    ) : null}
+                    {privateR2Configured && !privateR2Ready ? (
+                      <p className="mt-2">Run a successful connection test before using backup, status, or restore actions.</p>
+                    ) : null}
                   </div>
 
                   <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
@@ -484,7 +540,7 @@ export default function SettingsPageClient() {
                           Runtime publishing
                         </p>
                         <p className="text-sm leading-6 text-[var(--color-text-muted)]">
-                          Control the public runtime URL, cache TTL, and automatic runtime publishes from this page.
+                          Control the public runtime URL, cache TTL, and whether runtime artifacts should publish automatically when a runtime publish is triggered.
                         </p>
                       </div>
 
@@ -535,7 +591,7 @@ export default function SettingsPageClient() {
                         <span className="space-y-1">
                           <span className="block font-medium">Automatic runtime publish</span>
                           <span className="block leading-6 text-[var(--color-text-muted)]">
-                            Publish runtime artifacts automatically after eligible R2 backup runs.
+                            Allow runtime.json publishing during eligible direct publish runs without turning on scheduled backups by itself.
                           </span>
                         </span>
                       </label>
@@ -547,6 +603,9 @@ export default function SettingsPageClient() {
 
                     <label className="space-y-2 text-sm text-[var(--color-text-main)]">
                        <span className="block font-medium">Automatic backups</span>
+                       <span className="block text-sm leading-6 text-[var(--color-text-muted)]">
+                        Controls whether scheduled SQLite and usage backups run automatically.
+                       </span>
                        <select
                         value={r2Settings.r2BackupEnabled ? "enabled" : "disabled"}
                         onChange={(event) =>
@@ -562,6 +621,9 @@ export default function SettingsPageClient() {
 
                     <label className="space-y-2 text-sm text-[var(--color-text-main)]">
                       <span className="block font-medium">Backup schedule</span>
+                      <span className="block text-sm leading-6 text-[var(--color-text-muted)]">
+                        Choose how often scheduled backups run when automatic backups are enabled.
+                      </span>
                       <select
                         value={r2Settings.r2SqliteBackupSchedule}
                         onChange={(event) =>
@@ -585,6 +647,11 @@ export default function SettingsPageClient() {
                       <p>
                         Last restore: {formatRelativeTimestamp(r2Settings.r2LastRestoreAt, "Not recorded")}
                       </p>
+                      {restorePreview?.key ? (
+                        <p>
+                          Restore candidate: {restorePreview.key} · {formatRelativeTimestamp(restorePreview.generatedAt, "unknown time")}
+                        </p>
+                      ) : null}
                       {r2StatusSummary ? <p>{r2StatusSummary}</p> : null}
                     </div>
                   </div>
@@ -596,28 +663,28 @@ export default function SettingsPageClient() {
                     <Button
                       variant="secondary"
                       onClick={handleTestR2Connection}
-                      disabled={loadingR2 || savingR2 || testingR2 || r2IsDirty}
+                      disabled={!canTestConnection}
                     >
                       {testingR2 ? "Testing..." : "Test Connection"}
                     </Button>
                     <Button
                       variant="secondary"
                       onClick={handleBackupNow}
-                      disabled={loadingR2 || savingR2 || testingR2 || runningBackup || restoringR2 || r2IsDirty}
+                      disabled={!canOperateR2Backup}
                     >
                       {runningBackup ? "Backing Up..." : "Backup Now"}
                     </Button>
                     <Button
                       variant="secondary"
                       onClick={handleViewR2Status}
-                      disabled={loadingR2 || savingR2 || testingR2 || loadingR2Status || restoringR2 || r2IsDirty}
+                      disabled={!canViewR2Status}
                     >
                       {loadingR2Status ? "Loading Status..." : "View R2 Status"}
                     </Button>
                     <Button
                       variant="secondary"
                       onClick={handleRestoreFromR2}
-                      disabled={loadingR2 || savingR2 || testingR2 || runningBackup || restoringR2 || r2IsDirty}
+                      disabled={!canRestoreFromR2}
                     >
                       {restoringR2 ? "Restoring..." : "Restore from R2"}
                     </Button>
@@ -627,130 +694,110 @@ export default function SettingsPageClient() {
             </div>
           </Card>
         </div>
-
-        <div className="space-y-6 xl:self-start">
-          <Card
-            title="Pricing"
-            subtitle="Cost tracking rates and model pricing overrides"
-            action={
-              <Button onClick={() => setShowPricingModal(true)}>
-                Edit Pricing
-              </Button>
-            }
-            className="border border-border"
-          >
-            <div className="space-y-6">
-              <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-1">
-                <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
-                    Total Models
-                  </div>
-                  <div className="mt-2 text-2xl font-semibold text-[var(--color-text-main)]">
-                    {loadingPricing ? "..." : getModelCount()}
-                  </div>
-                </div>
-                <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
-                    Providers
-                  </div>
-                  <div className="mt-2 text-2xl font-semibold text-[var(--color-text-main)]">
-                    {loadingPricing ? "..." : providerNames.length}
-                  </div>
-                </div>
-                <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
-                    Status
-                  </div>
-                  <div className="mt-2 text-2xl font-semibold text-[var(--color-success)]">
-                    {loadingPricing ? "..." : "Active"}
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-3 rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4 text-sm leading-6 text-[var(--color-text-muted)]">
-                <p>
-                  <strong className="text-[var(--color-text-main)]">Cost calculation:</strong> each
-                  request uses input, output, and cached token rates to estimate spend.
-                </p>
-                <p>
-                  <strong className="text-[var(--color-text-main)]">Pricing format:</strong> all
-                  values are stored as dollars per million tokens ($/1M tokens).
-                </p>
-                <p>
-                  <strong className="text-[var(--color-text-main)]">Migration note:</strong> the old
-                  dedicated pricing page now points here so existing workflows continue without a split
-                  settings experience.
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <h2 className="text-lg font-semibold text-[var(--color-text-main)]">
-                    Current Pricing Overview
-                  </h2>
-                  <Button variant="ghost" size="sm" onClick={() => setShowPricingModal(true)}>
-                    View Full Details
-                  </Button>
-                </div>
-
-                {loadingPricing ? (
-                  <div className="rounded border border-dashed border-[var(--color-border)] px-4 py-6 text-sm text-[var(--color-text-muted)]">
-                    Loading pricing data...
-                  </div>
-                ) : currentPricing ? (
-                  <div className="space-y-3 rounded border border-[var(--color-border)] p-4">
-                    {providerNames.slice(0, 5).map((provider) => (
-                      <div key={provider} className="flex items-center justify-between gap-4 text-sm">
-                        <span className="font-semibold uppercase text-[var(--color-text-main)]">
-                          {provider}
-                        </span>
-                        <span className="text-[var(--color-text-muted)]">
-                          {Object.keys(currentPricing[provider]).length} models
-                        </span>
-                      </div>
-                    ))}
-                    {providerNames.length > 5 ? (
-                      <div className="text-sm text-[var(--color-text-muted)]">
-                        + {providerNames.length - 5} more providers
-                      </div>
-                    ) : null}
-                  </div>
-                ) : (
-                  <div className="rounded border border-dashed border-[var(--color-border)] px-4 py-6 text-sm text-[var(--color-text-muted)]">
-                    No pricing data available.
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {showPricingModal ? (
-              <PricingModal
-                isOpen={showPricingModal}
-                onClose={() => setShowPricingModal(false)}
-                onSave={loadPricing}
-              />
-            ) : null}
-          </Card>
-
-          <Card
-            title="What lives here"
-            subtitle="Quick scope map"
-            className="border border-border"
-          >
-            <div className="divide-y divide-[var(--color-border)] text-sm leading-6 text-[var(--color-text-muted)]">
-              <div className="py-3 first:pt-0">
-                <p><strong className="text-[var(--color-text-main)]">Workspace:</strong> theme, login, proxy, observability, quota, and worker routing.</p>
-              </div>
-              <div className="py-3">
-                <p><strong className="text-[var(--color-text-main)]">Storage:</strong> R2 credentials, runtime publishing, backup cadence, status, and restore.</p>
-              </div>
-              <div className="py-3 last:pb-0">
-                <p><strong className="text-[var(--color-text-main)]">Pricing:</strong> provider cost overrides and live overview in the side rail.</p>
-              </div>
-            </div>
-          </Card>
-        </div>
       </div>
+
+      <Card
+        title="Pricing"
+        subtitle="Cost tracking rates and model pricing overrides"
+        action={
+          <Button onClick={() => setShowPricingModal(true)}>
+            Edit Pricing
+          </Button>
+        }
+        className="border border-border"
+      >
+        <div className="space-y-6">
+          <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-3">
+            <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
+                Total Models
+              </div>
+              <div className="mt-2 text-2xl font-semibold text-[var(--color-text-main)]">
+                {loadingPricing ? "..." : getModelCount()}
+              </div>
+            </div>
+            <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
+                Providers
+              </div>
+              <div className="mt-2 text-2xl font-semibold text-[var(--color-text-main)]">
+                {loadingPricing ? "..." : providerNames.length}
+              </div>
+            </div>
+            <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
+                Status
+              </div>
+              <div className="mt-2 text-2xl font-semibold text-[var(--color-success)]">
+                {loadingPricing ? "..." : "Active"}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3 rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4 text-sm leading-6 text-[var(--color-text-muted)]">
+            <p>
+              <strong className="text-[var(--color-text-main)]">Cost calculation:</strong> each
+              request uses input, output, and cached token rates to estimate spend.
+            </p>
+            <p>
+              <strong className="text-[var(--color-text-main)]">Pricing format:</strong> all
+              values are stored as dollars per million tokens ($/1M tokens).
+            </p>
+            <p>
+              <strong className="text-[var(--color-text-main)]">Migration note:</strong> the old
+              dedicated pricing page now points here so existing workflows continue without a split
+              settings experience.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold text-[var(--color-text-main)]">
+                Current Pricing Overview
+              </h2>
+              <Button variant="ghost" size="sm" onClick={() => setShowPricingModal(true)}>
+                View Full Details
+              </Button>
+            </div>
+
+            {loadingPricing ? (
+              <div className="rounded border border-dashed border-[var(--color-border)] px-4 py-6 text-sm text-[var(--color-text-muted)]">
+                Loading pricing data...
+              </div>
+            ) : currentPricing ? (
+              <div className="space-y-3 rounded border border-[var(--color-border)] p-4">
+                {providerNames.slice(0, 5).map((provider) => (
+                  <div key={provider} className="flex items-center justify-between gap-4 text-sm">
+                    <span className="font-semibold uppercase text-[var(--color-text-main)]">
+                      {provider}
+                    </span>
+                    <span className="text-[var(--color-text-muted)]">
+                      {Object.keys(currentPricing[provider]).length} models
+                    </span>
+                  </div>
+                ))}
+                {providerNames.length > 5 ? (
+                  <div className="text-sm text-[var(--color-text-muted)]">
+                    + {providerNames.length - 5} more providers
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="rounded border border-dashed border-[var(--color-border)] px-4 py-6 text-sm text-[var(--color-text-muted)]">
+                No pricing data available.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {showPricingModal ? (
+          <PricingModal
+            isOpen={showPricingModal}
+            onClose={() => setShowPricingModal(false)}
+            onSave={loadPricing}
+          />
+        ) : null}
+      </Card>
     </div>
   );
 }

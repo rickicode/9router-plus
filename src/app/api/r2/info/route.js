@@ -2,11 +2,19 @@ import { NextResponse } from "next/server";
 import { getSettings } from "@/lib/localDb";
 import { readBackupArtifactFromSettings } from "@/lib/r2BackupClient";
 
-function buildDirectStatus({ configured, settings, artifactError = null, backupArtifact = null }) {
-  if (!configured) {
+function buildDirectStatus({ runtimeConfigured, backupConfigured, settings, artifactError = null, backupArtifact = null }) {
+  if (!runtimeConfigured && !backupConfigured) {
     return {
       state: "idle",
       summary: "Direct R2 not configured.",
+    };
+  }
+
+  if (runtimeConfigured && !backupConfigured) {
+    return {
+      state: "runtime-only",
+      summary:
+        "Runtime publishing is configured, but private R2 backup access is not configured yet.",
     };
   }
 
@@ -78,6 +86,10 @@ export async function GET() {
     if (!configured) {
       return NextResponse.json({
         configured: false,
+        runtimeConfigured: false,
+        backupConfigured: false,
+        backupReady: false,
+        restoreReady: false,
         r2BackupEnabled: settings.r2BackupEnabled || false,
         r2LastRuntimePublishAt: settings.r2LastRuntimePublishAt || null,
         r2LastBackupAt: settings.r2LastBackupAt || null,
@@ -85,7 +97,7 @@ export async function GET() {
         backupArtifactUrl: null,
         backupArtifact: null,
         artifactError: null,
-        status: buildDirectStatus({ configured: false, settings }),
+        status: buildDirectStatus({ runtimeConfigured: false, backupConfigured: false, settings }),
       });
     }
 
@@ -93,16 +105,26 @@ export async function GET() {
     let backupArtifact = null;
     let artifactError = null;
 
-    try {
-      const backupArtifactResult = await readBackupArtifactFromSettings({ settings });
-      backupArtifactUrl = backupArtifactResult.artifactUrl;
-      backupArtifact = backupArtifactResult.artifact;
-    } catch (error) {
-      artifactError = error?.message || "Failed to read backup artifact";
+    if (backupConfigured) {
+      try {
+        const backupArtifactResult = await readBackupArtifactFromSettings({ settings });
+        backupArtifactUrl = backupArtifactResult.artifactUrl;
+        backupArtifact = backupArtifactResult.artifact;
+      } catch (error) {
+        artifactError = error?.message || "Failed to read backup artifact";
+      }
     }
+
+    const backupReady = backupConfigured && !artifactError;
+    const restoreReady =
+      backupReady && Boolean(backupArtifact?.sqlite?.url || backupArtifact?.sqlite?.key);
 
     return NextResponse.json({
       configured: true,
+      runtimeConfigured,
+      backupConfigured,
+      backupReady,
+      restoreReady,
       r2BackupEnabled: settings.r2BackupEnabled || false,
       r2LastRuntimePublishAt: settings.r2LastRuntimePublishAt || null,
       r2LastBackupAt: settings.r2LastBackupAt || null,
@@ -110,7 +132,7 @@ export async function GET() {
       backupArtifactUrl,
       backupArtifact: buildBackupArtifactSummary(backupArtifact),
       artifactError,
-      status: buildDirectStatus({ configured: true, settings, artifactError, backupArtifact }),
+      status: buildDirectStatus({ runtimeConfigured, backupConfigured, settings, artifactError, backupArtifact }),
     });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

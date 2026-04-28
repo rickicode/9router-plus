@@ -12,6 +12,14 @@ import * as log from "../utils/logger.js";
  */
 export function selectCredential(machineData, provider, apiKey) {
   const settings = machineData.settings || {};
+  const routing = settings.routing || {};
+  const providerOverride = routing.providerStrategies?.[provider] || settings.providerStrategies?.[provider] || {};
+  const strategy = providerOverride.strategy
+    || providerOverride.fallbackStrategy
+    || routing.strategy
+    || (settings.roundRobin ? "round-robin" : "fill-first");
+  const stickyEnabled = routing.sticky?.enabled ?? settings.sticky;
+  const stickyDurationSeconds = routing.sticky?.durationSeconds ?? settings.stickyDuration ?? 300;
 
   // Warn if settings are missing
   if (!machineData.settings) {
@@ -39,7 +47,7 @@ export function selectCredential(machineData, provider, apiKey) {
   const state = getState();
 
   // 2. Check sticky session
-  if (settings.sticky) {
+  if (stickyEnabled) {
     const sticky = state.stickyMap.get(apiKey);
     if (sticky) {
       if (sticky.expiresAt > Date.now()) {
@@ -57,7 +65,7 @@ export function selectCredential(machineData, provider, apiKey) {
   }
 
   // 3. Apply round-robin
-  if (settings.roundRobin) {
+  if (strategy === "round-robin") {
     const key = provider;
     const index = state.roundRobinIndexes.get(key) || 0;
     const selected = candidates[index % candidates.length];
@@ -69,8 +77,8 @@ export function selectCredential(machineData, provider, apiKey) {
     log.debug("ROUTING", `Round-robin for ${provider}: ${selected.id} (index ${index})`);
 
     // Set sticky if enabled
-    if (settings.sticky) {
-      const expiresAt = Date.now() + (settings.stickyDuration * 1000);
+    if (stickyEnabled) {
+      const expiresAt = Date.now() + (stickyDurationSeconds * 1000);
       state.stickyMap.set(apiKey, {
         connectionId: selected.id,
         expiresAt

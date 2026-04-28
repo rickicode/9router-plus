@@ -157,8 +157,13 @@ export async function POST(request) {
       return NextResponse.json({ ok: false, error: "no_routable_connection", owner: "9router" }, { status: 503 });
     }
 
-    const providerOverride = (settings?.providerStrategies || {})[provider] || {};
-    const strategy = providerOverride.fallbackStrategy || settings?.fallbackStrategy || "fill-first";
+    const routing = settings?.routing || {};
+    const providerOverride = (routing.providerStrategies || settings?.providerStrategies || {})[provider] || {};
+    const strategy = providerOverride.strategy
+      || providerOverride.fallbackStrategy
+      || routing.strategy
+      || settings?.fallbackStrategy
+      || "fill-first";
 
     const { chosen, fallbackChain } = pickConnections(selectionPool, strategy);
     const ttlSeconds = normalizeTtlSeconds();

@@ -22,10 +22,8 @@ function buildRuntimeSettings(settings = {}) {
   const source = settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {};
   const safeSettings = {};
 
-  for (const key of ["roundRobin", "sticky", "stickyDuration", "providerStrategies"]) {
-    if (source[key] !== undefined) {
-      safeSettings[key] = cloneRecord(source[key]);
-    }
+  if (source.routing !== undefined) {
+    safeSettings.routing = cloneRecord(source.routing);
   }
 
   return safeSettings;

@@ -7,15 +7,17 @@ import {
   getDirtyR2Config,
   getR2ConnectionState,
   hasUnsavedR2Changes,
+  isPrivateR2Configured,
+  isPrivateR2Ready,
   normalizeR2SettingsResponse,
   sanitizeR2RuntimeCacheTtlSeconds,
-} from "../../src/app/dashboard/settings/r2SettingsUi.js";
+} from "../../src/app/(dashboard)/dashboard/settings/r2SettingsUi.js";
 
 describe("settings R2 UI helpers", () => {
   it("renders region as a required settings field", async () => {
     const pagePath = path.resolve(
       import.meta.dirname,
-      "../../src/app/dashboard/settings/SettingsPageClient.jsx"
+      "../../src/app/(dashboard)/dashboard/settings/SettingsPageClient.jsx"
     );
     const source = await fs.readFile(pagePath, "utf8");
 
@@ -223,7 +225,7 @@ describe("settings R2 UI helpers", () => {
   it("preserves previous backup timestamps when the save response omits them", async () => {
     const pagePath = path.resolve(
       import.meta.dirname,
-      "../../src/app/dashboard/settings/SettingsPageClient.jsx"
+      "../../src/app/(dashboard)/dashboard/settings/SettingsPageClient.jsx"
     );
     const source = await fs.readFile(pagePath, "utf8");
 
@@ -234,7 +236,7 @@ describe("settings R2 UI helpers", () => {
   it("preserves previous runtime publish timestamp when the save response omits it", async () => {
     const pagePath = path.resolve(
       import.meta.dirname,
-      "../../src/app/dashboard/settings/SettingsPageClient.jsx"
+      "../../src/app/(dashboard)/dashboard/settings/SettingsPageClient.jsx"
     );
     const source = await fs.readFile(pagePath, "utf8");
 
@@ -245,7 +247,7 @@ describe("settings R2 UI helpers", () => {
   it("adopts newer timestamps returned by the save response", async () => {
     const pagePath = path.resolve(
       import.meta.dirname,
-      "../../src/app/dashboard/settings/SettingsPageClient.jsx"
+      "../../src/app/(dashboard)/dashboard/settings/SettingsPageClient.jsx"
     );
     const source = await fs.readFile(pagePath, "utf8");
 
@@ -257,7 +259,7 @@ describe("settings R2 UI helpers", () => {
   it("renders backup and restore controls on the unified settings page", async () => {
     const pagePath = path.resolve(
       import.meta.dirname,
-      "../../src/app/dashboard/settings/SettingsPageClient.jsx"
+      "../../src/app/(dashboard)/dashboard/settings/SettingsPageClient.jsx"
     );
     const source = await fs.readFile(pagePath, "utf8");
 
@@ -271,7 +273,7 @@ describe("settings R2 UI helpers", () => {
   it("formats direct artifact backup results instead of worker counts", async () => {
     const pagePath = path.resolve(
       import.meta.dirname,
-      "../../src/app/dashboard/settings/SettingsPageClient.jsx"
+      "../../src/app/(dashboard)/dashboard/settings/SettingsPageClient.jsx"
     );
     const source = await fs.readFile(pagePath, "utf8");
 
@@ -285,7 +287,7 @@ describe("settings R2 UI helpers", () => {
   it("formats direct R2 status summaries instead of worker reachability", async () => {
     const pagePath = path.resolve(
       import.meta.dirname,
-      "../../src/app/dashboard/settings/SettingsPageClient.jsx"
+      "../../src/app/(dashboard)/dashboard/settings/SettingsPageClient.jsx"
     );
     const source = await fs.readFile(pagePath, "utf8");
 
@@ -298,7 +300,7 @@ describe("settings R2 UI helpers", () => {
   it("renders runtime publishing controls in the existing R2 Storage card", async () => {
     const pagePath = path.resolve(
       import.meta.dirname,
-      "../../src/app/dashboard/settings/SettingsPageClient.jsx"
+      "../../src/app/(dashboard)/dashboard/settings/SettingsPageClient.jsx"
     );
     const source = await fs.readFile(pagePath, "utf8");
 
@@ -311,7 +313,7 @@ describe("settings R2 UI helpers", () => {
   it("sanitizes runtime cache TTL before updating Settings page state", async () => {
     const pagePath = path.resolve(
       import.meta.dirname,
-      "../../src/app/dashboard/settings/SettingsPageClient.jsx"
+      "../../src/app/(dashboard)/dashboard/settings/SettingsPageClient.jsx"
     );
     const source = await fs.readFile(pagePath, "utf8");
 
@@ -408,5 +410,36 @@ describe("settings R2 UI helpers", () => {
       tone: "pending",
       detail: "Checking the current R2 settings now.",
     });
+  });
+
+  it("distinguishes private R2 configuration from backup-ready state", () => {
+    const configured = {
+      accountId: "acct",
+      accessKeyId: "key",
+      secretAccessKey: "secret",
+      bucket: "bucket",
+      endpoint: "https://example.r2.cloudflarestorage.com",
+      region: "auto",
+    };
+
+    expect(isPrivateR2Configured(configured)).toBe(true);
+    expect(isPrivateR2Ready({ ...configured, connected: false }, false)).toBe(false);
+    expect(isPrivateR2Ready({ ...configured, connected: true }, true)).toBe(false);
+    expect(isPrivateR2Ready({ ...configured, connected: true }, false)).toBe(true);
+  });
+
+  it("wires restore through explicit confirmation and stronger readiness gating", async () => {
+    const pagePath = path.resolve(
+      import.meta.dirname,
+      "../../src/app/(dashboard)/dashboard/settings/SettingsPageClient.jsx"
+    );
+    const source = await fs.readFile(pagePath, "utf8");
+
+    expect(source).toContain("confirmRestore: true");
+    expect(source).toContain("Restore candidate:");
+    expect(source).toContain("Run a successful connection test before using backup, status, or restore actions.");
+    expect(source).toContain("disabled={!canRestoreFromR2}");
+    expect(source).toContain("disabled={!canOperateR2Backup}");
+    expect(source).toContain("disabled={!canViewR2Status}");
   });
 });

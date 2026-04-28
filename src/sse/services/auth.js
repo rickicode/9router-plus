@@ -279,9 +279,18 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       return null;
     }
 
-    const providerOverride = (settings.providerStrategies || {})[providerId] || {};
-    const strategy = providerOverride.fallbackStrategy || settings.fallbackStrategy || "fill-first";
-    const stickyLimit = providerOverride.stickyRoundRobinLimit || settings.stickyRoundRobinLimit || 3;
+    const routing = settings.routing || {};
+    const providerOverride = (routing.providerStrategies || settings.providerStrategies || {})[providerId] || {};
+    const strategy = providerOverride.strategy
+      || providerOverride.fallbackStrategy
+      || routing.strategy
+      || settings.fallbackStrategy
+      || "fill-first";
+    const stickyLimit = providerOverride.stickyLimit
+      || providerOverride.stickyRoundRobinLimit
+      || routing.stickyLimit
+      || settings.stickyRoundRobinLimit
+      || 3;
 
     const connection = await selectConnectionForStrategy(selectionPool, strategy, stickyLimit);
     const resolvedProxy = await resolveConnectionProxyConfig(connection.providerSpecificData || {});

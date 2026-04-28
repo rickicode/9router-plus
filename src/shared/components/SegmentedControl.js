@@ -27,7 +27,7 @@ export default function SegmentedControl({
           key={option.value}
           onClick={() => onChange(option.value)}
           className={cn(
-            "px-4 rounded font-medium transition-all",
+            "cursor-pointer px-4 rounded font-medium transition-all",
             sizes[size],
             value === option.value
               ? "border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-main)]"

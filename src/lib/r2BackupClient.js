@@ -1,7 +1,13 @@
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
-import { exportDb, getSettings, updateSettings } from "./localDb.js";
+import {
+  exportDb,
+  getSettings,
+  prepareLocalDbForExternalRestore,
+  reloadLocalDbAfterExternalRestore,
+  updateSettings,
+} from "./localDb.js";
 import { DB_SQLITE_FILE } from "./sqliteHelpers.js";
 import { buildBackupArtifact, buildRuntimeArtifact } from "./r2RuntimeArtifacts.js";
 import { buildR2BucketProbeUrl, buildR2ObjectUrl, putObjectWithRetry, signR2Request } from "./r2ObjectClient.js";
@@ -475,11 +481,14 @@ export async function restoreFromDirectBackupSettings({
   );
   const backupLocalPath = `${DB_SQLITE_FILE}.pre-restore-${Date.now()}`;
 
+  await prepareLocalDbForExternalRestore();
+
   if (fs.existsSync(DB_SQLITE_FILE)) {
     fs.copyFileSync(DB_SQLITE_FILE, backupLocalPath);
   }
 
   fs.writeFileSync(DB_SQLITE_FILE, backupData);
+  await reloadLocalDbAfterExternalRestore();
 
   return {
     success: true,
