@@ -20,6 +20,8 @@ import { detectFormatByEndpoint } from "open-sse/translator/formats.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
+import { attachChatSlotRelease, tryAcquireChatSlot } from "@/lib/chat/concurrencyLimiter.js";
+import { setChatRuntimeSettings } from "open-sse/utils/abort.js";
 
 const codexModelIds = new Set((PROVIDER_MODELS.cx || []).map((entry) => entry?.id).filter(Boolean));
 
@@ -70,6 +72,7 @@ export async function handleChat(request, clientRawRequest = null) {
 
   // Enforce API key if enabled in settings
   const settings = await getSettings();
+  setChatRuntimeSettings(settings.chatRuntime);
   const requestContext = {
     settings,
     comboModelsByName: new Map(),
@@ -258,41 +261,66 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
 
     // Use shared chatCore
     const providerThinking = (settings.providerThinking || {})[provider] || null;
-    const result = await handleChatCore({
-      body: { ...body, model: `${provider}/${model}` },
-      modelInfo: { provider, model },
-      credentials: refreshedCredentials,
-      log,
-      clientRawRequest,
+    const slot = tryAcquireChatSlot({
+      provider,
       connectionId: credentials.connectionId,
-      userAgent,
-      apiKey,
-      ccFilterNaming: !!settings.ccFilterNaming,
-      providerThinking,
-      // Detect source format by endpoint + body
-      sourceFormatOverride: request?.url ? detectFormatByEndpoint(new URL(request.url).pathname, body) : null,
-      onCredentialsRefreshed: async (newCreds) => {
-        await updateProviderCredentials(credentials.connectionId, {
-          accessToken: newCreds.accessToken,
-          refreshToken: newCreds.refreshToken,
-          providerSpecificData: newCreds.providerSpecificData,
-          routingStatus: "eligible",
-          quotaState: "ok",
-          authState: "ok",
-          healthStatus: "healthy",
-          reasonCode: "unknown",
-          reasonDetail: null,
-          nextRetryAt: null,
-          resetAt: null,
-          lastCheckedAt: new Date().toISOString()
-        });
-      },
-      onRequestSuccess: async () => {
-        await clearAccountError(credentials.connectionId, credentials, model);
-      }
+      limits: settings.chatRuntime,
     });
+    if (!slot.ok) {
+      if (slot.status === HTTP_STATUS.RATE_LIMITED) {
+        log.warn("AUTH", `Account ${credentials.connectionName} at concurrency limit, trying fallback`);
+        excludeConnectionIds.add(credentials.connectionId);
+        lastError = slot.reason || "Account concurrency limit reached";
+        lastStatus = slot.status;
+        fallbackAttempts -= 1;
+        continue;
+      }
+      return errorResponse(slot.status || HTTP_STATUS.SERVICE_UNAVAILABLE, slot.reason || "Chat service is overloaded");
+    }
 
-    if (result.success) return result.response;
+    let result;
+    try {
+      result = await handleChatCore({
+        body: { ...body, model: `${provider}/${model}` },
+        modelInfo: { provider, model },
+        credentials: refreshedCredentials,
+        log,
+        clientRawRequest,
+        connectionId: credentials.connectionId,
+        userAgent,
+        apiKey,
+        ccFilterNaming: !!settings.ccFilterNaming,
+        providerThinking,
+        // Detect source format by endpoint + body
+        sourceFormatOverride: request?.url ? detectFormatByEndpoint(new URL(request.url).pathname, body) : null,
+        onCredentialsRefreshed: async (newCreds) => {
+          await updateProviderCredentials(credentials.connectionId, {
+            accessToken: newCreds.accessToken,
+            refreshToken: newCreds.refreshToken,
+            providerSpecificData: newCreds.providerSpecificData,
+            routingStatus: "eligible",
+            quotaState: "ok",
+            authState: "ok",
+            healthStatus: "healthy",
+            reasonCode: "unknown",
+            reasonDetail: null,
+            nextRetryAt: null,
+            resetAt: null,
+            lastCheckedAt: new Date().toISOString()
+          });
+        },
+        onRequestSuccess: async () => {
+          await clearAccountError(credentials.connectionId, credentials, model);
+        }
+      });
+    } catch (error) {
+      slot.release();
+      throw error;
+    }
+
+    if (result.success) return attachChatSlotRelease(result.response, slot.release);
+
+    slot.release();
 
     // Mark account unavailable (auto-calculates cooldown with exponential backoff, or precise resetsAtMs)
     const { shouldFallback } = await markAccountUnavailable(credentials.connectionId, result.status, result.error, provider, model, result.resetsAtMs);

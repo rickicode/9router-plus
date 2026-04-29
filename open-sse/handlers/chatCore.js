@@ -151,20 +151,24 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     finalBody = result.transformedBody;
     reqLogger.logTargetRequest(providerUrl, providerHeaders, finalBody);
   } catch (error) {
+    const abortStatus = error.code === "UPSTREAM_TIMEOUT" || error.code === "STREAM_IDLE_TIMEOUT" ? HTTP_STATUS.GATEWAY_TIMEOUT : 499;
     trackPendingRequest(model, provider, connectionId, false, true);
-    appendRequestLog({ model, provider, connectionId, status: `FAILED ${error.name === "AbortError" ? 499 : HTTP_STATUS.BAD_GATEWAY}` }).catch(() => {});
+    appendRequestLog({ model, provider, connectionId, status: `FAILED ${error.name === "AbortError" ? abortStatus : HTTP_STATUS.BAD_GATEWAY}` }).catch(() => {});
     saveRequestDetail(buildRequestDetail({
       provider, model, connectionId,
       latency: { ttft: 0, total: Date.now() - requestStartTime },
       tokens: { prompt_tokens: 0, completion_tokens: 0 },
       request: extractRequestConfig(body, stream),
       providerRequest: translatedBody || null,
-      response: { error: error.message || String(error), status: error.name === "AbortError" ? 499 : 502, thinking: null },
+      response: { error: error.message || String(error), status: error.name === "AbortError" ? abortStatus : 502, thinking: null },
       status: "error"
     })).catch(() => {});
 
     if (error.name === "AbortError") {
       streamController.handleError(error);
+      if (error.code === "UPSTREAM_TIMEOUT" || error.code === "STREAM_IDLE_TIMEOUT") {
+        return createErrorResult(HTTP_STATUS.GATEWAY_TIMEOUT, error.message || "Upstream request timed out");
+      }
       return createErrorResult(499, "Request aborted");
     }
     const errMsg = formatProviderError(error, provider, model, HTTP_STATUS.BAD_GATEWAY);

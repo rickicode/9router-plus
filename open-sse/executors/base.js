@@ -1,6 +1,63 @@
 import { HTTP_STATUS, RETRY_CONFIG, DEFAULT_RETRY_CONFIG, resolveRetryEntry } from "../config/runtimeConfig.js";
 import { resolveOllamaLocalHost } from "../config/providers.js";
+import { createDeadlineSignal, createTimeoutError, getUpstreamTimeoutMs, mergeAbortSignals } from "../utils/abort.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
+
+function attachDeadlineToResponseBody(response, deadline) {
+  if (!response?.body || typeof response.body.getReader !== "function") {
+    deadline.clear();
+    return response;
+  }
+
+  const reader = response.body.getReader();
+  let cleared = false;
+  const clearDeadline = () => {
+    if (cleared) return;
+    cleared = true;
+    deadline.clear();
+  };
+
+  const readWithDeadline = () => new Promise((resolve, reject) => {
+    if (deadline.signal.aborted) {
+      reject(deadline.signal.reason || createTimeoutError(0, "upstream"));
+      return;
+    }
+
+    const onAbort = () => reject(deadline.signal.reason || createTimeoutError(0, "upstream"));
+    deadline.signal.addEventListener("abort", onAbort, { once: true });
+    reader.read()
+      .then(resolve, reject)
+      .finally(() => deadline.signal.removeEventListener("abort", onAbort));
+  });
+
+  const body = new ReadableStream({
+    async pull(controller) {
+      try {
+        const { done, value } = await readWithDeadline();
+        if (done) {
+          clearDeadline();
+          controller.close();
+          return;
+        }
+        controller.enqueue(value);
+      } catch (error) {
+        clearDeadline();
+        await reader.cancel(error).catch(() => {});
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      clearDeadline();
+      await reader.cancel(reason).catch(() => {});
+    }
+  });
+
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
 
 /**
  * BaseExecutor - Base class for provider executors
@@ -104,6 +161,7 @@ export class BaseExecutor {
     let lastError = null;
     let lastStatus = 0;
     const retryAttemptsByUrl = {};
+    const timeoutMs = this.config?.timeoutMs || getUpstreamTimeoutMs();
     
     // Merge default retry config with provider-specific config
     const retryConfig = { ...DEFAULT_RETRY_CONFIG, ...this.config.retry };
@@ -116,30 +174,45 @@ export class BaseExecutor {
       if (!retryAttemptsByUrl[urlIndex]) retryAttemptsByUrl[urlIndex] = 0;
 
       try {
+        const deadline = createDeadlineSignal(timeoutMs, `${this.provider} upstream`);
+        const requestSignal = mergeAbortSignals([signal, deadline.signal]);
         const response = await proxyAwareFetch(url, {
           method: "POST",
           headers,
           body: JSON.stringify(transformedBody),
-          signal
-        }, proxyOptions);
+          signal: requestSignal
+        }, proxyOptions).catch((error) => {
+          if (deadline.signal.aborted && error?.name === "AbortError") {
+            throw deadline.signal.reason || createTimeoutError(timeoutMs, `${this.provider} upstream`);
+          }
+          deadline.clear();
+          throw error;
+        });
+
+        const responseWithDeadline = stream
+          ? response
+          : attachDeadlineToResponseBody(response, deadline);
+        if (stream) deadline.clear();
 
         // Retry based on status code config
-        const { attempts: maxRetries, delayMs } = resolveRetryEntry(retryConfig[response.status]);
+        const { attempts: maxRetries, delayMs } = resolveRetryEntry(retryConfig[responseWithDeadline.status]);
         if (maxRetries > 0 && retryAttemptsByUrl[urlIndex] < maxRetries) {
           retryAttemptsByUrl[urlIndex]++;
-          log?.debug?.("RETRY", `${response.status} retry ${retryAttemptsByUrl[urlIndex]}/${maxRetries} after ${delayMs / 1000}s`);
+          log?.debug?.("RETRY", `${responseWithDeadline.status} retry ${retryAttemptsByUrl[urlIndex]}/${maxRetries} after ${delayMs / 1000}s`);
+          await responseWithDeadline.body?.cancel?.().catch(() => {});
           await new Promise(resolve => setTimeout(resolve, delayMs));
           urlIndex--;
           continue;
         }
 
-        if (this.shouldRetry(response.status, urlIndex)) {
-          log?.debug?.("RETRY", `${response.status} on ${url}, trying fallback ${urlIndex + 1}`);
-          lastStatus = response.status;
+        if (this.shouldRetry(responseWithDeadline.status, urlIndex)) {
+          log?.debug?.("RETRY", `${responseWithDeadline.status} on ${url}, trying fallback ${urlIndex + 1}`);
+          lastStatus = responseWithDeadline.status;
+          await responseWithDeadline.body?.cancel?.().catch(() => {});
           continue;
         }
 
-        return { response, url, headers, transformedBody };
+        return { response: responseWithDeadline, url, headers, transformedBody };
       } catch (error) {
         lastError = error;
         if (urlIndex + 1 < fallbackCount) {

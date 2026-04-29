@@ -1,4 +1,5 @@
 // Stream handler with disconnect detection - shared for all providers
+import { getStreamIdleTimeoutMs } from "./abort.js";
 
 // Get HH:MM:SS timestamp
 function getTimeString() {
@@ -71,6 +72,9 @@ export function createStreamController({ onDisconnect, onError, log, provider, m
 
       if (error.name === "AbortError") {
         logStream("aborted");
+        if (error.code === "UPSTREAM_TIMEOUT" || error.code === "STREAM_IDLE_TIMEOUT") {
+          onError?.(error);
+        }
         return;
       }
 
@@ -89,16 +93,42 @@ export function createStreamController({ onDisconnect, onError, log, provider, m
 export function createDisconnectAwareStream(transformStream, streamController) {
   const reader = transformStream.readable.getReader();
   const writer = transformStream.writable.getWriter();
+  const idleTimeoutMs = getStreamIdleTimeoutMs();
+  let idleTimer = null;
+
+  const clearIdleTimer = () => {
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    }
+  };
+  const refreshIdleTimer = (controller) => {
+    clearIdleTimer();
+    idleTimer = setTimeout(() => {
+      const error = new Error(`stream idle timeout after ${idleTimeoutMs}ms`);
+      error.name = "AbortError";
+      error.code = "STREAM_IDLE_TIMEOUT";
+      streamController.handleError(error);
+      reader.cancel(error).catch(() => {});
+      writer.abort(error).catch(() => {});
+      try {
+        controller.error(error);
+      } catch {}
+    }, idleTimeoutMs);
+  };
 
   return new ReadableStream({
     async pull(controller) {
       if (!streamController.isConnected()) {
+        clearIdleTimer();
         controller.close();
         return;
       }
 
       try {
+        refreshIdleTimer(controller);
         const { done, value } = await reader.read();
+        clearIdleTimer();
         if (done) {
           streamController.handleComplete();
           controller.close();
@@ -106,6 +136,7 @@ export function createDisconnectAwareStream(transformStream, streamController) {
         }
         controller.enqueue(value);
       } catch (error) {
+        clearIdleTimer();
         streamController.handleError(error);
         // Cleanup reader/writer to avoid orphaned streams
         reader.cancel().catch(() => {});
@@ -115,6 +146,7 @@ export function createDisconnectAwareStream(transformStream, streamController) {
     },
 
     cancel(reason) {
+      clearIdleTimer();
       streamController.handleDisconnect(reason || "cancelled");
       reader.cancel();
       writer.abort();

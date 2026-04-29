@@ -6,6 +6,44 @@ import { useTheme } from "@/shared/hooks/useTheme";
 import { cn } from "@/shared/utils/cn";
 import { APP_CONFIG } from "@/shared/constants/config";
 
+const DEFAULT_CHAT_RUNTIME_SETTINGS = {
+  upstreamTimeoutMs: 45000,
+  streamIdleTimeoutMs: 120000,
+  maxInflight: 2000,
+  providerMaxInflight: 600,
+  accountMaxInflight: 80,
+  observabilityMode: "full",
+  observabilitySampleRate: 0.1,
+  highThroughputSelection: true,
+};
+
+function normalizeChatRuntimeForm(value = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    upstreamTimeoutMs: String(source.upstreamTimeoutMs ?? DEFAULT_CHAT_RUNTIME_SETTINGS.upstreamTimeoutMs),
+    streamIdleTimeoutMs: String(source.streamIdleTimeoutMs ?? DEFAULT_CHAT_RUNTIME_SETTINGS.streamIdleTimeoutMs),
+    maxInflight: String(source.maxInflight ?? DEFAULT_CHAT_RUNTIME_SETTINGS.maxInflight),
+    providerMaxInflight: String(source.providerMaxInflight ?? DEFAULT_CHAT_RUNTIME_SETTINGS.providerMaxInflight),
+    accountMaxInflight: String(source.accountMaxInflight ?? DEFAULT_CHAT_RUNTIME_SETTINGS.accountMaxInflight),
+    observabilityMode: source.observabilityMode || DEFAULT_CHAT_RUNTIME_SETTINGS.observabilityMode,
+    observabilitySampleRate: String(source.observabilitySampleRate ?? DEFAULT_CHAT_RUNTIME_SETTINGS.observabilitySampleRate),
+    highThroughputSelection: source.highThroughputSelection !== false,
+  };
+}
+
+function buildChatRuntimePayload(form) {
+  return {
+    upstreamTimeoutMs: Number.parseInt(form.upstreamTimeoutMs, 10),
+    streamIdleTimeoutMs: Number.parseInt(form.streamIdleTimeoutMs, 10),
+    maxInflight: Number.parseInt(form.maxInflight, 10),
+    providerMaxInflight: Number.parseInt(form.providerMaxInflight, 10),
+    accountMaxInflight: Number.parseInt(form.accountMaxInflight, 10),
+    observabilityMode: form.observabilityMode,
+    observabilitySampleRate: Number.parseFloat(form.observabilitySampleRate),
+    highThroughputSelection: form.highThroughputSelection === true,
+  };
+}
+
 function SectionIntro({ icon, title, description, tone = "neutral", eyebrow = "Settings" }) {
   const toneClassName = {
     success: "bg-[var(--color-success-soft)] text-[var(--color-success)]",
@@ -67,6 +105,9 @@ export default function ProfileSettingsContent() {
   const [routingStatus, setRoutingStatus] = useState({ type: "", message: "" });
   const [routingLoading, setRoutingLoading] = useState(false);
   const [stickyDurationInput, setStickyDurationInput] = useState("300");
+  const [chatRuntimeForm, setChatRuntimeForm] = useState(normalizeChatRuntimeForm(DEFAULT_CHAT_RUNTIME_SETTINGS));
+  const [chatRuntimeStatus, setChatRuntimeStatus] = useState({ type: "", message: "" });
+  const [chatRuntimeLoading, setChatRuntimeLoading] = useState(false);
 
   useEffect(() => {
     fetch("/api/settings")
@@ -89,6 +130,7 @@ export default function ProfileSettingsContent() {
           outboundProxyUrl: data?.outboundProxyUrl || "",
           outboundNoProxy: data?.outboundNoProxy || "",
         });
+        setChatRuntimeForm(normalizeChatRuntimeForm(data?.chatRuntime));
         setStickyDurationInput(String(data?.routing?.sticky?.durationSeconds || data?.stickyDuration || 300));
         setLoading(false);
       })
@@ -104,6 +146,7 @@ export default function ProfileSettingsContent() {
       if (!res.ok) return;
       const data = await res.json();
       setSettings(data);
+      setChatRuntimeForm(normalizeChatRuntimeForm(data?.chatRuntime));
       setStickyDurationInput(String(data?.routing?.sticky?.durationSeconds || data?.stickyDuration || 300));
     } catch (err) {
       console.error("Failed to reload settings:", err);
@@ -373,6 +416,79 @@ export default function ProfileSettingsContent() {
       }
     } catch (err) {
       console.error("Failed to update enableObservability:", err);
+    }
+  };
+
+  const validateChatRuntimePayload = (payload) => {
+    const positiveFields = [
+      ["upstreamTimeoutMs", "Upstream timeout"],
+      ["streamIdleTimeoutMs", "Stream idle timeout"],
+      ["maxInflight", "Global concurrency"],
+      ["providerMaxInflight", "Provider concurrency"],
+      ["accountMaxInflight", "Account concurrency"],
+    ];
+    for (const [key, label] of positiveFields) {
+      if (!Number.isFinite(payload[key]) || payload[key] <= 0) return `${label} must be greater than 0`;
+    }
+    if (!Number.isFinite(payload.observabilitySampleRate) || payload.observabilitySampleRate < 0 || payload.observabilitySampleRate > 1) {
+      return "Observability sample rate must be between 0 and 1";
+    }
+    return null;
+  };
+
+  const saveChatRuntimeSettings = async (event) => {
+    event.preventDefault();
+    const payload = buildChatRuntimePayload(chatRuntimeForm);
+    const validationError = validateChatRuntimePayload(payload);
+    if (validationError) {
+      setChatRuntimeStatus({ type: "error", message: validationError });
+      return;
+    }
+
+    setChatRuntimeLoading(true);
+    setChatRuntimeStatus({ type: "", message: "" });
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatRuntime: payload }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSettings((prev) => ({ ...prev, ...data }));
+        setChatRuntimeForm(normalizeChatRuntimeForm(data?.chatRuntime));
+        setChatRuntimeStatus({ type: "success", message: "Chat runtime settings saved" });
+      } else {
+        setChatRuntimeStatus({ type: "error", message: data.error || "Failed to save chat runtime settings" });
+      }
+    } catch {
+      setChatRuntimeStatus({ type: "error", message: "An error occurred" });
+    } finally {
+      setChatRuntimeLoading(false);
+    }
+  };
+
+  const resetChatRuntimeDefaults = async () => {
+    setChatRuntimeLoading(true);
+    setChatRuntimeStatus({ type: "", message: "" });
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resetChatRuntimeDefaults: true }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSettings((prev) => ({ ...prev, ...data }));
+        setChatRuntimeForm(normalizeChatRuntimeForm(data?.chatRuntime));
+        setChatRuntimeStatus({ type: "success", message: "Chat runtime settings reset to defaults" });
+      } else {
+        setChatRuntimeStatus({ type: "error", message: data.error || "Failed to reset chat runtime settings" });
+      }
+    } catch {
+      setChatRuntimeStatus({ type: "error", message: "An error occurred" });
+    } finally {
+      setChatRuntimeLoading(false);
     }
   };
 
@@ -824,6 +940,124 @@ export default function ProfileSettingsContent() {
           </div>
           <Toggle checked={observabilityEnabled} onChange={updateObservabilityEnabled} disabled={loading} />
         </div>
+      </Card>
+
+      <Card>
+        <SectionIntro
+          icon="speed"
+          tone="primary"
+          title="Chat Runtime"
+          description="Tune /v1 timeout, concurrency, observability mode, and high-throughput account selection from saved settings."
+          eyebrow="Performance"
+        />
+        <form onSubmit={saveChatRuntimeSettings} className="flex flex-col gap-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <Input
+              type="number"
+              min="1"
+              step="1000"
+              label="Upstream timeout (ms)"
+              value={chatRuntimeForm.upstreamTimeoutMs}
+              onChange={(e) => setChatRuntimeForm((prev) => ({ ...prev, upstreamTimeoutMs: e.target.value }))}
+              disabled={loading || chatRuntimeLoading}
+              hint="Default 45000. Caps non-streaming provider waits."
+            />
+            <Input
+              type="number"
+              min="1"
+              step="1000"
+              label="Stream idle timeout (ms)"
+              value={chatRuntimeForm.streamIdleTimeoutMs}
+              onChange={(e) => setChatRuntimeForm((prev) => ({ ...prev, streamIdleTimeoutMs: e.target.value }))}
+              disabled={loading || chatRuntimeLoading}
+              hint="Default 120000. Caps silent streaming reads."
+            />
+            <Input
+              type="number"
+              min="1"
+              step="1"
+              label="Global max in-flight"
+              value={chatRuntimeForm.maxInflight}
+              onChange={(e) => setChatRuntimeForm((prev) => ({ ...prev, maxInflight: e.target.value }))}
+              disabled={loading || chatRuntimeLoading}
+              hint="Default 2000."
+            />
+            <Input
+              type="number"
+              min="1"
+              step="1"
+              label="Provider max in-flight"
+              value={chatRuntimeForm.providerMaxInflight}
+              onChange={(e) => setChatRuntimeForm((prev) => ({ ...prev, providerMaxInflight: e.target.value }))}
+              disabled={loading || chatRuntimeLoading}
+              hint="Default 600 per provider."
+            />
+            <Input
+              type="number"
+              min="1"
+              step="1"
+              label="Account max in-flight"
+              value={chatRuntimeForm.accountMaxInflight}
+              onChange={(e) => setChatRuntimeForm((prev) => ({ ...prev, accountMaxInflight: e.target.value }))}
+              disabled={loading || chatRuntimeLoading}
+              hint="Default 80 per account."
+            />
+            <Input
+              type="number"
+              min="0"
+              max="1"
+              step="0.01"
+              label="Observability sample rate"
+              value={chatRuntimeForm.observabilitySampleRate}
+              onChange={(e) => setChatRuntimeForm((prev) => ({ ...prev, observabilitySampleRate: e.target.value }))}
+              disabled={loading || chatRuntimeLoading}
+              hint="0 to 1. Used when mode is sampled."
+            />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="flex flex-col gap-2 text-sm text-text-main">
+              <span className="font-medium">Observability mode</span>
+              <select
+                value={chatRuntimeForm.observabilityMode}
+                onChange={(e) => setChatRuntimeForm((prev) => ({ ...prev, observabilityMode: e.target.value }))}
+                disabled={loading || chatRuntimeLoading}
+                className="min-h-11 rounded border border-border bg-[var(--color-bg)] px-3 py-2 text-sm text-text-main outline-none transition focus:border-[var(--color-primary)] focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]/30"
+              >
+                <option value="full">Full</option>
+                <option value="sampled">Sampled</option>
+                <option value="minimal">Minimal errors only</option>
+                <option value="off">Off</option>
+              </select>
+              <span className="text-sm text-text-muted">Controls request log/detail persistence for high traffic.</span>
+            </label>
+            <div className="flex items-center justify-between rounded border border-border bg-[var(--color-bg)] p-3">
+              <div>
+                <p className="font-medium">High-throughput selection</p>
+                <p className="text-sm text-text-muted">Use cached provider lists and memory round-robin cursor.</p>
+              </div>
+              <Toggle
+                checked={chatRuntimeForm.highThroughputSelection}
+                onChange={(enabled) => setChatRuntimeForm((prev) => ({ ...prev, highThroughputSelection: enabled }))}
+                disabled={loading || chatRuntimeLoading}
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 border-t border-border/50 pt-3">
+            <Button type="submit" variant="primary" loading={chatRuntimeLoading}>
+              Save chat runtime
+            </Button>
+            <Button type="button" variant="secondary" onClick={resetChatRuntimeDefaults} disabled={loading || chatRuntimeLoading}>
+              Reset to default
+            </Button>
+          </div>
+          {chatRuntimeStatus.message ? (
+            <p className={`text-sm ${chatRuntimeStatus.type === "error" ? "text-[var(--color-danger)]" : "text-[var(--color-success)]"}`}>
+              {chatRuntimeStatus.message}
+            </p>
+          ) : null}
+        </form>
       </Card>
 
       <Card>

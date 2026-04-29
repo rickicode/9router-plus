@@ -31,6 +31,16 @@ const DEFAULT_MORPH_SETTINGS = Object.freeze({
   apiKeys: [],
   roundRobinEnabled: false,
 });
+const DEFAULT_CHAT_RUNTIME_SETTINGS = Object.freeze({
+  upstreamTimeoutMs: 45_000,
+  streamIdleTimeoutMs: 120_000,
+  maxInflight: 2000,
+  providerMaxInflight: 600,
+  accountMaxInflight: 80,
+  observabilityMode: "full",
+  observabilitySampleRate: 0.1,
+  highThroughputSelection: true,
+});
 
 function normalizeMorphApiKeyEntry(value, index = 0) {
   if (typeof value === "string") {
@@ -180,6 +190,7 @@ const DEFAULT_SETTINGS = {
   r2BackupEncryptionKey: null,
   r2Config: DEFAULT_R2_CONFIG,
   morph: DEFAULT_MORPH_SETTINGS,
+  chatRuntime: DEFAULT_CHAT_RUNTIME_SETTINGS,
 };
 
 const LEGACY_REMOVED_SETTINGS_KEYS = [
@@ -228,6 +239,36 @@ function normalizeRuntimeCacheTtlSeconds(value) {
   return Number.isInteger(value) && value >= 1 && value <= 300
     ? value
     : DEFAULT_SETTINGS.r2RuntimeCacheTtlSeconds;
+}
+
+function normalizePositiveInteger(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.trunc(number) : fallback;
+}
+
+function normalizeUnitInterval(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 && number <= 1 ? number : fallback;
+}
+
+export function normalizeChatRuntimeSettings(settings = {}) {
+  const source = settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {};
+  return {
+    upstreamTimeoutMs: normalizePositiveInteger(source.upstreamTimeoutMs, DEFAULT_CHAT_RUNTIME_SETTINGS.upstreamTimeoutMs),
+    streamIdleTimeoutMs: normalizePositiveInteger(source.streamIdleTimeoutMs, DEFAULT_CHAT_RUNTIME_SETTINGS.streamIdleTimeoutMs),
+    maxInflight: normalizePositiveInteger(source.maxInflight, DEFAULT_CHAT_RUNTIME_SETTINGS.maxInflight),
+    providerMaxInflight: normalizePositiveInteger(source.providerMaxInflight, DEFAULT_CHAT_RUNTIME_SETTINGS.providerMaxInflight),
+    accountMaxInflight: normalizePositiveInteger(source.accountMaxInflight, DEFAULT_CHAT_RUNTIME_SETTINGS.accountMaxInflight),
+    observabilityMode: ["full", "sampled", "minimal", "off"].includes(source.observabilityMode)
+      ? source.observabilityMode
+      : DEFAULT_CHAT_RUNTIME_SETTINGS.observabilityMode,
+    observabilitySampleRate: normalizeUnitInterval(source.observabilitySampleRate, DEFAULT_CHAT_RUNTIME_SETTINGS.observabilitySampleRate),
+    highThroughputSelection: source.highThroughputSelection !== false,
+  };
+}
+
+export function getDefaultChatRuntimeSettings() {
+  return { ...DEFAULT_CHAT_RUNTIME_SETTINGS };
 }
 
 function normalizeRoutingStrategy(value, fallback = "fill-first") {
@@ -412,6 +453,7 @@ function mergeSettingsWithDefaults(settings = {}) {
       : {}),
   };
   merged.morph = normalizeMorphSettings(sourceSettings?.morph);
+  merged.chatRuntime = normalizeChatRuntimeSettings(sourceSettings?.chatRuntime);
   merged.routing = normalizeRoutingSettings(sourceSettings);
   applyLegacyRoutingAliases(merged);
 

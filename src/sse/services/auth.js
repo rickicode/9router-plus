@@ -5,6 +5,7 @@ import { applyLiveQuotaUpdate, getCodexLiveQuotaSignal, getConnectionAuthBlocked
 import { formatRetryAfter, checkFallbackError, isModelLockActive, buildModelLockUpdate, getEarliestModelLockUntil } from "open-sse/services/accountFallback.js";
 import { resolveProviderId, FREE_PROVIDERS } from "@/shared/constants/providers.js";
 import * as log from "../utils/logger.js";
+import { getHighThroughputSelectionEnabled } from "open-sse/utils/abort.js";
 
 function sortByPriority(connections = []) {
   return [...connections].sort((a, b) => (a.priority || 999) - (b.priority || 999));
@@ -56,7 +57,48 @@ function isCanonicalFallbackEligible(connection = {}) {
 
 // Provider-scoped mutexes prevent same-provider selection races without serializing all providers.
 const selectionMutexes = new Map();
+const providerConnectionCache = new Map();
+const roundRobinCursors = new Map();
 const MUTEX_TIMEOUT_MS = 5_000;
+const PROVIDER_CONNECTION_CACHE_TTL_MS = 500;
+
+async function getCachedProviderConnections(providerId) {
+  if (!getHighThroughputSelectionEnabled()) {
+    return getProviderConnections({ provider: providerId, isActive: true });
+  }
+
+  const cached = providerConnectionCache.get(providerId);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) {
+    return cached.connections.map((connection) => ({ ...connection }));
+  }
+
+  const connections = await getProviderConnections({ provider: providerId, isActive: true });
+  providerConnectionCache.set(providerId, {
+    expiresAt: now + PROVIDER_CONNECTION_CACHE_TTL_MS,
+    connections: connections.map((connection) => ({ ...connection })),
+  });
+  return connections;
+}
+
+function selectConnectionWithMemoryCursor(selectionPool, providerId, stickyLimit) {
+  if (!getHighThroughputSelectionEnabled()) return null;
+  if (!Array.isArray(selectionPool) || selectionPool.length === 0) return null;
+
+  const cursorKey = `${providerId}:${selectionPool.map((connection) => connection.id).join(",")}`;
+  const cursor = roundRobinCursors.get(cursorKey) || { index: 0, stickyCount: 0 };
+  const selectedIndex = cursor.index % selectionPool.length;
+  const selected = selectionPool[selectedIndex];
+  const stickyCount = cursor.stickyCount + 1;
+  const shouldAdvance = stickyCount >= stickyLimit;
+
+  roundRobinCursors.set(cursorKey, {
+    index: shouldAdvance ? (selectedIndex + 1) % selectionPool.length : selectedIndex,
+    stickyCount: shouldAdvance ? 0 : stickyCount,
+  });
+
+  return selected;
+}
 
 function getSelectionMutex(providerId) {
   return selectionMutexes.get(providerId) || Promise.resolve();
@@ -195,6 +237,8 @@ async function selectConnectionForStrategy(selectionPool, strategy, stickyLimit)
 
 export function __resetSelectionMutexesForTests() {
   selectionMutexes.clear();
+  providerConnectionCache.clear();
+  roundRobinCursors.clear();
 }
 
 export async function __runWithProviderSelectionLock(providerId, callback) {
@@ -247,7 +291,7 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
   const settings = await getSettings();
 
   return __runWithProviderSelectionLock(providerId, async () => {
-    const connections = await getProviderConnections({ provider: providerId, isActive: true });
+    const connections = await getCachedProviderConnections(providerId);
     log.debug("AUTH", `${provider} | total connections: ${connections.length}, excludeIds: ${excludeSet.size > 0 ? [...excludeSet].join(",") : "none"}, model: ${model || "any"}`);
 
     if (connections.length === 0) {
@@ -292,7 +336,9 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       || settings.stickyRoundRobinLimit
       || 3;
 
-    const connection = await selectConnectionForStrategy(selectionPool, strategy, stickyLimit);
+    const connection = strategy === "round-robin"
+      ? (selectConnectionWithMemoryCursor(selectionPool, providerId, stickyLimit) || await selectConnectionForStrategy(selectionPool, strategy, stickyLimit))
+      : await selectConnectionForStrategy(selectionPool, strategy, stickyLimit);
     const resolvedProxy = await resolveConnectionProxyConfig(connection.providerSpecificData || {});
 
     return {

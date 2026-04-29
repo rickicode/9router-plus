@@ -133,8 +133,24 @@ export async function handleNonStreamingResponse({ providerResponse, provider, m
   const contentType = providerResponse.headers.get("content-type") || "";
   let responseBody;
 
+  const handleBodyReadAbort = (err) => {
+    if (err?.name !== "AbortError") return null;
+    const status = err.code === "UPSTREAM_TIMEOUT" || err.code === "STREAM_IDLE_TIMEOUT"
+      ? HTTP_STATUS.GATEWAY_TIMEOUT
+      : 499;
+    appendLog({ status: `FAILED ${status}` });
+    return createErrorResult(status, err.message || (status === HTTP_STATUS.GATEWAY_TIMEOUT ? "Upstream request timed out" : "Request aborted"));
+  };
+
   if (contentType.includes("text/event-stream")) {
-    const sseText = await providerResponse.text();
+    let sseText;
+    try {
+      sseText = await providerResponse.text();
+    } catch (err) {
+      const abortResult = handleBodyReadAbort(err);
+      if (abortResult) return abortResult;
+      throw err;
+    }
     const parsed = parseSSEToOpenAIResponse(sseText, model);
     if (!parsed) {
       appendLog({ status: `FAILED ${HTTP_STATUS.BAD_GATEWAY}` });
@@ -145,6 +161,8 @@ export async function handleNonStreamingResponse({ providerResponse, provider, m
     try {
       responseBody = await providerResponse.json();
     } catch (err) {
+      const abortResult = handleBodyReadAbort(err);
+      if (abortResult) return abortResult;
       appendLog({ status: `FAILED ${HTTP_STATUS.BAD_GATEWAY}` });
       console.error(`[ChatCore] Failed to parse JSON from ${provider}:`, err.message);
       return createErrorResult(HTTP_STATUS.BAD_GATEWAY, `Invalid JSON response from ${provider}`);

@@ -3,6 +3,7 @@ import { JSONFile } from "lowdb/node";
 import path from "node:path";
 import fs from "node:fs";
 import { DATA_DIR } from "@/lib/dataDir.js";
+import { getChatObservabilityMode, getChatObservabilitySampleRate } from "open-sse/utils/abort.js";
 
 const isCloud = typeof caches !== "undefined" && typeof caches === "object";
 
@@ -35,6 +36,18 @@ async function getDb() {
 // Config cache
 let cachedConfig = null;
 let cachedConfigTs = 0;
+
+function shouldSampleRequestDetail() {
+  return Math.random() < getChatObservabilitySampleRate();
+}
+
+function shouldPersistRequestDetail(detail) {
+  const mode = getChatObservabilityMode();
+  if (mode === "off") return false;
+  if (mode === "minimal") return detail?.status === "error";
+  if (mode === "sampled") return detail?.status === "error" || shouldSampleRequestDetail();
+  return true;
+}
 
 async function getObservabilityConfig() {
   if (cachedConfig && (Date.now() - cachedConfigTs) < CONFIG_CACHE_TTL_MS) {
@@ -274,6 +287,7 @@ async function flushToDatabase(options = {}) {
 
 export async function saveRequestDetail(detail, options = {}) {
   if (isCloud) return;
+  if (!shouldPersistRequestDetail(detail) && options.propagateError !== true) return;
 
   const config = await getObservabilityConfig();
   if (!config.enabled) return;

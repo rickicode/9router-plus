@@ -180,6 +180,28 @@ export async function updateProviderCredentials(connectionId, newCredentials) {
 
 // ─── Local-specific: proactive token refresh ─────────────────────────────────
 
+const tokenRefreshFlights = new Map();
+const copilotRefreshFlights = new Map();
+
+async function runSingleFlight(map, key, task) {
+  if (!key) return task();
+  const existing = map.get(key);
+  if (existing) return existing;
+
+  const promise = Promise.resolve()
+    .then(task)
+    .finally(() => {
+      if (map.get(key) === promise) map.delete(key);
+    });
+  map.set(key, promise);
+  return promise;
+}
+
+export function __resetTokenRefreshFlightsForTests() {
+  tokenRefreshFlights.clear();
+  copilotRefreshFlights.clear();
+}
+
 /**
  * Check whether the provider token (and, for GitHub, the Copilot token) is
  * about to expire and refresh it proactively.
@@ -205,7 +227,7 @@ export async function checkAndRefreshToken(provider, credentials) {
         refreshLeadMs: refreshLead,
       });
 
-      const newCreds = await getAccessToken(provider, creds);
+      const newCreds = await runSingleFlight(tokenRefreshFlights, `${provider}:${creds.connectionId || creds.refreshToken || creds.accessToken}`, () => getAccessToken(provider, creds));
       if (newCreds?.accessToken) {
         const mergedCreds = {
           ...newCreds,
@@ -245,7 +267,7 @@ export async function checkAndRefreshToken(provider, credentials) {
         expiresIn: Math.round(remaining / 1000),
       });
 
-      const copilotToken = await refreshCopilotToken(creds.accessToken);
+      const copilotToken = await runSingleFlight(copilotRefreshFlights, `github:${creds.connectionId || creds.accessToken}`, () => refreshCopilotToken(creds.accessToken));
       if (copilotToken) {
         const updatedSpecific = {
           ...creds.providerSpecificData,

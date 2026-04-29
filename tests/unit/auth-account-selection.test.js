@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockConnections = [];
 const getProviderConnections = vi.fn(async () => mockConnections);
@@ -75,6 +75,7 @@ vi.mock("open-sse/services/accountFallback.js", () => ({
 
 describe("auth account selection", () => {
   beforeEach(() => {
+    process.env.CHAT_HIGH_THROUGHPUT_SELECTION = "false";
     mockConnections.length = 0;
     getProviderConnections.mockClear();
     validateApiKey.mockClear();
@@ -102,6 +103,10 @@ describe("auth account selection", () => {
     });
     getCodexLiveQuotaSignal.mockReturnValue(null);
     vi.resetModules();
+  });
+
+  afterEach(() => {
+    delete process.env.CHAT_HIGH_THROUGHPUT_SELECTION;
   });
 
   it("resets the provider mutex after a timeout so later same-provider requests can proceed", async () => {
@@ -1137,5 +1142,51 @@ describe("auth account selection", () => {
       nextRetryAt: null,
       resetAt: null,
     }));
+  });
+
+  it("uses a memory cursor in high-throughput round-robin mode without writing selection metadata", async () => {
+    process.env.CHAT_HIGH_THROUGHPUT_SELECTION = "true";
+    const connections = [
+      {
+        id: "conn-rr-a",
+        provider: "codex",
+        isActive: true,
+        priority: 1,
+        displayName: "Round Robin A",
+        accessToken: "rr-token-a",
+        routingStatus: "eligible",
+        authState: "ok",
+        healthStatus: "healthy",
+        quotaState: "ok",
+      },
+      {
+        id: "conn-rr-b",
+        provider: "codex",
+        isActive: true,
+        priority: 2,
+        displayName: "Round Robin B",
+        accessToken: "rr-token-b",
+        routingStatus: "eligible",
+        authState: "ok",
+        healthStatus: "healthy",
+        quotaState: "ok",
+      },
+    ];
+
+    getProviderConnections.mockImplementation(async () => connections.map((connection) => ({ ...connection })));
+    getEligibleConnections.mockImplementation(async (_provider, candidates) => candidates);
+    getSettings.mockResolvedValue({
+      fallbackStrategy: "round-robin",
+      stickyRoundRobinLimit: 1,
+      providerStrategies: {},
+    });
+
+    const { getProviderCredentials } = await import("../../src/sse/services/auth.js");
+    const first = await getProviderCredentials("codex", null, "gpt-4.1");
+    const second = await getProviderCredentials("codex", null, "gpt-4.1");
+
+    expect(first.connectionId).toBe("conn-rr-a");
+    expect(second.connectionId).toBe("conn-rr-b");
+    expect(updateProviderConnection).not.toHaveBeenCalled();
   });
 });
