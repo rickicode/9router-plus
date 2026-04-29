@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import ProviderIcon from "@/shared/components/ProviderIcon";
 import QuotaTable from "./QuotaTable";
 import Card from "@/shared/components/Card";
@@ -12,6 +12,7 @@ import Pagination from "@/shared/components/Pagination";
 import Toggle from "@/shared/components/Toggle";
 import { EditConnectionModal } from "@/shared/components";
 import { USAGE_SUPPORTED_PROVIDERS } from "@/shared/constants/providers";
+import { useUrlQueryControls } from "@/shared/hooks";
 import {
   getConnectionCentralizedStatus,
   getConnectionFilterStatus,
@@ -170,9 +171,19 @@ function getSchedulerMessage(status = {}) {
 }
 
 export default function ProviderLimits() {
-  const pathname = usePathname();
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const {
+    getQueryValue,
+    updateQueryParams,
+  } = useUrlQueryControls({
+    fallbackPath: "/dashboard/quota",
+    normalizers: {
+      statusFilter: (value) => {
+        const normalizedValue = normalizeConnectionFilterStatus(value || "all");
+        return normalizedValue === "all" ? "" : normalizedValue;
+      },
+    },
+  });
   const [connections, setConnections] = useState([]);
   const [connectionsLoading, setConnectionsLoading] = useState(true);
   const [schedulerStatus, setSchedulerStatus] = useState(null);
@@ -188,38 +199,8 @@ export default function ProviderLimits() {
   const [selectedConnection, setSelectedConnection] = useState(null);
   const [proxyPools, setProxyPools] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
-  const searchQuery = searchParams.get("searchQuery") || "";
-  const rawStatusFilter = searchParams.get("statusFilter");
-  const statusFilter = normalizeConnectionFilterStatus(rawStatusFilter || "all");
-
-  const updateQueryParams = useCallback((updates) => {
-    const params = new URLSearchParams(searchParams.toString());
-
-    Object.entries(updates).forEach(([key, value]) => {
-      if (value === undefined || value === null || value === "") {
-        params.delete(key);
-      } else {
-        params.set(key, value);
-      }
-    });
-
-    const query = params.toString();
-    const targetPath = pathname || "/dashboard/usage";
-    router.replace(query ? `${targetPath}?${query}` : targetPath, {
-      scroll: false,
-    });
-  }, [pathname, router, searchParams]);
-
-  useEffect(() => {
-    if (!rawStatusFilter) return;
-
-    const normalizedStatusFilter = normalizeConnectionFilterStatus(rawStatusFilter);
-    if (normalizedStatusFilter === rawStatusFilter) return;
-
-    updateQueryParams({
-      statusFilter: normalizedStatusFilter === "all" ? null : normalizedStatusFilter,
-    });
-  }, [rawStatusFilter, updateQueryParams]);
+  const searchQuery = getQueryValue("searchQuery", "");
+  const statusFilter = getQueryValue("statusFilter", "all") || "all";
 
   const fetchConnections = useCallback(async () => {
     const response = await fetch("/api/providers/client", { cache: "no-store" });
@@ -438,9 +419,14 @@ export default function ProviderLimits() {
     [connections],
   );
 
+  const searchMatchedConnections = useMemo(
+    () => filterVisibleConnections(supportedConnections, searchQuery, "all"),
+    [searchQuery, supportedConnections],
+  );
+
   const visibleConnections = useMemo(
-    () => filterVisibleConnections(supportedConnections, searchQuery, statusFilter),
-    [searchQuery, statusFilter, supportedConnections],
+    () => filterVisibleConnections(searchMatchedConnections, "", statusFilter),
+    [searchMatchedConnections, statusFilter],
   );
 
   const sortedConnections = useMemo(
@@ -466,22 +452,18 @@ export default function ProviderLimits() {
   const visibleQuotaCards = useMemo(() => {
     const quotaCardsById = new Map(quotaCards.map((card) => [card.connection.id, card]));
 
-    return filterVisibleConnections(
-      quotaCards.map(({ connection }) => connection),
-      searchQuery,
-      statusFilter,
-    )
+    return visibleConnections
       .map((connection) => quotaCardsById.get(connection.id))
       .filter(Boolean);
-  }, [quotaCards, searchQuery, statusFilter]);
+  }, [quotaCards, visibleConnections]);
 
   const activeWithLimits = visibleQuotaCards.filter(
     ({ quota }) => quota.quotas.length > 0,
   ).length;
 
   const canonicalStatusCounts = useMemo(
-    () => getCanonicalStatusCounts(visibleConnections),
-    [visibleConnections],
+    () => getCanonicalStatusCounts(searchMatchedConnections),
+    [searchMatchedConnections],
   );
 
   const schedulerTone = getSchedulerTone(schedulerStatus?.status, schedulerStatus?.enabled);
@@ -590,9 +572,10 @@ export default function ProviderLimits() {
 
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto] lg:items-end">
           <Input
+            key={`quota-search-${searchQuery}`}
             label="Search accounts"
             icon="search"
-            value={searchQuery}
+            defaultValue={searchQuery}
             onChange={(e) => {
               const value = e.target.value;
               setCurrentPage(1);
@@ -603,8 +586,9 @@ export default function ProviderLimits() {
           />
 
           <Select
+            key={`quota-status-${statusFilter}`}
             label="Status"
-            value={statusFilter}
+            defaultValue={statusFilter}
             onChange={(e) => {
               const nextValue = normalizeConnectionFilterStatus(e.target.value);
               setCurrentPage(1);

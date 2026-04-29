@@ -6,7 +6,7 @@ import Card from "@/shared/components/Card";
 import Button from "@/shared/components/Button";
 import Modal from "@/shared/components/Modal";
 import SegmentedControl from "@/shared/components/SegmentedControl";
-import { fetchJson, patchDashboardQuery, useDashboardQuery } from "@/shared/hooks";
+import { fetchJson, patchDashboardQuery, useDashboardQuery, useUrlQueryControls } from "@/shared/hooks";
 
 const DEFAULT_BASE_URL = "https://api.morphllm.com";
 const PERIOD_OPTIONS = [
@@ -239,9 +239,10 @@ function buildMorphBrowserBaseUrl() {
 }
 
 export default function MorphPageClient() {
-  const searchParams = useSearchParams();
-  const router = useRouter();
-  const tabFromUrl = searchParams.get("tab");
+  const { getQueryValue, updateQueryParams } = useUrlQueryControls({
+    fallbackPath: "/dashboard/morph",
+  });
+  const tabFromUrl = getQueryValue("tab", "");
   const activeTab = tabFromUrl === "usage" ? "usage" : "settings";
   const morphSettingsQuery = useDashboardQuery("settings", () => fetchJson("/api/settings"));
   const [savingMorphSettings, setSavingMorphSettings] = useState(false);
@@ -583,14 +584,7 @@ export default function MorphPageClient() {
 
   const handleTabChange = (value) => {
     if (value === activeTab) return;
-    const params = new URLSearchParams(searchParams);
-    if (value === "usage") {
-      params.set("tab", "usage");
-    } else {
-      params.delete("tab");
-    }
-    const nextQuery = params.toString();
-    router.push(nextQuery ? `/dashboard/morph?${nextQuery}` : "/dashboard/morph", { scroll: false });
+    updateQueryParams({ tab: value === "usage" ? "usage" : null });
   };
 
   const feedbackToneClassName =

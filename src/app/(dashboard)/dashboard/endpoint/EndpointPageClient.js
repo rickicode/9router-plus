@@ -1,28 +1,22 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
 import PropTypes from "prop-types";
+import { useUrlQueryControls } from "@/shared/hooks";
 import { SegmentedControl } from "@/shared/components";
 import MainTab from "./components/MainTab";
 import CloudTab from "./components/CloudTab";
 
 export default function EndpointPageClient({ machineId }) {
-  const searchParams = useSearchParams();
-  const router = useRouter();
+  const { getQueryValue, updateQueryParams } = useUrlQueryControls({
+    fallbackPath: "/dashboard",
+  });
 
-  const tabFromUrl = searchParams.get("tab");
+  const tabFromUrl = getQueryValue("tab", "");
   const activeTab = tabFromUrl === "cloud" ? "cloud" : "main";
 
   const handleTabChange = (value) => {
     if (value === activeTab) return;
-    const params = new URLSearchParams(searchParams);
-    if (value === "cloud") {
-      params.set("tab", "cloud");
-    } else {
-      params.delete("tab");
-    }
-    const nextQuery = params.toString();
-    router.push(nextQuery ? `/dashboard?${nextQuery}` : "/dashboard", { scroll: false });
+    updateQueryParams({ tab: value === "cloud" ? "cloud" : null });
   };
 
   return (

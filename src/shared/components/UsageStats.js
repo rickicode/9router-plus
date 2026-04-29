@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { FREE_PROVIDERS } from "@/shared/constants/providers";
 import Badge from "./Badge";
 import Card from "./Card";
@@ -9,6 +8,7 @@ import OverviewCards from "@/app/(dashboard)/dashboard/usage/components/Overview
 import UsageTable, { fmt, fmtTime } from "@/app/(dashboard)/dashboard/usage/components/UsageTable";
 import ProviderTopology from "@/app/(dashboard)/dashboard/usage/components/ProviderTopology";
 import UsageChart from "@/app/(dashboard)/dashboard/usage/components/UsageChart";
+import { useUrlQueryControls } from "@/shared/hooks";
 
 function timeAgo(timestamp) {
   const diff = Math.floor((Date.now() - new Date(timestamp)) / 1000);
@@ -182,11 +182,13 @@ const PERIODS = [
 ];
 
 export default function UsageStats() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  const { getQueryValue, updateQueryParams } = useUrlQueryControls({
+    fallbackPath: "/dashboard/usage",
+  });
+  const hasLoadedStatsRef = useRef(false);
 
-  const sortBy = searchParams.get("sortBy") || "rawModel";
-  const sortOrder = searchParams.get("sortOrder") || "asc";
+  const sortBy = getQueryValue("sortBy", "rawModel") || "rawModel";
+  const sortOrder = getQueryValue("sortOrder", "asc") || "asc";
 
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -218,21 +220,28 @@ export default function UsageStats() {
 
   // Fetch filtered stats via REST when period changes
   useEffect(() => {
-    // First load: show full spinner; subsequent: show subtle fetching indicator
-    if (!stats) setLoading(true);
-    else setFetching(true);
+    const loadStats = async () => {
+      // First load: show full spinner; subsequent: show subtle fetching indicator.
+      if (!hasLoadedStatsRef.current) setLoading(true);
+      else setFetching(true);
 
-    fetch(`/api/usage/stats?period=${period}`)
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => {
-        if (data) setStats((prev) => ({ ...prev, ...data }));
-      })
-      .catch(() => {})
-      .finally(() => {
+      try {
+        const response = await fetch(`/api/usage/stats?period=${period}`);
+        const data = response.ok ? await response.json() : null;
+        if (data) {
+          setStats((prev) => ({ ...prev, ...data }));
+          hasLoadedStatsRef.current = true;
+        }
+      } catch {
+        // Ignore transient usage fetch failures and keep the latest visible snapshot.
+      } finally {
         setLoading(false);
         setFetching(false);
-      });
-  }, [period]); // eslint-disable-line react-hooks/exhaustive-deps
+      }
+    };
+
+    void loadStats();
+  }, [period]);
 
   // SSE connection - real-time updates for activeRequests + recentRequests only
   useEffect(() => {
@@ -261,15 +270,12 @@ export default function UsageStats() {
   }, []);
 
   const toggleSort = useCallback((tableType, field) => {
-    const params = new URLSearchParams(searchParams.toString());
-    if (params.get("sortBy") === field) {
-      params.set("sortOrder", params.get("sortOrder") === "asc" ? "desc" : "asc");
+    if (sortBy === field) {
+      updateQueryParams({ sortOrder: sortOrder === "asc" ? "desc" : "asc" });
     } else {
-      params.set("sortBy", field);
-      params.set("sortOrder", "asc");
+      updateQueryParams({ sortBy: field, sortOrder: "asc" });
     }
-    router.replace(`?${params.toString()}`, { scroll: false });
-  }, [searchParams, router]);
+  }, [sortBy, sortOrder, updateQueryParams]);
 
   // Compute active table data
   const activeTableConfig = useMemo(() => {

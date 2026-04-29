@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { Card, Button, Badge, Input, Modal, CardSkeleton, OAuthModal, KiroOAuthWrapper, CursorAuthModal, IFlowCookieModal, GitLabAuthModal, Toggle, Select, EditConnectionModal } from "@/shared/components";
@@ -10,6 +10,7 @@ import { OAUTH_PROVIDERS, APIKEY_PROVIDERS, FREE_PROVIDERS, FREE_TIER_PROVIDERS,
 import { getModelsByProviderId } from "@/shared/constants/models";
 import { getConnectionFilterStatus, normalizeConnectionFilterStatus, getConnectionCentralizedStatus, getConnectionProviderCooldownUntil } from "@/lib/connectionStatus";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
+import { useUrlQueryControls } from "@/shared/hooks";
 import { fetchSuggestedModels } from "@/shared/utils/providerModelsFetcher";
 import ModelRow from "./ModelRow";
 import PassthroughModelsSection from "./PassthroughModelsSection";
@@ -23,8 +24,19 @@ import CodexInstructionsCard from "./CodexInstructionsCard";
 export default function ProviderDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const searchParams = useSearchParams();
   const providerId = params.id;
+  const {
+    getQueryValue,
+    updateQueryParams,
+  } = useUrlQueryControls({
+    fallbackPath: `/dashboard/providers/${providerId}`,
+    normalizers: {
+      statusFilter: (value) => {
+        const normalizedValue = normalizeConnectionFilterStatus(value || "all");
+        return normalizedValue === "all" ? "" : normalizedValue;
+      },
+    },
+  });
   const [connections, setConnections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [providerNode, setProviderNode] = useState(null);
@@ -53,9 +65,8 @@ export default function ProviderDetailPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const { copied, copy } = useCopyToClipboard();
-  const searchQuery = searchParams.get("searchQuery") || "";
-  const rawStatusFilter = searchParams.get("statusFilter");
-  const statusFilter = normalizeConnectionFilterStatus(rawStatusFilter || "all");
+  const searchQuery = getQueryValue("searchQuery", "");
+  const statusFilter = getQueryValue("statusFilter", "all") || "all";
 
   const providerInfo = providerNode
     ? {
@@ -82,35 +93,6 @@ export default function ProviderDetailPage() {
   const providerDisplayAlias = isCompatible
     ? (providerNode?.prefix || providerId)
     : providerAlias;
-
-  const updateQueryParams = useCallback((updates) => {
-    const params = new URLSearchParams(searchParams.toString());
-
-    Object.entries(updates).forEach(([key, value]) => {
-      if (value === undefined || value === null || value === "") {
-        params.delete(key);
-      } else {
-        params.set(key, value);
-      }
-    });
-
-    const query = params.toString();
-    router.replace(
-      query ? `/dashboard/providers/${providerId}?${query}` : `/dashboard/providers/${providerId}`,
-      { scroll: false },
-    );
-  }, [providerId, router, searchParams]);
-
-  useEffect(() => {
-    if (!rawStatusFilter) return;
-
-    const normalizedStatusFilter = normalizeConnectionFilterStatus(rawStatusFilter);
-    if (normalizedStatusFilter === rawStatusFilter) return;
-
-    updateQueryParams({
-      statusFilter: normalizedStatusFilter === "all" ? null : normalizedStatusFilter,
-    });
-  }, [rawStatusFilter, updateQueryParams]);
 
   const filteredConnections = useMemo(() => {
     let result = connections;
@@ -671,17 +653,19 @@ export default function ProviderDetailPage() {
 
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end">
           <Input
+            key={`provider-search-${searchQuery}`}
             label="Search connections"
             icon="search"
-            value={searchQuery}
+            defaultValue={searchQuery}
             onChange={(e) => handleSearchChange(e.target.value)}
             placeholder="Search by name, email, provider, or id"
             className="min-w-0"
           />
 
           <Select
+            key={`provider-status-${statusFilter}`}
             label="Status filter"
-            value={statusFilter}
+            defaultValue={statusFilter}
             onChange={handleStatusFilterChange}
             options={[
               { value: "all", label: "All statuses" },

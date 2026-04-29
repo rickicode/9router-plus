@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useUrlQueryControls } from "@/shared/hooks";
 import { UsageStats, RequestLogger, CardSkeleton, SegmentedControl } from "@/shared/components";
 import RequestDetailsTab from "./components/RequestDetailsTab";
 
@@ -14,19 +14,18 @@ export default function UsagePage() {
 }
 
 function UsageContent() {
-  const searchParams = useSearchParams();
-  const router = useRouter();
+  const { getQueryValue, updateQueryParams } = useUrlQueryControls({
+    fallbackPath: "/dashboard/usage",
+  });
 
-  const tabFromUrl = searchParams.get("tab");
+  const tabFromUrl = getQueryValue("tab", "");
   const activeTab = tabFromUrl && ["overview", "logs", "details"].includes(tabFromUrl)
     ? tabFromUrl
     : "overview";
 
   const handleTabChange = (value) => {
     if (value === activeTab) return;
-    const params = new URLSearchParams(searchParams);
-    params.set("tab", value);
-    router.push(`/dashboard/usage?${params.toString()}`, { scroll: false });
+    updateQueryParams({ tab: value });
   };
 
   return (
