@@ -109,7 +109,6 @@ describe("Provider Validation API", () => {
         headers: {
           "x-api-key": apiKey,
           "anthropic-version": "2023-06-01",
-          Authorization: `Bearer ${apiKey}`,
         },
       });
 
@@ -117,6 +116,11 @@ describe("Provider Validation API", () => {
         headers: expect.objectContaining({
           "x-api-key": apiKey,
           "anthropic-version": "2023-06-01",
+        }),
+      }));
+      expect(fetch).toHaveBeenCalledWith(expect.any(String), expect.not.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: expect.any(String),
         }),
       }));
     });

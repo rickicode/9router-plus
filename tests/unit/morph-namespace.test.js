@@ -7,8 +7,9 @@ const proxySource = fs.readFileSync(path.join(repoRoot, "src/proxy.js"), "utf8")
 const dispatchSource = fs.readFileSync(path.join(repoRoot, "src/app/api/morph/_dispatch.js"), "utf8");
 
 describe("Morph namespace wiring", () => {
-  it("protects the /api/morph namespace in the dashboard matcher", () => {
+  it("protects both Morph namespaces in the dashboard matcher", () => {
     expect(proxySource).toContain('"/api/morph/:path*"');
+    expect(proxySource).toContain('"/morphllm/:path*"');
   });
 
   it("keeps the Morph dispatcher isolated from translator-backed /api/v1 handlers", () => {

@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const getMorphUsageStats = vi.fn();
 const getMorphRecentRequests = vi.fn();
-const logMorphApiAccess = vi.fn();
+const logMorphApiAccess = vi.fn(() => "/api/morph/usage/test");
 
 vi.mock("@/lib/morphUsageDb.js", () => ({
   getMorphUsageStats,

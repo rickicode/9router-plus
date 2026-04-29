@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Card, Button, Input } from "@/shared/components";
 import { useRouter } from "next/navigation";
+import { clearAllDashboardQueries, fetchJson, primeDashboardQuery } from "@/shared/hooks";
 
 export default function LoginPage() {
   const [password, setPassword] = useState("");
@@ -12,29 +13,27 @@ export default function LoginPage() {
   const router = useRouter();
 
   useEffect(() => {
+    clearAllDashboardQueries();
+  }, []);
+
+  useEffect(() => {
     async function checkAuth() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
-      const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
 
       try {
-        const res = await fetch(`${baseUrl}/api/settings`, {
+        const data = await fetchJson("/api/settings", {
           signal: controller.signal,
         });
         clearTimeout(timeoutId);
 
-        if (res.ok) {
-          const data = await res.json();
-          if (data.requireLogin === false) {
-            router.push("/dashboard");
-            router.refresh();
-            return;
-          }
-          setHasPassword(!!data.hasPassword);
-        } else {
-          // Safe fallback on non-OK response to avoid infinite loading state.
-          setHasPassword(true);
+        primeDashboardQuery("settings", data);
+
+        if (data.requireLogin === false) {
+          router.replace("/dashboard");
+          return;
         }
+        setHasPassword(!!data.hasPassword);
       } catch (err) {
         clearTimeout(timeoutId);
         setHasPassword(true);
@@ -56,8 +55,11 @@ export default function LoginPage() {
       });
 
       if (res.ok) {
-        router.push("/dashboard");
-        router.refresh();
+        try {
+          const settings = await fetchJson("/api/settings");
+          primeDashboardQuery("settings", settings);
+        } catch {}
+        router.replace("/dashboard");
       } else {
         const data = await res.json();
         setError(data.error || "Invalid password");

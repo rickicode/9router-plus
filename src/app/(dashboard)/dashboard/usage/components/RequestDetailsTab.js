@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import dynamic from "next/dynamic";
 import Card from "@/shared/components/Card";
 import Button from "@/shared/components/Button";
-import Drawer from "@/shared/components/Drawer";
 import Pagination from "@/shared/components/Pagination";
 import { cn } from "@/shared/utils/cn";
 import { AI_PROVIDERS, getProviderByAlias } from "@/shared/constants/providers";
@@ -82,6 +82,8 @@ function CollapsibleSection({ title, children, defaultOpen = false, icon = null 
   );
 }
 
+const Drawer = dynamic(() => import("@/shared/components/Drawer"), { ssr: false });
+
 function getInputTokens(tokens) {
   const prompt = tokens?.prompt_tokens || tokens?.input_tokens || 0;
   const cache = tokens?.cached_tokens || tokens?.cache_read_input_tokens || 0;
@@ -144,11 +146,11 @@ export default function RequestDetailsTab() {
   }, [pagination.page, pagination.pageSize, filters]);
 
   useEffect(() => {
-    fetchProviders();
+    Promise.resolve().then(fetchProviders);
   }, [fetchProviders]);
 
   useEffect(() => {
-    fetchDetails();
+    Promise.resolve().then(fetchDetails);
   }, [fetchDetails]);
 
   const handleViewDetail = (detail) => {
@@ -171,17 +173,17 @@ export default function RequestDetailsTab() {
   return (
     <div className="flex flex-col gap-6">
       <Card padding="md">
-        <div className="flex flex-wrap gap-4">
-          <div className="flex flex-col gap-2">
-            <label htmlFor="provider-filter" className="text-sm font-medium text-text-main">Provider</label>
+        <div className="flex items-end justify-between gap-3 overflow-x-auto whitespace-nowrap">
+          <div className="flex min-w-[180px] flex-col gap-1.5">
+            <label htmlFor="provider-filter" className="text-xs font-medium uppercase tracking-[0.08em] text-text-muted">Provider</label>
             <select
               id="provider-filter"
               value={filters.provider}
               onChange={(e) => setFilters({ ...filters, provider: e.target.value })}
               className={cn(
-                "h-9 px-3 rounded border border-border bg-surface",
+                "h-9 min-w-[180px] rounded border border-border bg-[var(--color-bg-alt)] px-3",
                 "text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20",
-                "cursor-pointer min-w-[150px]"
+                "cursor-pointer"
               )}
             >
               <option value="">All Providers</option>
@@ -192,39 +194,40 @@ export default function RequestDetailsTab() {
               ))}
             </select>
           </div>
-          
-          <div className="flex flex-col gap-2">
-            <label htmlFor="start-date-filter" className="text-sm font-medium text-text-main">Start Date</label>
+
+          <div className="flex min-w-[220px] flex-col gap-1.5">
+            <label htmlFor="start-date-filter" className="text-xs font-medium uppercase tracking-[0.08em] text-text-muted">Start date</label>
             <input
               id="start-date-filter"
               type="datetime-local"
               value={filters.startDate}
               onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
               className={cn(
-                "h-9 px-3 rounded border border-border bg-surface",
+                "h-9 min-w-[220px] rounded border border-border bg-[var(--color-bg-alt)] px-3",
                 "text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20"
               )}
             />
           </div>
 
-          <div className="flex flex-col gap-2">
-            <label htmlFor="end-date-filter" className="text-sm font-medium text-text-main">End Date</label>
+          <div className="flex min-w-[220px] flex-col gap-1.5">
+            <label htmlFor="end-date-filter" className="text-xs font-medium uppercase tracking-[0.08em] text-text-muted">End date</label>
             <input
               id="end-date-filter"
               type="datetime-local"
               value={filters.endDate}
               onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
               className={cn(
-                "h-9 px-3 rounded border border-border bg-surface",
+                "h-9 min-w-[220px] rounded border border-border bg-[var(--color-bg-alt)] px-3",
                 "text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20"
               )}
             />
           </div>
-          
-          <div className="flex flex-col gap-2">
-            <span className="text-sm font-medium text-text-main opacity-0" aria-hidden="true">Clear</span>
-            <Button 
-              variant="ghost" 
+
+          <div className="flex min-w-fit flex-col gap-1.5">
+            <span className="text-xs font-medium uppercase tracking-[0.08em] text-transparent" aria-hidden="true">Actions</span>
+            <Button
+              variant="ghost"
+              className="shrink-0 border border-border bg-[var(--color-bg-alt)]"
               onClick={handleClearFilters}
               disabled={!filters.provider && !filters.startDate && !filters.endDate}
             >

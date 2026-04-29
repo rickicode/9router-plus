@@ -37,12 +37,16 @@ function getMorphRequestPath(req) {
 
 function getMorphRequestSource(req) {
   const pathname = getMorphRequestPath(req);
-  return pathname.startsWith("/v1/") ? "v1" : "morph-api";
+  return pathname.startsWith("/v1/") ? "v1" : pathname.startsWith("/morphllm/") ? "morphllm" : "morph-api";
+}
+
+function getMorphClientEndpoint(req) {
+  return getMorphRequestPath(req);
 }
 
 function logMorphEndpointAccess(req, requestLabel, requestPayload, upstreamPath) {
   const pathname = getMorphRequestPath(req);
-  if (!pathname.startsWith("/api/morph")) {
+  if (!pathname.startsWith("/morphllm")) {
     return;
   }
 
@@ -148,7 +152,7 @@ async function persistMorphUsage({ capability, req, requestPayload, response, re
 
   return saveMorphUsage({
     capability,
-    entrypoint: req.nextUrl?.pathname || new URL(req.url).pathname,
+    entrypoint: getMorphClientEndpoint(req),
     source: getMorphRequestSource(req),
     method: req.method || "POST",
     model,
@@ -170,7 +174,8 @@ export async function dispatchMorphCapability({ capability, req, morphSettings, 
   }
 
   const requestLabel = providedRequestLabel || `morph:${capability}`;
-  trackPendingRequest(requestLabel, "morph", capability, true);
+  const clientEndpoint = getMorphClientEndpoint(req);
+  trackPendingRequest(requestLabel, "morph", capability, true, false, { endpoint: clientEndpoint, target: upstreamTarget.path });
 
   let requestBody = typeof providedRequestBody === "string" ? providedRequestBody : null;
   let requestPayload = providedRequestPayload;
@@ -200,8 +205,9 @@ export async function dispatchMorphCapability({ capability, req, morphSettings, 
       execute: async ({ apiKey, email, attempt, totalKeys }) => {
         usedApiKey = apiKey;
         usedEmail = email;
+        const upstreamUrl = buildUpstreamUrl(morphSettings.baseUrl, upstreamTarget.path);
         const response = await fetch(
-          buildUpstreamUrl(morphSettings.baseUrl, upstreamTarget.path),
+          upstreamUrl,
           {
             method: upstreamTarget.method,
             headers: {
@@ -265,7 +271,7 @@ export async function dispatchMorphCapability({ capability, req, morphSettings, 
       console.error("[morph] Failed to persist Morph usage:", persistError);
     });
 
-    trackPendingRequest(requestLabel, "morph", capability, false, !upstreamResponse.ok);
+    trackPendingRequest(requestLabel, "morph", capability, false, !upstreamResponse.ok, { endpoint: clientEndpoint, target: upstreamTarget.path, upstreamStatus: upstreamResponse.status });
 
     void persistUsagePromise;
 
@@ -292,7 +298,7 @@ export async function dispatchMorphCapability({ capability, req, morphSettings, 
       }
     }
 
-    trackPendingRequest(requestLabel, "morph", capability, false, true);
+    trackPendingRequest(requestLabel, "morph", capability, false, true, { endpoint: clientEndpoint, target: upstreamTarget.path });
     throw error;
   }
 }

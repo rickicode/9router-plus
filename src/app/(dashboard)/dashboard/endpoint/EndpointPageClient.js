@@ -1,40 +1,46 @@
 "use client";
 
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import PropTypes from "prop-types";
+import { SegmentedControl } from "@/shared/components";
 import MainTab from "./components/MainTab";
 import CloudTab from "./components/CloudTab";
 
 export default function EndpointPageClient({ machineId }) {
-  const [activeTab, setActiveTab] = useState("Main");
+  const searchParams = useSearchParams();
+  const router = useRouter();
 
-  const tabs = ["Main", "Cloud"];
+  const tabFromUrl = searchParams.get("tab");
+  const activeTab = tabFromUrl === "cloud" ? "cloud" : "main";
+
+  const handleTabChange = (value) => {
+    if (value === activeTab) return;
+    const params = new URLSearchParams(searchParams);
+    if (value === "cloud") {
+      params.set("tab", "cloud");
+    } else {
+      params.delete("tab");
+    }
+    const nextQuery = params.toString();
+    router.push(nextQuery ? `/dashboard?${nextQuery}` : "/dashboard", { scroll: false });
+  };
 
   return (
     <div className="container mx-auto px-4 py-8">
-      {/* Tab Navigation */}
-      <div className="mb-6 flex gap-1 overflow-x-auto border-b border-[var(--color-border)]">
-        {tabs.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`relative whitespace-nowrap rounded-t px-4 py-2 text-sm transition-colors cursor-pointer ${
-              activeTab === tab
-                ? "bg-[var(--color-surface)] text-[var(--color-text-main)]"
-                : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-text-main)]"
-            }`}
-          >
-            {tab}
-            {activeTab === tab && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--color-primary)]" />
-            )}
-          </button>
-        ))}
-      </div>
+      <div className="mb-6 flex flex-col gap-6">
+        <SegmentedControl
+          options={[
+            { value: "main", label: "Main" },
+            { value: "cloud", label: "Cloud" },
+          ]}
+          value={activeTab}
+          onChange={handleTabChange}
+          activeClassName="border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
+        />
 
-      {/* Tab Content */}
-      {activeTab === "Main" && <MainTab machineId={machineId} />}
-      {activeTab === "Cloud" && <CloudTab />}
+        {activeTab === "main" && <MainTab machineId={machineId} />}
+        {activeTab === "cloud" && <CloudTab />}
+      </div>
     </div>
   );
 }

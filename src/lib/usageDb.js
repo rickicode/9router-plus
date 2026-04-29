@@ -137,7 +137,7 @@ const PENDING_TIMEOUT_MS = 60 * 1000; // 1 minute
  * @param {boolean} started - true if started, false if finished
  * @param {boolean} [error] - true if ended with error
  */
-export function trackPendingRequest(model, provider, connectionId, started, error = false) {
+export function trackPendingRequest(model, provider, connectionId, started, error = false, metadata = null) {
   const modelKey = provider ? `${model} (${provider})` : model;
   const timerKey = `${connectionId}|${modelKey}`;
 
@@ -193,7 +193,14 @@ export function trackPendingRequest(model, provider, connectionId, started, erro
   }
 
   const t = new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  console.log(`[${t}] [PENDING] ${started ? "START" : "END"}${error ? " (ERROR)" : ""} | provider=${provider} | model=${model}`);
+  const statusLabel = started ? "PENDING" : error ? "ERROR" : "OK";
+  const metadataLabel = metadata && typeof metadata === "object"
+    ? Object.entries(metadata)
+        .filter(([, value]) => value !== undefined && value !== null && value !== "")
+        .map(([key, value]) => `${key}=${value}`)
+        .join(" | ")
+    : "";
+  console.log(`[${t}] [${statusLabel}] ${started ? "START" : "END"}${error ? " (ERROR)" : ""} | provider=${provider} | model=${model}${metadataLabel ? ` | ${metadataLabel}` : ""}`);
   statsEmitter.emit("pending");
 }
 

@@ -11,6 +11,7 @@ export const config = {
     "/api/providers/client",
     "/api/provider-nodes/validate",
     "/api/morph/:path*",
+    "/morphllm/:path*",
     "/api/opencode/:path*",
   ],
 };

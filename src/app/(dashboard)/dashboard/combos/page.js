@@ -1,50 +1,29 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { Card, Button, Modal, Input, CardSkeleton, ModelSelectModal, Toggle } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
+import { fetchJson, patchDashboardQuery, useDashboardQuery } from "@/shared/hooks";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 
 // Validate combo name: only a-z, A-Z, 0-9, -, _
 const VALID_NAME_REGEX = /^[a-zA-Z0-9_.\-]+$/;
 
 export default function CombosPage() {
-  const [combos, setCombos] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingCombo, setEditingCombo] = useState(null);
-  const [activeProviders, setActiveProviders] = useState([]);
-  const [comboStrategies, setComboStrategies] = useState({});
+  const combosQuery = useDashboardQuery("combos", () => fetchJson("/api/combos"), {
+    initialData: { combos: [] },
+  });
+  const providersQuery = useDashboardQuery("providers", () => fetchJson("/api/providers"), {
+    initialData: { connections: [] },
+  });
+  const settingsQuery = useDashboardQuery("settings", () => fetchJson("/api/settings"));
+  const combos = combosQuery.data?.combos || [];
+  const activeProviders = providersQuery.data?.connections || [];
+  const comboStrategies = settingsQuery.data?.routing?.comboStrategies || settingsQuery.data?.comboStrategies || {};
+  const loading = combosQuery.isLoading && combos.length === 0;
   const { copied, copy } = useCopyToClipboard();
-
-  useEffect(() => {
-    void Promise.resolve().then(() => {
-      fetchData();
-    });
-  }, []);
-
-  async function fetchData() {
-    try {
-      const [combosRes, providersRes, settingsRes] = await Promise.all([
-        fetch("/api/combos"),
-        fetch("/api/providers"),
-        fetch("/api/settings"),
-      ]);
-      const combosData = await combosRes.json();
-      const providersData = await providersRes.json();
-      const settingsData = settingsRes.ok ? await settingsRes.json() : {};
-      
-      if (combosRes.ok) setCombos(combosData.combos || []);
-      if (providersRes.ok) {
-        setActiveProviders(providersData.connections || []);
-      }
-      setComboStrategies(settingsData.routing?.comboStrategies || settingsData.comboStrategies || {});
-    } catch (error) {
-      console.log("Error fetching data:", error);
-    } finally {
-      setLoading(false);
-    }
-  }
 
   const handleCreate = async (data) => {
     try {
@@ -54,7 +33,7 @@ export default function CombosPage() {
         body: JSON.stringify(data),
       });
       if (res.ok) {
-        await fetchData();
+        await combosQuery.refresh();
         setShowCreateModal(false);
       } else {
         const err = await res.json();
@@ -73,7 +52,7 @@ export default function CombosPage() {
         body: JSON.stringify(data),
       });
       if (res.ok) {
-        await fetchData();
+        await combosQuery.refresh();
         setEditingCombo(null);
       } else {
         const err = await res.json();
@@ -89,7 +68,10 @@ export default function CombosPage() {
     try {
       const res = await fetch(`/api/combos/${id}`, { method: "DELETE" });
       if (res.ok) {
-        setCombos(combos.filter(c => c.id !== id));
+        patchDashboardQuery("combos", (current) => ({
+          ...(current || { combos: [] }),
+          combos: (current?.combos || []).filter((c) => c.id !== id),
+        }));
       }
     } catch (error) {
       console.log("Error deleting combo:", error);
@@ -111,7 +93,13 @@ export default function CombosPage() {
         body: JSON.stringify({ routing: { comboStrategies: updated } }),
       });
       
-      setComboStrategies(updated);
+      patchDashboardQuery("settings", (current) => ({
+        ...(current || {}),
+        routing: {
+          ...((current && current.routing) || {}),
+          comboStrategies: updated,
+        },
+      }));
     } catch (error) {
       console.log("Error updating combo strategy:", error);
     }

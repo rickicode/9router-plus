@@ -2,7 +2,7 @@ import { getSettings } from "@/lib/localDb.js";
 
 function getMorphPath(request) {
   if (!request) {
-    return "/api/morph";
+    return "/morphllm";
   }
 
   if (request?.nextUrl?.pathname) {
@@ -13,12 +13,12 @@ function getMorphPath(request) {
     return new URL(request.url).pathname;
   }
 
-  return "/api/morph";
+  return "/morphllm";
 }
 
 export function logMorphApiAccess(request) {
   const pathname = getMorphPath(request);
-  if (!pathname.startsWith("/api/morph")) {
+  if (!pathname.startsWith("/morphllm")) {
     return pathname;
   }
 

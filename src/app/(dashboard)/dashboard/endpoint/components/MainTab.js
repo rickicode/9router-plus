@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { Button, Input, Modal } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
+import { fetchJson, patchDashboardQuery, useDashboardQuery } from "@/shared/hooks";
 import GlassCard from "./shared/GlassCard";
 import StatusBadge from "./shared/StatusBadge";
 import ToggleRow from "./shared/ToggleRow";
@@ -11,92 +12,63 @@ import SectionHeader from "./shared/SectionHeader";
 const KEYS_PER_PAGE = 10;
 
 export default function MainTab({ machineId }) {
-  const [keys, setKeys] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [settingsLoading, setSettingsLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
   const [createdKey, setCreatedKey] = useState(null);
   const [visibleKeys, setVisibleKeys] = useState(new Set());
   const [currentPage, setCurrentPage] = useState(1);
-  const [requireApiKey, setRequireApiKey] = useState(false);
-  const [requireLogin, setRequireLogin] = useState(true);
-  const [hasPassword, setHasPassword] = useState(true);
-  const [tunnelDashboardAccess, setTunnelDashboardAccess] = useState(false);
-  const [tunnelEnabled, setTunnelEnabled] = useState(false);
-  const [tunnelUrl, setTunnelUrl] = useState("");
-  const [tsEnabled, setTsEnabled] = useState(false);
-  const [tsUrl, setTsUrl] = useState("");
 
   const { copied, copy } = useCopyToClipboard();
 
-  useEffect(() => {
-    fetchData();
-
-    const scheduleLoadSettings = () => loadSettings();
-
-    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
-      const idleId = window.requestIdleCallback(scheduleLoadSettings);
-      return () => window.cancelIdleCallback(idleId);
-    }
-
-    const timeoutId = setTimeout(scheduleLoadSettings, 0);
-    return () => clearTimeout(timeoutId);
-  }, []);
-
-  useEffect(() => {
-    const totalPages = Math.max(1, Math.ceil(keys.length / KEYS_PER_PAGE));
-    setCurrentPage((prev) => Math.min(prev, totalPages));
-  }, [keys.length]);
-
-  const fetchData = async () => {
-    try {
-      const res = await fetch("/api/keys");
-      if (res.ok) {
-        const data = await res.json();
-        setKeys(data.keys || []);
-      }
-    } catch (error) {
-      console.error("Failed to fetch keys:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadSettings = async () => {
-    try {
-      const [settingsRes, tunnelRes] = await Promise.all([
-        fetch("/api/settings"),
-        fetch("/api/tunnel/status"),
+  const keysQuery = useDashboardQuery("keys", () => fetchJson("/api/keys"), {
+    initialData: { keys: [] },
+  });
+  const settingsQuery = useDashboardQuery("settings", () => fetchJson("/api/settings"));
+  const endpointSettingsQuery = useDashboardQuery(
+    "endpoint-main-settings",
+    async () => {
+      const [settings, tunnelStatus] = await Promise.all([
+        fetchJson("/api/settings"),
+        fetchJson("/api/tunnel/status"),
       ]);
-
-      if (settingsRes.ok) {
-        const data = await settingsRes.json();
-        setRequireApiKey(data.requireApiKey || false);
-        setRequireLogin(data.requireLogin !== false);
-        setHasPassword(data.hasPassword || false);
-        setTunnelDashboardAccess(data.tunnelDashboardAccess || false);
-      }
-
-      if (tunnelRes.ok) {
-        const tunnelData = await tunnelRes.json();
-        setTunnelEnabled(tunnelData.tunnel?.enabled || false);
-        setTunnelUrl(tunnelData.tunnel?.publicUrl || tunnelData.tunnel?.tunnelUrl || "");
-        setTsEnabled(tunnelData.tailscale?.enabled || false);
-        setTsUrl(tunnelData.tailscale?.tunnelUrl || "");
-      }
-    } catch (error) {
-      console.error("Failed to load settings:", error);
-    } finally {
-      setSettingsLoading(false);
+      return { settings, tunnelStatus };
+    },
+    {
+      initialData: {
+        settings: {
+          requireApiKey: false,
+          requireLogin: true,
+          hasPassword: true,
+          tunnelDashboardAccess: false,
+        },
+        tunnelStatus: {
+          tunnel: { enabled: false, publicUrl: "", tunnelUrl: "" },
+          tailscale: { enabled: false, tunnelUrl: "" },
+        },
+      },
     }
-  };
+  );
+
+  const keys = useMemo(() => keysQuery.data?.keys || [], [keysQuery.data]);
+  const settingsPayload = endpointSettingsQuery.data?.settings || {};
+  const tunnelPayload = endpointSettingsQuery.data?.tunnelStatus || {};
+  const loading = keysQuery.isLoading;
+  const settingsLoading = endpointSettingsQuery.isLoading && !endpointSettingsQuery.data;
+  const requireApiKey = settingsPayload.requireApiKey || false;
+  const requireLogin = settingsPayload.requireLogin !== false;
+  const hasPassword = settingsPayload.hasPassword || false;
+  const tunnelDashboardAccess = settingsPayload.tunnelDashboardAccess || false;
+  const tunnelEnabled = tunnelPayload.tunnel?.enabled || false;
+  const tunnelUrl = tunnelPayload.tunnel?.publicUrl || tunnelPayload.tunnel?.tunnelUrl || "";
+  const tsEnabled = tunnelPayload.tailscale?.enabled || false;
+  const tsUrl = tunnelPayload.tailscale?.tunnelUrl || "";
 
   const totalPages = Math.max(1, Math.ceil(keys.length / KEYS_PER_PAGE));
-  const paginatedKeys = keys.slice(
-    (currentPage - 1) * KEYS_PER_PAGE,
-    currentPage * KEYS_PER_PAGE,
-  );
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedKeys = useMemo(() => keys.slice(
+    (safeCurrentPage - 1) * KEYS_PER_PAGE,
+    safeCurrentPage * KEYS_PER_PAGE,
+  ), [keys, safeCurrentPage]);
 
   const handleAddKey = async () => {
     if (!newKeyName.trim()) return;
@@ -112,7 +84,11 @@ export default function MainTab({ machineId }) {
         const data = await res.json();
         setCreatedKey(data.key);
         setNewKeyName("");
-        await fetchData();
+        patchDashboardQuery("keys", (current) => ({
+          ...(current || { keys: [] }),
+          keys: [...(current?.keys || []), data.key],
+        }));
+        void keysQuery.refresh();
       }
     } catch (error) {
       console.error("Failed to add key:", error);
@@ -125,7 +101,11 @@ export default function MainTab({ machineId }) {
     try {
       const res = await fetch(`/api/keys/${keyId}`, { method: "DELETE" });
       if (res.ok) {
-        await fetchData();
+        patchDashboardQuery("keys", (current) => ({
+          ...(current || { keys: [] }),
+          keys: (current?.keys || []).filter((key) => key.id !== keyId),
+        }));
+        void keysQuery.refresh();
       }
     } catch (error) {
       console.error("Failed to delete key:", error);
@@ -146,11 +126,27 @@ export default function MainTab({ machineId }) {
 
   const saveSetting = async (key, value) => {
     try {
-      await fetch("/api/settings", {
+      const response = await fetch("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ [key]: value }),
       });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to save setting");
+      }
+      patchDashboardQuery("endpoint-main-settings", (current) => ({
+        ...(current || {}),
+        settings: {
+          ...(current?.settings || {}),
+          [key]: value,
+        },
+      }));
+      patchDashboardQuery("settings", (current) => ({
+        ...(current || {}),
+        ...(data || {}),
+      }));
+      void settingsQuery.refresh();
     } catch (error) {
       console.error("Failed to save setting:", error);
     }
@@ -204,25 +200,25 @@ export default function MainTab({ machineId }) {
           {keys.length > KEYS_PER_PAGE && (
             <div className="flex items-center justify-between gap-3 rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-3 py-2">
               <div className="text-xs text-[var(--color-text-muted)]">
-                Showing {(currentPage - 1) * KEYS_PER_PAGE + 1}-{Math.min(currentPage * KEYS_PER_PAGE, keys.length)} of {keys.length} keys
+                Showing {(safeCurrentPage - 1) * KEYS_PER_PAGE + 1}-{Math.min(safeCurrentPage * KEYS_PER_PAGE, keys.length)} of {keys.length} keys
               </div>
               <div className="flex items-center gap-2">
                 <Button
                   size="sm"
                   variant="secondary"
                   onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                  disabled={currentPage === 1}
+                  disabled={safeCurrentPage === 1}
                 >
                   Prev
                 </Button>
                 <div className="min-w-[72px] text-center text-xs text-[var(--color-text-muted)]">
-                  Page {currentPage} / {totalPages}
+                  Page {safeCurrentPage} / {totalPages}
                 </div>
                 <Button
                   size="sm"
                   variant="secondary"
                   onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                  disabled={currentPage === totalPages}
+                  disabled={safeCurrentPage === totalPages}
                 >
                   Next
                 </Button>
@@ -302,7 +298,6 @@ export default function MainTab({ machineId }) {
             description="Require API key for all requests"
             checked={requireApiKey}
             onChange={(checked) => {
-              setRequireApiKey(checked);
               saveSetting("requireApiKey", checked);
             }}
           />
@@ -311,7 +306,6 @@ export default function MainTab({ machineId }) {
             description="Require authentication to access dashboard"
             checked={requireLogin}
             onChange={(checked) => {
-              setRequireLogin(checked);
               saveSetting("requireLogin", checked);
             }}
           />
@@ -320,7 +314,6 @@ export default function MainTab({ machineId }) {
             description="Allow dashboard access via tunnel URLs"
             checked={tunnelDashboardAccess}
             onChange={(checked) => {
-              setTunnelDashboardAccess(checked);
               saveSetting("tunnelDashboardAccess", checked);
             }}
           />

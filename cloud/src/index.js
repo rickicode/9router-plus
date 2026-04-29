@@ -32,10 +32,19 @@ import {
 } from "./handlers/r2backup.js";
 import { createLandingPageResponse } from "./services/landingPage.js";
 import { cleanupExpiredSessions, limitUsageMapSize } from "./services/state.js";
+import { getRuntimeConfig } from "./services/storage.js";
+import { parseApiKey } from "./utils/apiKey.js";
 
 // Translators will be initialized lazily on first use
 
 let lastMemoryCleanupAt = 0;
+const morphRotationCursors = new Map();
+
+const DEFAULT_MORPH_MODELS = [
+  { id: "morph-v3-large", owned_by: "morph" },
+  { id: "morph-v3-fast", owned_by: "morph" },
+  { id: "morph-embedding-v4", owned_by: "morph" },
+];
 
 function runPeriodicMemoryCleanup() {
   const now = Date.now();
@@ -44,6 +53,117 @@ function runPeriodicMemoryCleanup() {
   cleanupExpiredSessions();
   limitUsageMapSize(1000);
   lastMemoryCleanupAt = now;
+}
+
+function buildMorphModelsResponse() {
+  const created = Math.floor(Date.now() / 1000);
+
+  return {
+    object: "list",
+    data: DEFAULT_MORPH_MODELS.map((model) => ({
+      id: model.id,
+      object: "model",
+      created,
+      owned_by: model.owned_by,
+      permission: [],
+      root: model.id,
+      parent: null,
+    })),
+  };
+}
+
+async function resolveMorphMachineId(request, env) {
+  const authHeader = request.headers.get("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) return null;
+
+  const apiKey = authHeader.slice(7);
+  const parsed = await parseApiKey(apiKey);
+  if (!parsed?.isNewFormat || !parsed.machineId) {
+    return null;
+  }
+
+  const data = await getRuntimeConfig(parsed.machineId, env);
+  if (!data?.apiKeys?.some((entry) => entry.isActive !== false && entry.key === apiKey)) {
+    return null;
+  }
+
+  return parsed.machineId;
+}
+
+function selectMorphApiKey(machineId, morphSettings) {
+  const apiKeys = Array.isArray(morphSettings?.apiKeys)
+    ? morphSettings.apiKeys.filter((entry) => entry?.key)
+    : [];
+
+  if (apiKeys.length === 0) {
+    return "";
+  }
+
+  if (morphSettings?.roundRobinEnabled !== true || apiKeys.length === 1) {
+    return apiKeys[0].key;
+  }
+
+  const currentIndex = morphRotationCursors.get(machineId) || 0;
+  const selectedIndex = currentIndex % apiKeys.length;
+  morphRotationCursors.set(machineId, (selectedIndex + 1) % apiKeys.length);
+  return apiKeys[selectedIndex].key;
+}
+
+async function getMorphSettingsForRequest(request, env) {
+  const machineId = await resolveMorphMachineId(request, env);
+  if (!machineId) {
+    return { error: new Response(JSON.stringify({ error: "Invalid API key" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    }) };
+  }
+
+  const runtimeConfig = await getRuntimeConfig(machineId, env);
+  const morph = runtimeConfig?.settings?.morph;
+  if (!morph?.baseUrl || !Array.isArray(morph.apiKeys) || morph.apiKeys.length === 0) {
+    return { error: new Response(JSON.stringify({ error: "Morph is not configured" }), {
+      status: 503,
+      headers: { "Content-Type": "application/json" },
+    }) };
+  }
+
+  return { machineId, morph };
+}
+
+async function handleMorphCapability(request, env, upstreamPath) {
+  const resolved = await getMorphSettingsForRequest(request, env);
+  if (resolved.error) {
+    return resolved.error;
+  }
+
+  const { machineId, morph } = resolved;
+  const primaryKey = selectMorphApiKey(machineId, morph);
+  if (!primaryKey) {
+    return new Response(JSON.stringify({ error: "Morph is not configured" }), {
+      status: 503,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const upstreamUrl = new URL(upstreamPath, `${String(morph.baseUrl).replace(/\/+$/, "")}/`).toString();
+  const requestBody = request.method === "GET" || request.method === "HEAD"
+    ? undefined
+    : await request.text();
+
+  const upstreamResponse = await fetch(upstreamUrl, {
+    method: request.method,
+    headers: {
+      Authorization: `Bearer ${primaryKey}`,
+      "Content-Type": request.headers.get("Content-Type") || "application/json",
+    },
+    body: requestBody,
+  });
+
+  return new Response(upstreamResponse.body, {
+    status: upstreamResponse.status,
+    statusText: upstreamResponse.statusText,
+    headers: upstreamResponse.headers,
+  });
 }
 
 // Helper to add CORS headers to response
@@ -183,6 +303,76 @@ const worker = {
         const response = await handleChat(request, env, ctx, null);
         log.response(response.status, Date.now() - startTime);
         return response;
+      }
+
+      if (path === "/morphllm/v1/chat/completions" && request.method === "POST") {
+        const response = await handleMorphCapability(request, env, "/v1/chat/completions");
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
+      }
+
+      if (path === "/morphllm/v1/compact" && request.method === "POST") {
+        const response = await handleMorphCapability(request, env, "/v1/compact");
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
+      }
+
+      if (path === "/morphllm/v1/embeddings" && request.method === "POST") {
+        const response = await handleMorphCapability(request, env, "/v1/embeddings");
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
+      }
+
+      if (path === "/morphllm/v1/rerank" && request.method === "POST") {
+        const response = await handleMorphCapability(request, env, "/v1/rerank");
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
+      }
+
+      if (path === "/morphllm/v1/models" && request.method === "GET") {
+        const resolved = await getMorphSettingsForRequest(request, env);
+        const response = resolved.error
+          ? resolved.error
+          : Response.json(buildMorphModelsResponse(), {
+              headers: { "Access-Control-Allow-Origin": "*" },
+            });
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
+      }
+
+      if (path === "/morphllm/chat/completions" && request.method === "POST") {
+        const response = await handleMorphCapability(request, env, "/v1/chat/completions");
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
+      }
+
+      if (path === "/morphllm/compact" && request.method === "POST") {
+        const response = await handleMorphCapability(request, env, "/v1/compact");
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
+      }
+
+      if (path === "/morphllm/embeddings" && request.method === "POST") {
+        const response = await handleMorphCapability(request, env, "/v1/embeddings");
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
+      }
+
+      if (path === "/morphllm/rerank" && request.method === "POST") {
+        const response = await handleMorphCapability(request, env, "/v1/rerank");
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
+      }
+
+      if (path === "/morphllm/models" && request.method === "GET") {
+        const resolved = await getMorphSettingsForRequest(request, env);
+        const response = resolved.error
+          ? resolved.error
+          : Response.json(buildMorphModelsResponse(), {
+              headers: { "Access-Control-Allow-Origin": "*" },
+            });
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
       }
 
       // New format: /v1/verify

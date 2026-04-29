@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Card from "@/shared/components/Card";
 import Button from "@/shared/components/Button";
 import Modal from "@/shared/components/Modal";
 import SegmentedControl from "@/shared/components/SegmentedControl";
+import { fetchJson, patchDashboardQuery, useDashboardQuery } from "@/shared/hooks";
 
 const DEFAULT_BASE_URL = "https://api.morphllm.com";
 const PERIOD_OPTIONS = [
@@ -47,52 +49,27 @@ const EMPTY_USAGE_STATS = {
 
 const MORPH_ROUTE_EXAMPLES = [
   {
-    path: "/api/morph/apply",
+    path: "/morphllm/v1/chat/completions",
     method: "POST",
     target: "/v1/chat/completions",
   },
   {
-    path: "/api/morph/compact",
+    path: "/morphllm/v1/compact",
     method: "POST",
     target: "/v1/compact",
   },
   {
-    path: "/api/morph/embeddings",
+    path: "/morphllm/v1/embeddings",
     method: "POST",
     target: "/v1/embeddings",
   },
   {
-    path: "/api/morph/rerank",
+    path: "/morphllm/v1/rerank",
     method: "POST",
     target: "/v1/rerank",
   },
   {
-    path: "/api/morph/warpgrep",
-    method: "POST",
-    target: "/v1/chat/completions",
-  },
-  {
-    path: "/api/morph/v1/chat/completions",
-    method: "POST",
-    target: "/v1/chat/completions",
-  },
-  {
-    path: "/api/morph/v1/compact",
-    method: "POST",
-    target: "/v1/compact",
-  },
-  {
-    path: "/api/morph/v1/embeddings",
-    method: "POST",
-    target: "/v1/embeddings",
-  },
-  {
-    path: "/api/morph/v1/rerank",
-    method: "POST",
-    target: "/v1/rerank",
-  },
-  {
-    path: "/api/morph/v1/models",
+    path: "/morphllm/v1/models",
     method: "GET",
     target: "/v1/models",
   },
@@ -219,6 +196,15 @@ function formatStatus(status) {
   return status === "ok" ? "OK" : "FAILED";
 }
 
+function formatLocalDateTime(value) {
+  if (!value) return "-";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}:${String(date.getSeconds()).padStart(2, "0")}`;
+}
+
 function formatCapabilityLabel(value) {
   if (!value) return "All capabilities";
   return value.charAt(0).toUpperCase() + value.slice(1);
@@ -246,24 +232,47 @@ function UsageMetricCard({ label, value, hint }) {
 
 function buildMorphBrowserBaseUrl() {
   if (typeof window === "undefined") {
-    return "/morph";
+    return "/morphllm";
   }
 
-  return `${window.location.origin}/morph`;
+  return `${window.location.origin}/morphllm`;
 }
 
 export default function MorphPageClient() {
-  const [activeTab, setActiveTab] = useState("settings");
-  const [morphSettings, setMorphSettings] = useState(DEFAULT_MORPH_SETTINGS);
-  const [savedMorphSettings, setSavedMorphSettings] = useState(DEFAULT_MORPH_SETTINGS);
-  const [loadingMorphSettings, setLoadingMorphSettings] = useState(true);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const tabFromUrl = searchParams.get("tab");
+  const activeTab = tabFromUrl === "usage" ? "usage" : "settings";
+  const morphSettingsQuery = useDashboardQuery("settings", () => fetchJson("/api/settings"));
   const [savingMorphSettings, setSavingMorphSettings] = useState(false);
   const [morphFeedback, setMorphFeedback] = useState({ type: "", message: "" });
   const [validationMessage, setValidationMessage] = useState("");
   const [usagePeriod, setUsagePeriod] = useState("7d");
-  const [usageStats, setUsageStats] = useState(EMPTY_USAGE_STATS);
-  const [usageLoading, setUsageLoading] = useState(false);
-  const [requestLogs, setRequestLogs] = useState([]);
+  const usageKey = `morph-usage-${usagePeriod}`;
+  const morphUsageQuery = useDashboardQuery(
+    usageKey,
+    async () => {
+      const [statsData, requestsData] = await Promise.all([
+        fetchJson(`/api/morph/usage/stats?period=${usagePeriod}`),
+        fetchJson("/api/morph/usage/requests?limit=200"),
+      ]);
+      return {
+        usageStats: { ...EMPTY_USAGE_STATS, ...statsData },
+        requestLogs: Array.isArray(requestsData) ? requestsData : [],
+      };
+    },
+    {
+      enabled: activeTab === "usage",
+      initialData: {
+        usageStats: EMPTY_USAGE_STATS,
+        requestLogs: [],
+      },
+    }
+  );
+  const usageStats = morphUsageQuery.data?.usageStats || EMPTY_USAGE_STATS;
+  const usageLoading = morphUsageQuery.isLoading;
+  const usageLoadError = morphUsageQuery.error?.message || "";
+  const requestLogs = useMemo(() => morphUsageQuery.data?.requestLogs || [], [morphUsageQuery.data]);
   const [requestCapabilityFilter, setRequestCapabilityFilter] = useState("all");
   const [requestPage, setRequestPage] = useState(1);
   const [requestAutoRefresh, setRequestAutoRefresh] = useState(true);
@@ -274,94 +283,26 @@ export default function MorphPageClient() {
   const [bulkImportSaving, setBulkImportSaving] = useState(false);
   const [testingKeyEmail, setTestingKeyEmail] = useState("");
   const browserMorphBaseUrl = useMemo(() => buildMorphBrowserBaseUrl(), []);
+  const morphUsageRefresh = morphUsageQuery.refresh;
+  const loadMorphUsage = () => void morphUsageRefresh();
 
-  const loadMorphSettings = useCallback(async () => {
-    setLoadingMorphSettings(true);
-    try {
-      const response = await fetch("/api/settings");
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to load Morph settings");
-      }
-
-      const normalized = normalizeMorphSettings(data.morph || data.settings?.morph);
-      setSavedMorphSettings(normalized);
-      setMorphSettings(normalized);
-    } catch (error) {
-      console.error("Failed to load Morph settings:", error);
-      setMorphFeedback({ type: "error", message: error.message || "Failed to load Morph settings" });
-      setSavedMorphSettings(DEFAULT_MORPH_SETTINGS);
-      setMorphSettings(DEFAULT_MORPH_SETTINGS);
-    } finally {
-      setLoadingMorphSettings(false);
-    }
-  }, []);
-
-  const loadMorphUsage = useCallback(async () => {
-    setUsageLoading(true);
-    try {
-      const [statsResponse, requestsResponse] = await Promise.all([
-        fetch(`/api/morph/usage/stats?period=${usagePeriod}`),
-        fetch("/api/morph/usage/requests?limit=200"),
-      ]);
-
-      const statsData = await statsResponse.json().catch(() => ({}));
-      const requestsData = await requestsResponse.json().catch(() => []);
-
-      if (!statsResponse.ok) {
-        throw new Error(statsData.error || "Failed to load Morph usage stats");
-      }
-
-      if (!requestsResponse.ok) {
-        throw new Error(requestsData.error || "Failed to load Morph request logs");
-      }
-
-      setUsageStats({ ...EMPTY_USAGE_STATS, ...statsData });
-      setRequestLogs(Array.isArray(requestsData) ? requestsData : []);
-    } catch (error) {
-      console.error("Failed to load Morph usage:", error);
-      setUsageStats(EMPTY_USAGE_STATS);
-      setRequestLogs([]);
-    } finally {
-      setUsageLoading(false);
-    }
-  }, [usagePeriod]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const run = async () => {
-      await Promise.resolve();
-      if (!cancelled) {
-        await loadMorphSettings();
-      }
-    };
-
-    void run();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [loadMorphSettings]);
-
-  useEffect(() => {
-    if (activeTab !== "usage") return undefined;
-
-    let cancelled = false;
-
-    const run = async () => {
-      await Promise.resolve();
-      if (!cancelled) {
-        await loadMorphUsage();
-      }
-    };
-
-    void run();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTab, loadMorphUsage]);
+  const settingsPayload = morphSettingsQuery.data?.morph || morphSettingsQuery.data?.settings?.morph;
+  const loadingMorphSettings = morphSettingsQuery.isLoading && !morphSettingsQuery.data;
+  const savedMorphSettings = useMemo(
+    () => normalizeMorphSettings(settingsPayload || DEFAULT_MORPH_SETTINGS),
+    [settingsPayload]
+  );
+  const savedMorphSettingsSnapshot = useMemo(
+    () => JSON.stringify(normalizeForCompare(savedMorphSettings)),
+    [savedMorphSettings]
+  );
+  const [draftMorphSettings, setDraftMorphSettings] = useState(null);
+  const draftMorphSettingsSnapshot = useMemo(
+    () => (draftMorphSettings ? JSON.stringify(normalizeForCompare(draftMorphSettings)) : null),
+    [draftMorphSettings]
+  );
+  const hasDraftChanges = draftMorphSettingsSnapshot !== null && draftMorphSettingsSnapshot !== savedMorphSettingsSnapshot;
+  const morphSettings = hasDraftChanges ? draftMorphSettings : savedMorphSettings;
 
   useEffect(() => {
     if (activeTab !== "usage" || !requestAutoRefresh) {
@@ -369,11 +310,11 @@ export default function MorphPageClient() {
     }
 
     const intervalId = setInterval(() => {
-      void loadMorphUsage();
+      void morphUsageRefresh();
     }, REQUEST_LOG_AUTO_REFRESH_MS);
 
     return () => clearInterval(intervalId);
-  }, [activeTab, loadMorphUsage, requestAutoRefresh]);
+  }, [activeTab, requestAutoRefresh, usagePeriod, morphUsageRefresh]);
 
   const persistMorphSettings = async (nextSettings) => {
     const nextValidationMessage = buildValidationMessage(nextSettings.apiKeys);
@@ -384,7 +325,7 @@ export default function MorphPageClient() {
       return false;
     }
 
-    if (JSON.stringify(normalizeForCompare(nextSettings)) === JSON.stringify(normalizeForCompare(savedMorphSettings))) {
+    if (JSON.stringify(normalizeForCompare(nextSettings)) === savedMorphSettingsSnapshot) {
       setValidationMessage("");
       return true;
     }
@@ -418,8 +359,13 @@ export default function MorphPageClient() {
       }
 
       const normalized = normalizeMorphSettings(data.settings?.morph || data.morph || nextSettings);
-      setSavedMorphSettings(normalized);
-      setMorphSettings(normalized);
+      setDraftMorphSettings(null);
+      patchDashboardQuery("settings", (current) => ({
+        ...(current || {}),
+        ...(data || {}),
+        morph: normalized,
+      }));
+      await morphSettingsQuery.refresh();
       setValidationMessage("");
       setMorphFeedback({ type: "success", message: "Morph settings saved." });
       return true;
@@ -449,7 +395,7 @@ export default function MorphPageClient() {
         apiKeys: mergeMorphApiKeys(morphSettings.apiKeys, importedKeys),
       };
 
-      setMorphSettings(nextSettings);
+      setDraftMorphSettings(nextSettings);
       setValidationMessage("");
       const saved = await persistMorphSettings(nextSettings);
       if (saved) {
@@ -470,7 +416,7 @@ export default function MorphPageClient() {
       apiKeys: nextApiKeys,
     };
 
-    setMorphSettings(nextSettings);
+    setDraftMorphSettings(nextSettings);
     setValidationMessage("");
     await persistMorphSettings(nextSettings);
   };
@@ -485,7 +431,7 @@ export default function MorphPageClient() {
         body: JSON.stringify({ email }),
       });
       const data = await response.json().catch(() => ({}));
-      await loadMorphSettings();
+      await morphSettingsQuery.refresh();
 
       if (!response.ok) {
         throw new Error(data.error || `${email} is not active`);
@@ -526,7 +472,7 @@ export default function MorphPageClient() {
       }
     }
 
-    await loadMorphSettings();
+    await morphSettingsQuery.refresh();
     setTestingKeyEmail("");
 
     if (failureCount === 0) {
@@ -551,14 +497,12 @@ export default function MorphPageClient() {
       roundRobinEnabled: checked,
     };
 
-    setMorphSettings(nextSettings);
+    setDraftMorphSettings(nextSettings);
     setValidationMessage("");
     await persistMorphSettings(nextSettings);
   };
 
-  const hasUnsavedChanges = useMemo(() => {
-    return JSON.stringify(normalizeForCompare(morphSettings)) !== JSON.stringify(normalizeForCompare(savedMorphSettings));
-  }, [morphSettings, savedMorphSettings]);
+  const hasUnsavedChanges = hasDraftChanges;
 
   const capabilityFilterOptions = useMemo(() => {
     const capabilityKeys = Object.keys(usageStats.byCapability || {});
@@ -637,6 +581,18 @@ export default function MorphPageClient() {
     setRequestPage(1);
   };
 
+  const handleTabChange = (value) => {
+    if (value === activeTab) return;
+    const params = new URLSearchParams(searchParams);
+    if (value === "usage") {
+      params.set("tab", "usage");
+    } else {
+      params.delete("tab");
+    }
+    const nextQuery = params.toString();
+    router.push(nextQuery ? `/dashboard/morph?${nextQuery}` : "/dashboard/morph", { scroll: false });
+  };
+
   const feedbackToneClassName =
     morphFeedback.type === "error"
       ? "border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10 text-[var(--color-text-main)]"
@@ -669,7 +625,8 @@ export default function MorphPageClient() {
           { value: "usage", label: "Usage" },
         ]}
         value={activeTab}
-        onChange={setActiveTab}
+        onChange={handleTabChange}
+        activeClassName="border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
       />
 
       {activeTab === "settings" ? (
@@ -681,7 +638,7 @@ export default function MorphPageClient() {
                 <div className="flex flex-col gap-1">
                   <p className="text-sm font-medium text-[var(--color-text-main)]">Browser Morph base URL</p>
                   <p className="text-sm leading-6 text-[var(--color-text-muted)]">
-                    Follow the current browser origin and append `/morph` when pointing clients at the local 9Router Morph proxy.
+                    Follow the current browser origin and append `/morphllm` when pointing clients at the local 9Router Morph proxy.
                   </p>
                 </div>
               </div>
@@ -691,6 +648,10 @@ export default function MorphPageClient() {
                 <p className="mt-2 break-all font-mono text-sm text-[var(--color-text-main)]">{browserMorphBaseUrl}</p>
               </div>
 
+              <p className="text-sm leading-6 text-[var(--color-text-muted)]">
+                Recommended routes mirror Morph upstream paths exactly, with only the `/morphllm` prefix added.
+              </p>
+
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {MORPH_ROUTE_EXAMPLES.map((route) => (
                   <div
@@ -699,7 +660,7 @@ export default function MorphPageClient() {
                   >
                     <p className="font-mono text-sm text-[var(--color-text-main)]">{route.path}</p>
                     <p className="mt-2 font-mono text-xs uppercase tracking-[0.08em] text-[var(--color-text-muted)]">
-                      {route.method} {route.target}
+                      {route.method} mirrors {route.target}
                     </p>
                   </div>
                 ))}
@@ -760,7 +721,7 @@ export default function MorphPageClient() {
                         <div className="min-w-0">
                           <p className="truncate font-mono text-sm text-[var(--color-text-main)]">{apiKey.email}</p>
                           <p className="text-xs text-[var(--color-text-muted)]">
-                            {apiKey.lastCheckedAt ? `Last checked ${new Date(apiKey.lastCheckedAt).toLocaleString()}` : "Checking key status..."}
+                            {apiKey.lastCheckedAt ? `Last checked ${formatLocalDateTime(apiKey.lastCheckedAt)}` : "Checking key status..."}
                           </p>
                         </div>
                         <span className={`text-xs font-medium uppercase tracking-[0.08em] ${getMorphKeyStatusTone(apiKey)}`}>
@@ -839,7 +800,7 @@ export default function MorphPageClient() {
           <Card
             className="px-5 py-3"
             title="Isolated Morph usage"
-            subtitle="Morph request logs stay isolated from the global provider usage dashboard and include direct `/api/morph/*` traffic plus bridged `morph-*` `/v1` requests."
+            subtitle="Morph request logs stay isolated from the global provider usage dashboard and cover direct `/morphllm/*` traffic only."
             icon="monitoring"
           />
 
@@ -920,7 +881,7 @@ export default function MorphPageClient() {
               </div>
             </Card>
 
-            <Card className="p-4" title="By entrypoint" subtitle="Direct vs `/v1` bridged">
+            <Card className="p-4" title="By entrypoint" subtitle="Direct Morph client endpoints">
               <div className="overflow-x-auto">
                 <table className="min-w-[320px] w-full text-left text-sm">
                   <thead>
@@ -1032,7 +993,7 @@ export default function MorphPageClient() {
               <div className="max-w-3xl">
                 <h3 className="text-[var(--color-text-main)] font-semibold">Request logs</h3>
                 <p className="mt-1 text-sm text-[var(--color-text-muted)]">
-                  Every Morph request is recorded separately, including `morph-*` completion traffic routed through `/v1`.
+                  Every Morph request is recorded separately for direct `/morphllm/*` traffic.
                 </p>
               </div>
               <div className="flex shrink-0 items-start sm:justify-end">
@@ -1077,12 +1038,14 @@ export default function MorphPageClient() {
             </div>
 
             <div className="overflow-x-auto border-t border-[var(--color-border)]">
-              {usageLoading ? (
+              {usageLoading && filteredRequestLogs.length === 0 ? (
                 <div className="px-5 py-7 text-sm text-[var(--color-text-muted)]">Loading Morph usage...</div>
+              ) : usageLoadError && filteredRequestLogs.length === 0 ? (
+                <div className="px-5 py-7 text-sm text-[var(--color-danger)]">{usageLoadError}</div>
               ) : filteredRequestLogs.length === 0 ? (
                 <div className="px-5 py-7 text-sm text-[var(--color-text-muted)]">No Morph requests recorded yet.</div>
               ) : (
-                <table className="min-w-[1040px] w-full text-left text-sm">
+                <table className="min-w-[880px] w-full text-left text-sm">
                   <thead className="bg-[var(--color-bg-alt)] text-[var(--color-text-muted)]">
                     <tr>
                       <th className="px-6 py-3">When</th>
@@ -1097,7 +1060,7 @@ export default function MorphPageClient() {
                   <tbody>
                     {paginatedRequestLogs.map((entry, index) => (
                       <tr key={`${entry.timestamp}-${entry.capability}-${index}`} className="border-t border-[var(--color-border)]/60">
-                        <td className="whitespace-nowrap px-6 py-3 text-[var(--color-text-muted)]">{new Date(entry.timestamp).toLocaleString()}</td>
+                        <td className="whitespace-nowrap px-6 py-3 text-[var(--color-text-muted)]">{formatLocalDateTime(entry.timestamp)}</td>
                         <td className="px-4 py-3 font-mono text-[var(--color-text-main)]">{entry.capability}</td>
                         <td className="px-4 py-3 text-[var(--color-text-muted)]">
                           <div className="flex flex-col gap-1">

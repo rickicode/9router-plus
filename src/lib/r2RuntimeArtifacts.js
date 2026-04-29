@@ -18,12 +18,54 @@ function normalizeRuntimeApiKeys(apiKeys) {
     .map((apiKey) => cloneRecord(apiKey));
 }
 
+function normalizeRuntimeMorphSettings(morph = {}) {
+  if (!morph || typeof morph !== "object" || Array.isArray(morph)) {
+    return null;
+  }
+
+  const baseUrl = typeof morph.baseUrl === "string" ? morph.baseUrl.trim() : "";
+  const apiKeys = Array.isArray(morph.apiKeys)
+    ? morph.apiKeys
+        .filter((entry) => entry?.key && entry.isExhausted !== true && entry.status !== "inactive")
+        .map((entry) => ({
+          id: entry?.id,
+          ...cloneRecord(entry),
+        }))
+    : [];
+
+  if (!baseUrl || apiKeys.length === 0) {
+    return null;
+  }
+
+  return {
+    baseUrl,
+    apiKeys,
+    roundRobinEnabled: morph.roundRobinEnabled === true,
+  };
+}
+
 function buildRuntimeSettings(settings = {}) {
   const source = settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {};
-  const safeSettings = {};
+  const safeSettings = cloneRecord(source);
 
-  if (source.routing !== undefined) {
-    safeSettings.routing = cloneRecord(source.routing);
+  delete safeSettings.r2Config;
+  delete safeSettings.cloudUrls;
+  delete safeSettings.r2RuntimePublicBaseUrl;
+  delete safeSettings.r2RuntimeCacheTtlSeconds;
+  delete safeSettings.r2LastRuntimePublishAt;
+  delete safeSettings.r2LastBackupAt;
+  delete safeSettings.r2LastRestoreAt;
+  delete safeSettings.r2LastSqliteBackupFingerprint;
+  delete safeSettings.r2BackupEncryptionKey;
+  delete safeSettings.r2AutoPublishEnabled;
+  delete safeSettings.r2BackupEnabled;
+  delete safeSettings.r2SqliteBackupSchedule;
+
+  const morph = normalizeRuntimeMorphSettings(source.morph);
+  if (morph) {
+    safeSettings.morph = morph;
+  } else {
+    delete safeSettings.morph;
   }
 
   return safeSettings;

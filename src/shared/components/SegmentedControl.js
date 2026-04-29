@@ -8,6 +8,7 @@ export default function SegmentedControl({
   onChange,
   size = "md",
   className,
+  activeClassName,
 }) {
   const sizes = {
     sm: "h-7 text-xs",
@@ -30,7 +31,10 @@ export default function SegmentedControl({
             "cursor-pointer px-4 rounded font-medium transition-all",
             sizes[size],
             value === option.value
-              ? "border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-main)]"
+              ? cn(
+                  "border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-main)]",
+                  activeClassName
+                )
               : "text-[var(--color-text-muted)] hover:text-[var(--color-text-main)]"
           )}
         >

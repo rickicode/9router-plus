@@ -8,6 +8,7 @@ import ProviderIcon from "@/shared/components/ProviderIcon";
 import HeaderMenu from "@/shared/components/HeaderMenu";
 import { OAUTH_PROVIDERS, APIKEY_PROVIDERS } from "@/shared/constants/config";
 import { MEDIA_PROVIDER_KINDS, AI_PROVIDERS } from "@/shared/constants/providers";
+import { clearAllDashboardQueries } from "@/shared/hooks";
 import { translate } from "@/i18n/runtime";
 
 const getPageInfo = (pathname) => {
@@ -172,8 +173,8 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
     try {
       const res = await fetch("/api/auth/logout", { method: "POST" });
       if (res.ok) {
-        router.push("/login");
-        router.refresh();
+        clearAllDashboardQueries();
+        router.replace("/login");
       }
     } catch (err) {
       console.error("Failed to logout:", err);

@@ -4,12 +4,12 @@ import path from "node:path";
 
 const repoRoot = path.resolve(import.meta.dirname, "../..");
 const morphRoutePaths = [
-  "src/app/api/morph/apply/route.js",
-  "src/app/api/morph/compact/route.js",
-  "src/app/api/morph/embeddings/route.js",
-  "src/app/api/morph/rerank/route.js",
-  "src/app/api/morph/warpgrep/route.js",
   "src/app/api/morph/_dispatch.js",
+  "src/app/morphllm/v1/chat/completions/route.js",
+  "src/app/morphllm/v1/compact/route.js",
+  "src/app/morphllm/v1/embeddings/route.js",
+  "src/app/morphllm/v1/rerank/route.js",
+  "src/app/morphllm/v1/models/route.js",
 ];
 
 function readRepoFile(relativePath) {
@@ -36,10 +36,21 @@ describe("Morph raw proxy regression guards", () => {
     expect(dispatchSource).not.toContain("open-sse/");
   });
 
-  it("protects the /api/morph namespace in the proxy matcher", () => {
+  it("protects both Morph namespaces in the proxy matcher", () => {
     const proxySource = readRepoFile("src/proxy.js");
 
     expect(proxySource).toContain('"/api/morph/:path*"');
+    expect(proxySource).toContain('"/morphllm/:path*"');
+  });
+
+  it("only exposes explicit Morph LLM rewrites through /morphllm", () => {
+    const nextConfigSource = readRepoFile("next.config.mjs");
+
+        expect(nextConfigSource).not.toContain('source: "/morphllm/:path*"');
+    expect(nextConfigSource).not.toContain('source: "/morphllm"');
+    expect(nextConfigSource).not.toContain('destination: "/api/morph/:path*"');
+    expect(nextConfigSource).not.toContain('destination: "/api/morph"');
+    expect(nextConfigSource).not.toContain('source: "/morphllm/v1/chat/completions"');
   });
 
   it("keeps Morph key selection isolated from provider-generic modules", () => {
@@ -50,32 +61,11 @@ describe("Morph raw proxy regression guards", () => {
     expect(keySelectionSource).not.toContain("localDb");
   });
 
-  it("keeps the existing /api/v1/embeddings route unchanged", () => {
+  it("keeps the existing /api/v1/embeddings route on the standard handler only", () => {
     const embeddingsRouteSource = readRepoFile("src/app/api/v1/embeddings/route.js");
 
-    expect(embeddingsRouteSource).toBe([
-      'import { handleEmbeddings } from "@/sse/handlers/embeddings.js";',
-      "",
-      "/**",
-      " * Handle CORS preflight",
-      " */",
-      "export async function OPTIONS() {",
-      "  return new Response(null, {",
-      "    headers: {",
-      '      "Access-Control-Allow-Origin": "*",',
-      '      "Access-Control-Allow-Methods": "POST, OPTIONS",',
-      '      "Access-Control-Allow-Headers": "*"',
-      "    }",
-      "  });",
-      "}",
-      "",
-      "/**",
-      " * POST /v1/embeddings - OpenAI-compatible embeddings endpoint",
-      " */",
-      "export async function POST(request) {",
-      "  return await handleEmbeddings(request);",
-      "}",
-      "",
-    ].join("\n"));
+    expect(embeddingsRouteSource).not.toContain("routeMorphV1Capability");
+    expect(embeddingsRouteSource).toContain('import { handleEmbeddings } from "@/sse/handlers/embeddings.js";');
+    expect(embeddingsRouteSource).toContain("return await handleEmbeddings(request);");
   });
 });

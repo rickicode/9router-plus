@@ -5,6 +5,7 @@ import Card from "@/shared/components/Card";
 import Button from "@/shared/components/Button";
 import PricingModal from "@/shared/components/PricingModal";
 import ProfileSettingsContent from "@/shared/components/settings/ProfileSettingsContent";
+import { fetchJson, useDashboardQuery } from "@/shared/hooks";
 import {
   buildR2SettingsPayload,
   DEFAULT_R2_SETTINGS_RESPONSE,
@@ -81,8 +82,6 @@ function formatDirectR2Status(data = {}) {
 
 export default function SettingsPageClient() {
   const [showPricingModal, setShowPricingModal] = useState(false);
-  const [currentPricing, setCurrentPricing] = useState(null);
-  const [loadingPricing, setLoadingPricing] = useState(true);
   const [r2Settings, setR2Settings] = useState(DEFAULT_R2_SETTINGS_RESPONSE);
   const [savedR2Settings, setSavedR2Settings] = useState(DEFAULT_R2_SETTINGS_RESPONSE);
   const [loadingR2, setLoadingR2] = useState(true);
@@ -95,30 +94,14 @@ export default function SettingsPageClient() {
   const [r2ActionFeedback, setR2ActionFeedback] = useState({ type: "", message: "" });
   const [r2StatusSummary, setR2StatusSummary] = useState("");
   const [restorePreview, setRestorePreview] = useState(null);
+  const pricingQuery = useDashboardQuery("pricing", () => fetchJson("/api/pricing"));
+
+  const currentPricing = pricingQuery.data || null;
+  const loadingPricing = pricingQuery.isLoading;
 
   useEffect(() => {
-    loadPricing();
     loadR2Settings();
   }, []);
-
-  async function loadPricing() {
-    setLoadingPricing(true);
-    try {
-      const response = await fetch("/api/pricing");
-      if (!response.ok) {
-        setCurrentPricing(null);
-        return;
-      }
-
-      const data = await response.json();
-      setCurrentPricing(data);
-    } catch (error) {
-      console.error("Failed to load pricing:", error);
-      setCurrentPricing(null);
-    } finally {
-      setLoadingPricing(false);
-    }
-  }
 
   async function loadR2Settings() {
     setLoadingR2(true);
@@ -794,7 +777,7 @@ export default function SettingsPageClient() {
           <PricingModal
             isOpen={showPricingModal}
             onClose={() => setShowPricingModal(false)}
-            onSave={loadPricing}
+            onSave={() => pricingQuery.refresh()}
           />
         ) : null}
       </Card>

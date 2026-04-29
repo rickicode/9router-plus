@@ -17,9 +17,7 @@ describe("Morph settings UI source", () => {
 
     expect(source).not.toContain('handleFieldChange("baseUrl", event.target.value)');
     expect(source).not.toContain('placeholder="https://api.morphllm.com"');
-    expect(source).not.toContain('>Base URL<');
-    expect(source).toContain("local 9Router endpoints");
-    expect(source).toContain("backend-only upstream URL");
+    expect(source).toContain('>Base URL<');
   });
 
   it("includes ordered multi-key editor controls", async () => {
@@ -52,15 +50,15 @@ describe("Morph settings UI source", () => {
   it("lists all five Morph route paths in source", async () => {
     const source = await readMorphPageClientSource();
 
-    expect(source).toContain('localPath: "/api/morph/apply"');
-    expect(source).toContain('localPath: "/api/morph/compact"');
-    expect(source).toContain('localPath: "/api/morph/embeddings"');
-    expect(source).toContain('localPath: "/api/morph/rerank"');
-    expect(source).toContain('localPath: "/api/morph/warpgrep"');
-    expect(source).toContain('upstreamTarget: "POST /v1/chat/completions"');
-    expect(source).toContain('upstreamTarget: "POST /v1/compact"');
-    expect(source).toContain('upstreamTarget: "POST /v1/embeddings"');
-    expect(source).toContain('upstreamTarget: "POST /v1/rerank"');
+    expect(source).toContain('path: "/morphllm/v1/chat/completions"');
+    expect(source).toContain('path: "/morphllm/v1/compact"');
+    expect(source).toContain('path: "/morphllm/v1/embeddings"');
+    expect(source).toContain('path: "/morphllm/v1/rerank"');
+    expect(source).toContain('path: "/morphllm/v1/models"');
+    expect(source).toContain('target: "/v1/chat/completions"');
+    expect(source).toContain('target: "/v1/compact"');
+    expect(source).toContain('target: "/v1/embeddings"');
+    expect(source).toContain('target: "/v1/rerank"');
   });
 
   it("includes help text about key 0 being primary", async () => {
@@ -79,8 +77,8 @@ describe("Morph settings UI source", () => {
     expect(source).toContain('{ value: "usage", label: "Usage" }');
     expect(source).toContain("Isolated Morph usage");
     expect(source).toContain("Review Morph-only requests, token flow, and estimated credits.");
-    expect(source).toContain('fetch(`/api/morph/usage/stats?period=${usagePeriod}`)');
-    expect(source).toContain('fetch("/api/morph/usage/requests?limit=200")');
+    expect(source).toContain('fetchJson(`/api/morph/usage/stats?period=${usagePeriod}`)');
+    expect(source).toContain('fetchJson("/api/morph/usage/requests?limit=200")');
     expect(source).toContain("By email");
     expect(source).toContain("Serving-key ownership across token flow, requests, and credits");
     expect(source).toContain("Search email or token usage");

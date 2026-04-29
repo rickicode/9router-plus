@@ -17,8 +17,6 @@ function UsageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const [tabLoading, setTabLoading] = useState(false);
-
   const tabFromUrl = searchParams.get("tab");
   const activeTab = tabFromUrl && ["overview", "logs", "details"].includes(tabFromUrl)
     ? tabFromUrl
@@ -26,12 +24,9 @@ function UsageContent() {
 
   const handleTabChange = (value) => {
     if (value === activeTab) return;
-    setTabLoading(true);
     const params = new URLSearchParams(searchParams);
     params.set("tab", value);
     router.push(`/dashboard/usage?${params.toString()}`, { scroll: false });
-    // Brief loading flash so user sees feedback
-    setTimeout(() => setTabLoading(false), 300);
   };
 
   return (
@@ -43,21 +38,16 @@ function UsageContent() {
         ]}
         value={activeTab}
         onChange={handleTabChange}
+        activeClassName="border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
       />
 
-      {tabLoading ? (
-        <CardSkeleton />
-      ) : (
-        <>
-          {activeTab === "overview" && (
-            <Suspense fallback={<CardSkeleton />}>
-              <UsageStats />
-            </Suspense>
-          )}
-          {activeTab === "logs" && <RequestLogger />}
-          {activeTab === "details" && <RequestDetailsTab />}
-        </>
+      {activeTab === "overview" && (
+        <Suspense fallback={<CardSkeleton />}>
+          <UsageStats />
+        </Suspense>
       )}
+      {activeTab === "logs" && <RequestLogger />}
+      {activeTab === "details" && <RequestDetailsTab />}
     </div>
   );
 }

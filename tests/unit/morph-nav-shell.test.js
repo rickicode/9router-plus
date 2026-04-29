@@ -28,16 +28,16 @@ describe("Morph dashboard nav shell", () => {
 
     expect(source).toContain("Manage Morph key rotation and use the browser-specific base URL below");
     expect(source).toContain("Browser Morph base URL");
-    expect(source).toContain("append `/morph` when pointing clients");
+    expect(source).toContain("append `/morphllm` when pointing clients");
     expect(source).not.toContain("Back to Settings");
     expect(source).toContain('className="flex w-full max-w-6xl flex-col gap-5"');
-    expect(source).toContain("/api/morph/apply");
-    expect(source).toContain("/api/morph/compact");
-    expect(source).toContain("/api/morph/embeddings");
-    expect(source).toContain("/api/morph/rerank");
-    expect(source).toContain("/api/morph/warpgrep");
+    expect(source).toContain("/morphllm/v1/chat/completions");
+    expect(source).toContain("/morphllm/v1/compact");
+    expect(source).toContain("/morphllm/v1/embeddings");
+    expect(source).toContain("/morphllm/v1/rerank");
+    expect(source).toContain("/morphllm/v1/models");
     expect(source).toContain("window.location.origin");
-    expect(source).toContain("/morph");
+    expect(source).toContain("/morphllm");
   });
 
   it("renders a dedicated isolated Morph usage workspace", async () => {

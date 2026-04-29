@@ -46,8 +46,8 @@ describe("Morph dispatch upstream HTTP mapping", () => {
       },
     });
 
-    expect(trackPendingRequestSpy).toHaveBeenNthCalledWith(1, `morph:${capability}`, "morph", capability, true);
-    expect(trackPendingRequestSpy).toHaveBeenNthCalledWith(2, `morph:${capability}`, "morph", capability, false, false);
+    expect(trackPendingRequestSpy).toHaveBeenNthCalledWith(1, `morph:${capability}`, "morph", capability, true, false, expect.any(Object));
+    expect(trackPendingRequestSpy).toHaveBeenNthCalledWith(2, `morph:${capability}`, "morph", capability, false, false, expect.any(Object));
     expect(saveMorphUsageSpy).toHaveBeenCalledWith(expect.objectContaining({
       capability,
       entrypoint: `/api/morph/${capability}`,
@@ -136,7 +136,7 @@ describe("Morph dispatch upstream HTTP mapping", () => {
 
     await dispatchMorphCapability({
       capability: "apply",
-      req: new Request("http://localhost/api/morph/v1/chat/completions", {
+      req: new Request("http://localhost/morphllm/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model: "morph-v3-large", messages: [] }),
@@ -150,16 +150,15 @@ describe("Morph dispatch upstream HTTP mapping", () => {
       requestLabel: "morph:/v1/chat/completions",
     });
 
-    expect(consoleLogSpy).toHaveBeenCalledWith("[morph] POST /api/morph/v1/chat/completions upstream=/v1/chat/completions model=morph-v3-large");
+    expect(consoleLogSpy).toHaveBeenCalledWith("[morph] POST /morphllm/v1/chat/completions upstream=/v1/chat/completions model=morph-v3-large");
   });
 
   it.each([
-    ["apply", "/api/morph/apply", { model: "morph-v3-large", messages: [] }, "morph-v3-large"],
-    ["compact", "/api/morph/compact", { input: "hello" }, "morph-compactor"],
-    ["embeddings", "/api/morph/embeddings", { model: "morph-embedding-v4", input: ["hello"] }, "morph-embedding-v4"],
-    ["rerank", "/api/morph/rerank", { query: "q", documents: ["a", "b"] }, "morph-rerank-v4"],
-    ["warpgrep", "/api/morph/warpgrep", { query: "needle" }, "morph-warp-grep-v2.1"],
-  ])("logs Morph endpoint access for %s", async (capability, pathName, payload, expectedModel) => {
+    ["apply", "/morphllm/v1/chat/completions", { model: "morph-v3-large", messages: [] }, "morph-v3-large", "/v1/chat/completions"],
+    ["compact", "/morphllm/v1/compact", { input: "hello" }, "morph-compactor", "/v1/compact"],
+    ["embeddings", "/morphllm/v1/embeddings", { model: "morph-embedding-v4", input: ["hello"] }, "morph-embedding-v4", "/v1/embeddings"],
+    ["rerank", "/morphllm/v1/rerank", { query: "q", documents: ["a", "b"] }, "morph-rerank-v4", "/v1/rerank"],
+  ])("logs Morph endpoint access for %s", async (capability, pathName, payload, expectedModel, expectedUpstream) => {
     vi.spyOn(usageDb, "trackPendingRequest").mockImplementation(() => {});
     const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(morphUsageDb, "saveMorphUsage").mockResolvedValue(null);
@@ -187,7 +186,6 @@ describe("Morph dispatch upstream HTTP mapping", () => {
       },
     });
 
-    const expectedUpstream = capability === "compact" ? "/v1/compact" : capability === "embeddings" ? "/v1/embeddings" : capability === "rerank" ? "/v1/rerank" : "/v1/chat/completions";
     expect(consoleLogSpy).toHaveBeenCalledWith(`[morph] POST ${pathName} upstream=${expectedUpstream} model=${expectedModel}`);
   });
 
@@ -198,7 +196,7 @@ describe("Morph dispatch upstream HTTP mapping", () => {
       throw new Error("boom");
     }));
 
-    const request = new Request("http://localhost/api/morph/apply", {
+    const request = new Request("http://localhost/morphllm/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ messages: [] }),
@@ -214,8 +212,8 @@ describe("Morph dispatch upstream HTTP mapping", () => {
       },
     })).rejects.toThrow("Morph upstream request failed");
 
-    expect(trackPendingRequestSpy).toHaveBeenNthCalledWith(1, "morph:apply", "morph", "apply", true);
-    expect(trackPendingRequestSpy).toHaveBeenNthCalledWith(2, "morph:apply", "morph", "apply", false, true);
+    expect(trackPendingRequestSpy).toHaveBeenNthCalledWith(1, "morph:apply", "morph", "apply", true, false, expect.any(Object));
+    expect(trackPendingRequestSpy).toHaveBeenNthCalledWith(2, "morph:apply", "morph", "apply", false, true, expect.any(Object));
     expect(saveMorphUsageSpy).toHaveBeenCalledWith(expect.objectContaining({
       capability: "apply",
       status: "error",
@@ -234,7 +232,7 @@ describe("Morph dispatch upstream HTTP mapping", () => {
       headers: { "Content-Type": "application/json" },
     })));
 
-    const request = new Request("http://localhost/api/morph/apply", {
+    const request = new Request("http://localhost/morphllm/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ messages: [] }),
@@ -270,7 +268,7 @@ describe("Morph dispatch upstream HTTP mapping", () => {
       }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const request = new Request("http://localhost/api/morph/apply", {
+    const request = new Request("http://localhost/morphllm/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ messages: [] }),
@@ -312,7 +310,7 @@ describe("Morph dispatch upstream HTTP mapping", () => {
 
     await dispatchMorphCapability({
       capability: "apply",
-      req: new Request("http://localhost/api/morph/apply", {
+      req: new Request("http://localhost/morphllm/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: [] }),
@@ -345,7 +343,7 @@ describe("Morph dispatch upstream HTTP mapping", () => {
 
     const response = await dispatchMorphCapability({
       capability: "apply",
-      req: new Request("http://localhost/api/morph/apply", {
+      req: new Request("http://localhost/morphllm/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model: "morph-v3-large", stream: true, messages: [] }),

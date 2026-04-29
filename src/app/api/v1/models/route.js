@@ -9,62 +9,204 @@ const parseOpenAIStyleModels = (data) => {
 
 // Matches provider IDs that are upstream/cross-instance connections (contain a UUID suffix)
 const UPSTREAM_CONNECTION_RE = /[-_][0-9a-f]{8,}$/i;
+const COMPATIBLE_MODELS_CACHE_TTL_MS = 15_000;
+const COMPATIBLE_MODELS_FETCH_TIMEOUT_MS = 2_500;
+const FINAL_MODELS_RESPONSE_CACHE_TTL_MS = 10_000;
+const compatibleModelsCache = new Map();
+const compatibleModelsInFlight = new Map();
+let finalModelsResponseCache = null;
+
+function getCompatibleModelsCacheKey(connection) {
+  return JSON.stringify({
+    provider: connection?.provider || "",
+    baseUrl: typeof connection?.providerSpecificData?.baseUrl === "string"
+      ? connection.providerSpecificData.baseUrl.trim().replace(/\/$/, "")
+      : "",
+    apiKeySuffix: typeof connection?.apiKey === "string" ? connection.apiKey.slice(-8) : "",
+  });
+}
+
+function getFinalModelsResponseCacheKey(connections, combos) {
+  return JSON.stringify({
+    connections: (connections || []).map((connection) => ({
+      provider: connection?.provider || "",
+      isActive: connection?.isActive !== false,
+      prefix: connection?.providerSpecificData?.prefix || "",
+      baseUrl: connection?.providerSpecificData?.baseUrl || "",
+      enabledModels: Array.isArray(connection?.providerSpecificData?.enabledModels)
+        ? [...connection.providerSpecificData.enabledModels]
+        : [],
+      apiKeySuffix: typeof connection?.apiKey === "string" ? connection.apiKey.slice(-8) : "",
+    })),
+    combos: (combos || []).map((combo) => ({
+      name: combo?.name || "",
+    })),
+  });
+}
+
+function readCompatibleModelsCache(connection) {
+  const cacheKey = getCompatibleModelsCacheKey(connection);
+  const cached = compatibleModelsCache.get(cacheKey);
+  if (!cached) return null;
+  if (Date.now() - cached.updatedAt >= COMPATIBLE_MODELS_CACHE_TTL_MS) {
+    compatibleModelsCache.delete(cacheKey);
+    return null;
+  }
+  return cached.modelIds;
+}
+
+function writeCompatibleModelsCache(connection, modelIds) {
+  compatibleModelsCache.set(getCompatibleModelsCacheKey(connection), {
+    modelIds,
+    updatedAt: Date.now(),
+  });
+}
+
+function readFinalModelsResponseCache(cacheKey) {
+  if (!finalModelsResponseCache || finalModelsResponseCache.cacheKey !== cacheKey) {
+    return null;
+  }
+  if (Date.now() - finalModelsResponseCache.updatedAt >= FINAL_MODELS_RESPONSE_CACHE_TTL_MS) {
+    finalModelsResponseCache = null;
+    return null;
+  }
+  return finalModelsResponseCache.payload;
+}
+
+function writeFinalModelsResponseCache(cacheKey, payload) {
+  finalModelsResponseCache = {
+    cacheKey,
+    payload,
+    updatedAt: Date.now(),
+  };
+}
 
 async function fetchCompatibleModelIds(connection) {
   if (!connection?.apiKey) return [];
 
-  const baseUrl = typeof connection?.providerSpecificData?.baseUrl === "string"
-    ? connection.providerSpecificData.baseUrl.trim().replace(/\/$/, "")
-    : "";
+  const cached = readCompatibleModelsCache(connection);
+  if (cached) return cached;
 
-  if (!baseUrl) return [];
-
-  let url = `${baseUrl}/models`;
-  const headers = {
-    "Content-Type": "application/json",
-  };
-
-  if (isOpenAICompatibleProvider(connection.provider)) {
-    headers.Authorization = `Bearer ${connection.apiKey}`;
-  } else if (isAnthropicCompatibleProvider(connection.provider)) {
-    if (url.endsWith("/messages/models")) {
-      url = url.slice(0, -9);
-    } else if (url.endsWith("/messages")) {
-      url = `${url.slice(0, -9)}/models`;
-    }
-    headers["x-api-key"] = connection.apiKey;
-    headers["anthropic-version"] = "2023-06-01";
-    headers.Authorization = `Bearer ${connection.apiKey}`;
-  } else {
-    return [];
+  const cacheKey = getCompatibleModelsCacheKey(connection);
+  const inFlight = compatibleModelsInFlight.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
   }
+
+  const fetchPromise = (async () => {
+    const baseUrl = typeof connection?.providerSpecificData?.baseUrl === "string"
+      ? connection.providerSpecificData.baseUrl.trim().replace(/\/$/, "")
+      : "";
+
+    if (!baseUrl) return [];
+
+    let url = `${baseUrl}/models`;
+    const headers = {
+      "Content-Type": "application/json",
+    };
+
+    if (isOpenAICompatibleProvider(connection.provider)) {
+      headers.Authorization = `Bearer ${connection.apiKey}`;
+    } else if (isAnthropicCompatibleProvider(connection.provider)) {
+      if (url.endsWith("/messages/models")) {
+        url = `${url.slice(0, -16)}/models`;
+      } else if (url.endsWith("/messages")) {
+        url = `${url.slice(0, -9)}/models`;
+      }
+      headers["x-api-key"] = connection.apiKey;
+      headers["anthropic-version"] = "2023-06-01";
+    } else {
+      return [];
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), COMPATIBLE_MODELS_FETCH_TIMEOUT_MS);
+      const response = await fetch(url, {
+        method: "GET",
+        headers,
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (!response.ok) return [];
+
+      const data = await response.json();
+      const rawModels = parseOpenAIStyleModels(data);
+      const modelIds = Array.from(
+        new Set(
+          rawModels
+            .map((model) => model?.id || model?.name || model?.model)
+            .filter((modelId) => typeof modelId === "string" && modelId.trim() !== "")
+        )
+      );
+
+      writeCompatibleModelsCache(connection, modelIds);
+      return modelIds;
+    } catch {
+      return [];
+    }
+  })();
+
+  compatibleModelsInFlight.set(cacheKey, fetchPromise);
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-    const response = await fetch(url, {
-      method: "GET",
-      headers,
-      cache: "no-store",
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-
-    if (!response.ok) return [];
-
-    const data = await response.json();
-    const rawModels = parseOpenAIStyleModels(data);
-
-    return Array.from(
-      new Set(
-        rawModels
-          .map((model) => model?.id || model?.name || model?.model)
-          .filter((modelId) => typeof modelId === "string" && modelId.trim() !== "")
-      )
-    );
-  } catch {
-    return [];
+    return await fetchPromise;
+  } finally {
+    compatibleModelsInFlight.delete(cacheKey);
   }
+}
+
+function normalizeModelIds(rawModelIds, outputAlias, staticAlias, providerId) {
+  return rawModelIds
+    .map((modelId) => {
+      if (modelId.startsWith(`${outputAlias}/`)) {
+        return modelId.slice(outputAlias.length + 1);
+      }
+      if (modelId.startsWith(`${staticAlias}/`)) {
+        return modelId.slice(staticAlias.length + 1);
+      }
+      if (modelId.startsWith(`${providerId}/`)) {
+        return modelId.slice(providerId.length + 1);
+      }
+      return modelId;
+    })
+    .filter((modelId) => typeof modelId === "string" && modelId.trim() !== "");
+}
+
+async function resolveProviderModelIds(providerEntries) {
+  const remoteResults = await Promise.allSettled(
+    providerEntries.map(async (entry) => {
+      const { providerId, conn, providerModels } = entry;
+      const enabledModels = conn?.providerSpecificData?.enabledModels;
+      const hasExplicitEnabledModels =
+        Array.isArray(enabledModels) && enabledModels.length > 0;
+      const isCompatibleProvider =
+        isOpenAICompatibleProvider(providerId) || isAnthropicCompatibleProvider(providerId);
+
+      let rawModelIds = hasExplicitEnabledModels
+        ? Array.from(
+            new Set(
+              enabledModels.filter(
+                (modelId) => typeof modelId === "string" && modelId.trim() !== "",
+              ),
+            ),
+          )
+        : providerModels.map((model) => model.id);
+
+      if (isCompatibleProvider && rawModelIds.length === 0 && !UPSTREAM_CONNECTION_RE.test(providerId)) {
+        rawModelIds = await fetchCompatibleModelIds(conn);
+      }
+
+      return {
+        ...entry,
+        modelIds: normalizeModelIds(rawModelIds, entry.outputAlias, entry.staticAlias, providerId),
+      };
+    })
+  );
+
+  return remoteResults.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
 }
 
 /**
@@ -81,28 +223,40 @@ export async function OPTIONS() {
 }
 
 /**
- * GET /v1/models - OpenAI compatible models list
+ * GET /v1/models - compatible models list
  * Returns models from all active providers and combos in OpenAI format
  */
 export async function GET() {
   try {
-    // Get active provider connections
+    const [connectionsResult, combosResult] = await Promise.allSettled([
+      getProviderConnections(),
+      getCombos(),
+    ]);
+
     let connections = [];
-    try {
-      connections = await getProviderConnections();
-      // Filter to only active connections
-      connections = connections.filter(c => c.isActive !== false);
-    } catch (e) {
-      // If database not available, return all models
+    if (connectionsResult.status === "fulfilled") {
+      connections = Array.isArray(connectionsResult.value)
+        ? connectionsResult.value.filter((connection) => connection.isActive !== false)
+        : [];
+    } else {
       console.log("Could not fetch providers, returning all models");
     }
 
-    // Get combos
     let combos = [];
-    try {
-      combos = await getCombos();
-    } catch (e) {
+    if (combosResult.status === "fulfilled") {
+      combos = Array.isArray(combosResult.value) ? combosResult.value : [];
+    } else {
       console.log("Could not fetch combos");
+    }
+
+    const finalCacheKey = getFinalModelsResponseCacheKey(connections, combos);
+    const cachedPayload = readFinalModelsResponseCache(finalCacheKey);
+    if (cachedPayload) {
+      return Response.json(cachedPayload, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+        },
+      });
     }
 
     // Build first active connection per provider (connections already sorted by priority)
@@ -147,7 +301,7 @@ export async function GET() {
         }
       }
     } else {
-      for (const [providerId, conn] of activeConnectionByProvider.entries()) {
+      const providerEntries = Array.from(activeConnectionByProvider.entries()).map(([providerId, conn]) => {
         const staticAlias = PROVIDER_ID_TO_ALIAS[providerId] || providerId;
         const outputAlias = (
           conn?.providerSpecificData?.prefix
@@ -155,50 +309,25 @@ export async function GET() {
           || staticAlias
         ).trim();
         const providerModels = PROVIDER_MODELS[staticAlias] || [];
-        const enabledModels = conn?.providerSpecificData?.enabledModels;
-        const hasExplicitEnabledModels =
-          Array.isArray(enabledModels) && enabledModels.length > 0;
-        const isCompatibleProvider =
-          isOpenAICompatibleProvider(providerId) || isAnthropicCompatibleProvider(providerId);
 
-        // Default: if no explicit selection, all static models are active.
-        // For compatible providers with no explicit selection, fetch remote /models dynamically.
-        // If explicit selection exists, expose exactly those model IDs (including non-static IDs).
-        let rawModelIds = hasExplicitEnabledModels
-          ? Array.from(
-              new Set(
-                enabledModels.filter(
-                  (modelId) => typeof modelId === "string" && modelId.trim() !== "",
-                ),
-              ),
-            )
-          : providerModels.map((model) => model.id);
+        return {
+          providerId,
+          conn,
+          staticAlias,
+          outputAlias,
+          providerModels,
+        };
+      });
 
-        if (isCompatibleProvider && rawModelIds.length === 0 && !UPSTREAM_CONNECTION_RE.test(providerId)) {
-          rawModelIds = await fetchCompatibleModelIds(conn);
-        }
+      const resolvedProviderEntries = await resolveProviderModelIds(providerEntries);
 
-        const modelIds = rawModelIds
-          .map((modelId) => {
-            if (modelId.startsWith(`${outputAlias}/`)) {
-              return modelId.slice(outputAlias.length + 1);
-            }
-            if (modelId.startsWith(`${staticAlias}/`)) {
-              return modelId.slice(staticAlias.length + 1);
-            }
-            if (modelId.startsWith(`${providerId}/`)) {
-              return modelId.slice(providerId.length + 1);
-            }
-            return modelId;
-          })
-          .filter((modelId) => typeof modelId === "string" && modelId.trim() !== "");
-
-        for (const modelId of modelIds) {
+      for (const entry of resolvedProviderEntries) {
+        for (const modelId of entry.modelIds) {
           models.push({
-            id: `${outputAlias}/${modelId}`,
+            id: `${entry.outputAlias}/${modelId}`,
             object: "model",
             created: timestamp,
-            owned_by: outputAlias,
+            owned_by: entry.outputAlias,
             permission: [],
             root: modelId,
             parent: null,
@@ -207,10 +336,13 @@ export async function GET() {
       }
     }
 
-    return Response.json({
+    const payload = {
       object: "list",
       data: models,
-    }, {
+    };
+    writeFinalModelsResponseCache(finalCacheKey, payload);
+
+    return Response.json(payload, {
       headers: {
         "Access-Control-Allow-Origin": "*",
       },

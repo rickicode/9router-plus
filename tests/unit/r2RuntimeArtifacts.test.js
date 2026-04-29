@@ -80,6 +80,15 @@ describe("r2RuntimeArtifacts", () => {
         roundRobin: true,
         sticky: false,
         stickyDuration: 120,
+        morph: {
+          baseUrl: "https://api.morphllm.com",
+          apiKeys: [
+            { email: "active@example.com", key: "mk-active", status: "active", isExhausted: false },
+            { email: "inactive@example.com", key: "mk-inactive", status: "inactive", isExhausted: false },
+            { email: "exhausted@example.com", key: "mk-exhausted", status: "active", isExhausted: true },
+          ],
+          roundRobinEnabled: true,
+        },
         r2Config: {
           accessKeyId: "r2-key",
           secretAccessKey: "r2-secret",
@@ -134,6 +143,13 @@ describe("r2RuntimeArtifacts", () => {
         roundRobin: true,
         sticky: false,
         stickyDuration: 120,
+        morph: {
+          baseUrl: "https://api.morphllm.com",
+          apiKeys: [
+            { email: "active@example.com", key: "mk-active", status: "active", isExhausted: false },
+          ],
+          roundRobinEnabled: true,
+        },
       },
     });
     expect(runtime.providers["conn-ineligible"]).toBeUndefined();
@@ -159,6 +175,11 @@ describe("r2RuntimeArtifacts", () => {
         roundRobin: true,
         sticky: false,
         stickyDuration: 120,
+        morph: {
+          baseUrl: "https://api.morphllm.com",
+          apiKeys: [{ id: undefined, email: "active@example.com", key: "mk-active", status: "active", isExhausted: false }],
+          roundRobinEnabled: true,
+        },
       },
     });
     expect(artifacts.runtime.settings.r2Config).toBeUndefined();

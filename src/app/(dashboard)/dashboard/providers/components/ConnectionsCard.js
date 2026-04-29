@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import PropTypes from "prop-types";
 import { Card, Badge, Button, Modal, Select, Toggle, EditConnectionModal } from "@/shared/components";
 import { getConnectionEffectiveStatus } from "@/lib/connectionStatus";
+import { fetchJson, patchDashboardQuery, useDashboardQuery } from "@/shared/hooks";
 
 // ── CooldownTimer ──────────────────────────────────────────────
 function CooldownTimer({ until }) {
@@ -73,7 +74,7 @@ function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMov
     check();
     const t = modelLockUntil ? setInterval(check, 1000) : null;
     return () => { if (t) clearInterval(t); };
-  }, [modelLockUntil]);
+  }, [connection, modelLockUntil]);
 
   useEffect(() => {
     if (!showProxyDropdown) return;
@@ -301,100 +302,126 @@ AddApiKeyModal.propTypes = {
 // ── ConnectionsCard ────────────────────────────────────────────
 // Self-contained card: fetches, displays and manages all connections for a provider.
 export default function ConnectionsCard({ providerId, isOAuth }) {
-  const [connections, setConnections] = useState([]);
-  const [proxyPools, setProxyPools] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedConnection, setSelectedConnection] = useState(null);
-  const [providerStrategy, setProviderStrategy] = useState(null);
-  const [providerStickyLimit, setProviderStickyLimit] = useState("1");
+  const providersQuery = useDashboardQuery("providers", () => fetchJson("/api/providers"), {
+    initialData: { connections: [] },
+  });
+  const proxyPoolsQuery = useDashboardQuery("proxy-pools-active", () => fetchJson("/api/proxy-pools?isActive=true"), {
+    initialData: { proxyPools: [] },
+  });
+  const settingsQuery = useDashboardQuery("settings", () => fetchJson("/api/settings"));
+  const connections = (providersQuery.data?.connections || []).filter((c) => c.provider === providerId);
+  const proxyPools = proxyPoolsQuery.data?.proxyPools || [];
+  const loading = providersQuery.isLoading && connections.length === 0;
 
-  const fetch_ = useCallback(async () => {
-    try {
-      const [connRes, proxyRes, settingsRes] = await Promise.all([
-        fetch("/api/providers", { cache: "no-store" }),
-        fetch("/api/proxy-pools?isActive=true", { cache: "no-store" }),
-        fetch("/api/settings", { cache: "no-store" }),
-      ]);
-      const connData = await connRes.json();
-      const proxyData = await proxyRes.json();
-      const settingsData = settingsRes.ok ? await settingsRes.json() : {};
-      if (connRes.ok) setConnections((connData.connections || []).filter((c) => c.provider === providerId));
-      if (proxyRes.ok) setProxyPools(proxyData.proxyPools || []);
-      const override = (settingsData.routing?.providerStrategies || settingsData.providerStrategies || {})[providerId] || {};
-      setProviderStrategy(override.strategy || override.fallbackStrategy || null);
-      setProviderStickyLimit(override.stickyLimit != null ? String(override.stickyLimit) : (override.stickyRoundRobinLimit != null ? String(override.stickyRoundRobinLimit) : "1"));
-    } catch (e) { console.log("ConnectionsCard fetch error:", e); }
-    finally { setLoading(false); }
-  }, [providerId]);
-
-  useEffect(() => {
-    void Promise.resolve().then(() => {
-      fetch_();
-    });
-  }, [fetch_]);
+  const override = (settingsQuery.data?.routing?.providerStrategies || settingsQuery.data?.providerStrategies || {})[providerId] || {};
+  const providerStrategy = override.strategy || override.fallbackStrategy || null;
+  const providerStickyLimit = override.stickyLimit != null ? String(override.stickyLimit) : (override.stickyRoundRobinLimit != null ? String(override.stickyRoundRobinLimit) : "1");
 
   const saveStrategy = async (strategy, stickyLimit) => {
+    const data = settingsQuery.data || {};
+    const current = data.routing?.providerStrategies || data.providerStrategies || {};
+    const override = {};
+    if (strategy) override.strategy = strategy;
+    if (strategy === "round-robin" && stickyLimit !== "") override.stickyLimit = Number(stickyLimit) || 3;
+    const updated = { ...current };
+    if (Object.keys(override).length === 0) delete updated[providerId];
+    else updated[providerId] = override;
+
     try {
-      const res = await fetch("/api/settings", { cache: "no-store" });
-      const data = res.ok ? await res.json() : {};
-      const current = data.routing?.providerStrategies || data.providerStrategies || {};
-      const override = {};
-      if (strategy) override.strategy = strategy;
-      if (strategy === "round-robin" && stickyLimit !== "") override.stickyLimit = Number(stickyLimit) || 3;
-      const updated = { ...current };
-      if (Object.keys(override).length === 0) delete updated[providerId];
-      else updated[providerId] = override;
-      await fetch("/api/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ routing: { providerStrategies: updated } }) });
+      const response = await fetch("/api/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ routing: { providerStrategies: updated } }) });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to save provider strategy");
+      }
+      patchDashboardQuery("settings", (currentSettings) => ({
+        ...(currentSettings || {}),
+        ...(payload || {}),
+      }));
+      void settingsQuery.refresh();
     } catch (e) { console.log("saveStrategy error:", e); }
+  };
+
+  const refreshProvidersAfterWrite = async () => {
+    await providersQuery.refresh();
+    await settingsQuery.refresh();
+    await proxyPoolsQuery.refresh();
+  };
+
+  const patchProviderConnections = (updater) => {
+    patchDashboardQuery("providers", (current) => ({
+      ...(current || { connections: [] }),
+      connections: updater(current?.connections || []),
+    }));
   };
 
   const handleSwapPriority = async (i1, i2) => {
     const next = [...connections];
     [next[i1], next[i2]] = [next[i2], next[i1]];
-    setConnections(next);
+    const previousConnections = providersQuery.data?.connections || [];
+    patchProviderConnections((allConnections) => allConnections.map((connection) => {
+      const updatedFirst = next[i1];
+      const updatedSecond = next[i2];
+      if (connection.id === updatedFirst.id) return { ...connection, priority: i1 };
+      if (connection.id === updatedSecond.id) return { ...connection, priority: i2 };
+      return connection;
+    }));
     try {
       await Promise.all([
         fetch(`/api/providers/${next[i1].id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ priority: i1 }) }),
         fetch(`/api/providers/${next[i2].id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ priority: i2 }) }),
       ]);
-    } catch { await fetch_(); }
+      await refreshProvidersAfterWrite();
+    } catch {
+      patchProviderConnections((allConnections) => allConnections);
+      await providersQuery.refresh();
+    }
   };
 
   const handleDelete = async (id) => {
     if (!confirm("Delete this connection?")) return;
     try {
       const res = await fetch(`/api/providers/${id}`, { method: "DELETE" });
-      if (res.ok) setConnections((prev) => prev.filter((c) => c.id !== id));
+      if (res.ok) {
+        patchProviderConnections((allConnections) => allConnections.filter((c) => c.id !== id));
+        await refreshProvidersAfterWrite();
+      }
     } catch (e) { console.log("delete error:", e); }
   };
 
   const handleToggleActive = async (id, isActive) => {
     try {
       const res = await fetch(`/api/providers/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ isActive }) });
-      if (res.ok) setConnections((prev) => prev.map((c) => c.id === id ? { ...c, isActive } : c));
+      if (res.ok) {
+        patchProviderConnections((allConnections) => allConnections.map((c) => c.id === id ? { ...c, isActive } : c));
+        await refreshProvidersAfterWrite();
+      }
     } catch (e) { console.log("toggle error:", e); }
   };
 
   const handleUpdateProxy = async (connId, proxyPoolId) => {
     try {
       const res = await fetch(`/api/providers/${connId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ proxyPoolId: proxyPoolId || null }) });
-      if (res.ok) setConnections((prev) => prev.map((c) => c.id === connId ? { ...c, providerSpecificData: { ...c.providerSpecificData, proxyPoolId: proxyPoolId || null } } : c));
+      if (res.ok) {
+        patchProviderConnections((allConnections) => allConnections.map((c) => c.id === connId ? { ...c, providerSpecificData: { ...c.providerSpecificData, proxyPoolId: proxyPoolId || null } } : c));
+        await refreshProvidersAfterWrite();
+      }
     } catch (e) { console.log("proxy error:", e); }
   };
 
   const handleSaveApiKey = async (formData) => {
     try {
       const res = await fetch("/api/providers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider: providerId, ...formData }) });
-      if (res.ok) { await fetch_(); setShowAddModal(false); }
+      if (res.ok) { await refreshProvidersAfterWrite(); setShowAddModal(false); }
     } catch (e) { console.log("save apikey error:", e); }
   };
 
   const handleUpdateConnection = async (formData) => {
     try {
       const res = await fetch(`/api/providers/${selectedConnection.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(formData) });
-      if (res.ok) { await fetch_(); setShowEditModal(false); }
+      if (res.ok) { await refreshProvidersAfterWrite(); setShowEditModal(false); }
     } catch (e) { console.log("update connection error:", e); }
   };
 
@@ -411,8 +438,6 @@ export default function ConnectionsCard({ providerId, isOAuth }) {
               checked={providerStrategy === "round-robin"}
               onChange={(enabled) => {
                 const strategy = enabled ? "round-robin" : null;
-                setProviderStrategy(strategy);
-                if (enabled && !providerStickyLimit) setProviderStickyLimit("1");
                 saveStrategy(strategy, enabled ? (providerStickyLimit || "1") : providerStickyLimit);
               }}
             />
@@ -421,7 +446,7 @@ export default function ConnectionsCard({ providerId, isOAuth }) {
                 <span className="text-xs text-text-muted">Sticky:</span>
                 <input
                   type="number" min={1} value={providerStickyLimit}
-                  onChange={(e) => { setProviderStickyLimit(e.target.value); saveStrategy("round-robin", e.target.value); }}
+                  onChange={(e) => { saveStrategy("round-robin", e.target.value); }}
                   className="w-14 px-2 py-1 text-xs border border-border rounded-md bg-background focus:outline-none focus:border-primary"
                 />
               </div>
