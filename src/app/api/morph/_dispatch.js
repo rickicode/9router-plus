@@ -7,6 +7,8 @@ import { buildMorphKeyStatusPatch } from "@/app/api/morph/test-key/route.js";
 import { getDefaultMorphModel, saveMorphUsage } from "@/lib/morphUsageDb.js";
 import { trackPendingRequest } from "@/lib/usageDb.js";
 
+const DEFAULT_MORPH_UPSTREAM_TIMEOUT_MS = 25_000;
+
 function buildUpstreamUrl(baseUrl, upstreamPath) {
   return new URL(upstreamPath, `${baseUrl.replace(/\/+$/, "")}/`).toString();
 }
@@ -42,6 +44,33 @@ function getMorphRequestSource(req) {
 
 function getMorphClientEndpoint(req) {
   return getMorphRequestPath(req);
+}
+
+function resolveMorphUpstreamTimeoutMs() {
+  const rawValue = process.env.MORPH_UPSTREAM_TIMEOUT_MS;
+  const timeoutMs = Number(rawValue);
+  return Number.isFinite(timeoutMs) && timeoutMs > 0
+    ? timeoutMs
+    : DEFAULT_MORPH_UPSTREAM_TIMEOUT_MS;
+}
+
+function shouldSyncSuccessfulMorphKeyState(entry) {
+  if (!entry || typeof entry !== "object") {
+    return false;
+  }
+
+  return entry.status !== "active"
+    || entry.isExhausted === true
+    || Boolean(entry.lastError);
+}
+
+function createMorphUpstreamTimeoutError(timeoutMs, cause) {
+  return createMorphDispatchError(`Morph upstream request timed out after ${timeoutMs}ms`, {
+    cause,
+    name: "AbortError",
+    code: "MORPH_UPSTREAM_TIMEOUT",
+    dispatchStarted: true,
+  });
 }
 
 function logMorphEndpointAccess(req, requestLabel, requestPayload, upstreamPath) {
@@ -175,6 +204,9 @@ export async function dispatchMorphCapability({ capability, req, morphSettings, 
 
   const requestLabel = providedRequestLabel || `morph:${capability}`;
   const clientEndpoint = getMorphClientEndpoint(req);
+  const requestSource = getMorphRequestSource(req);
+  const timeoutMs = resolveMorphUpstreamTimeoutMs();
+  const upstreamUrl = buildUpstreamUrl(morphSettings.baseUrl, upstreamTarget.path);
   trackPendingRequest(requestLabel, "morph", capability, true, false, { endpoint: clientEndpoint, target: upstreamTarget.path });
 
   let requestBody = typeof providedRequestBody === "string" ? providedRequestBody : null;
@@ -205,7 +237,9 @@ export async function dispatchMorphCapability({ capability, req, morphSettings, 
       execute: async ({ apiKey, email, attempt, totalKeys }) => {
         usedApiKey = apiKey;
         usedEmail = email;
-        const upstreamUrl = buildUpstreamUrl(morphSettings.baseUrl, upstreamTarget.path);
+        const keyEntry = Array.isArray(morphSettings?.apiKeys)
+          ? morphSettings.apiKeys.find((entry) => entry?.email === email)
+          : null;
         const response = await fetch(
           upstreamUrl,
           {
@@ -215,8 +249,13 @@ export async function dispatchMorphCapability({ capability, req, morphSettings, 
               "Content-Type": "application/json",
             },
             body: requestBody,
+            signal: AbortSignal.timeout(timeoutMs),
           }
         ).catch((cause) => {
+          if (cause?.name === "AbortError") {
+            throw createMorphUpstreamTimeoutError(timeoutMs, cause);
+          }
+
           throw createMorphDispatchError("Morph upstream request failed", {
             cause,
             dispatchStarted: true,
@@ -224,12 +263,16 @@ export async function dispatchMorphCapability({ capability, req, morphSettings, 
         });
 
         if (response.ok) {
-          const nextPatch = buildMorphKeyStatusPatch({
-            status: response.status,
-            responseText: "",
-            fallbackLabel: `HTTP ${response.status}`,
-          });
-          await updateMorphKeyState(email, nextPatch);
+          if (shouldSyncSuccessfulMorphKeyState(keyEntry)) {
+            const nextPatch = buildMorphKeyStatusPatch({
+              status: response.status,
+              responseText: "",
+              fallbackLabel: `HTTP ${response.status}`,
+            });
+            void updateMorphKeyState(email, nextPatch).catch((stateError) => {
+              console.error("[morph] Failed to persist successful key state:", stateError);
+            });
+          }
           return response;
         }
 
@@ -298,7 +341,7 @@ export async function dispatchMorphCapability({ capability, req, morphSettings, 
       }
     }
 
-    trackPendingRequest(requestLabel, "morph", capability, false, true, { endpoint: clientEndpoint, target: upstreamTarget.path });
+    trackPendingRequest(requestLabel, "morph", capability, false, true, { endpoint: clientEndpoint, target: upstreamTarget.path, source: requestSource });
     throw error;
   }
 }

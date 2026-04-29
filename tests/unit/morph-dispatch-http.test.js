@@ -62,7 +62,7 @@ describe("Morph dispatch upstream HTTP mapping", () => {
       },
       status: "ok",
     }), { propagateError: true });
-    expect(atomicUpdateSettingsSpy).toHaveBeenCalled();
+    expect(atomicUpdateSettingsSpy).toHaveBeenCalledTimes(0);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, options] = fetchMock.mock.calls[0];
     expect(url).toBe(`https://api.morphllm.com${expectedPath}`);
@@ -74,6 +74,7 @@ describe("Morph dispatch upstream HTTP mapping", () => {
       },
       body: requestBody,
     });
+    expect(options.signal).toBeDefined();
     expect(response.status).toBe(207);
     expect(response.headers.get("X-Upstream-Path")).toBe(expectedPath);
     await expect(response.json()).resolves.toEqual({ capability, usage: { prompt_tokens: 12, completion_tokens: 34 } });
@@ -290,7 +291,7 @@ describe("Morph dispatch upstream HTTP mapping", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe("Bearer TEST_MORPH_KEY_INVALID");
     expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe("Bearer TEST_MORPH_KEY_HEALTHY");
-    expect(atomicUpdateSettingsSpy).toHaveBeenCalledTimes(2);
+    expect(atomicUpdateSettingsSpy).toHaveBeenCalledTimes(1);
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ ok: true, usage: { prompt_tokens: 1, completion_tokens: 2 } });
   });
@@ -322,7 +323,115 @@ describe("Morph dispatch upstream HTTP mapping", () => {
       },
     });
 
+    expect(atomicUpdateSettingsSpy).toHaveBeenCalledTimes(0);
+  });
+
+  it("writes healthy state in the background when a key needs recovery", async () => {
+    vi.spyOn(usageDb, "trackPendingRequest").mockImplementation(() => {});
+    vi.spyOn(morphUsageDb, "saveMorphUsage").mockResolvedValue(null);
+    const atomicUpdateSettingsSpy = vi.spyOn(localDb, "atomicUpdateSettings").mockImplementation(async (mutator) => mutator({
+      morph: {
+        apiKeys: [{ email: "recover@example.com", key: "TEST_MORPH_KEY_A", status: "active", isExhausted: false, lastError: "401" }],
+      },
+    }));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ usage: { prompt_tokens: 5, completion_tokens: 6 } }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })));
+
+    await dispatchMorphCapability({
+      capability: "apply",
+      req: new Request("http://localhost/morphllm/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: [] }),
+      }),
+      morphSettings: {
+        baseUrl: "https://api.morphllm.com/",
+        apiKeys: [{ email: "recover@example.com", key: "TEST_MORPH_KEY_A", status: "active", isExhausted: false, lastError: "401" }],
+        roundRobinEnabled: false,
+      },
+    });
+
+    await Promise.resolve();
     expect(atomicUpdateSettingsSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails over after an upstream timeout and records the timeout error", async () => {
+    vi.spyOn(usageDb, "trackPendingRequest").mockImplementation(() => {});
+    const saveMorphUsageSpy = vi.spyOn(morphUsageDb, "saveMorphUsage").mockResolvedValue(null);
+    vi.spyOn(localDb, "atomicUpdateSettings").mockImplementation(async (mutator) => mutator({ morph: { apiKeys: [] } }));
+    const timeoutError = new Error("timed out");
+    timeoutError.name = "AbortError";
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(timeoutError)
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, usage: { prompt_tokens: 2, completion_tokens: 3 } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await dispatchMorphCapability({
+      capability: "apply",
+      req: new Request("http://localhost/morphllm/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: [] }),
+      }),
+      morphSettings: {
+        baseUrl: "https://api.morphllm.com/",
+        apiKeys: [
+          { email: "slow@example.com", key: "TEST_MORPH_KEY_SLOW", status: "active", isExhausted: false },
+          { email: "fast@example.com", key: "TEST_MORPH_KEY_FAST", status: "active", isExhausted: false },
+        ],
+        roundRobinEnabled: false,
+      },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][1].signal).toBeDefined();
+    expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe("Bearer TEST_MORPH_KEY_FAST");
+    expect(response.status).toBe(200);
+    expect(saveMorphUsageSpy).toHaveBeenCalledWith(expect.objectContaining({
+      apiKey: "TEST_MORPH_KEY_FAST",
+      apiKeyLabel: "fast@example.com",
+      status: "ok",
+    }), { propagateError: true });
+  });
+
+  it("surfaces a Morph timeout when all keys time out", async () => {
+    vi.spyOn(usageDb, "trackPendingRequest").mockImplementation(() => {});
+    const saveMorphUsageSpy = vi.spyOn(morphUsageDb, "saveMorphUsage").mockResolvedValue(null);
+    const timeoutError = new Error("timed out");
+    timeoutError.name = "AbortError";
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw timeoutError;
+    }));
+
+    await expect(dispatchMorphCapability({
+      capability: "apply",
+      req: new Request("http://localhost/morphllm/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: [] }),
+      }),
+      morphSettings: {
+        baseUrl: "https://api.morphllm.com/",
+        apiKeys: [{ email: "slow@example.com", key: "TEST_MORPH_KEY_SLOW", status: "active", isExhausted: false }],
+        roundRobinEnabled: false,
+      },
+    })).rejects.toMatchObject({
+      name: "AbortError",
+      code: "MORPH_UPSTREAM_TIMEOUT",
+      message: expect.stringContaining("timed out after"),
+    });
+
+    expect(saveMorphUsageSpy).toHaveBeenCalledWith(expect.objectContaining({
+      status: "error",
+      apiKey: "TEST_MORPH_KEY_SLOW",
+      error: expect.stringContaining("timed out after"),
+    }), { propagateError: true });
   });
 
   it("does not buffer streaming success responses for usage extraction", async () => {
