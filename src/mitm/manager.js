@@ -123,9 +123,11 @@ function getProcessUsingPort443() {
         if (processMatch) return processMatch[1].replace(".exe", "");
       }
     } else {
-      const result = execSync("lsof -i :443", { encoding: "utf8", windowsHide: true });
-      const lines = result.trim().split("\n");
-      if (lines.length > 1) return lines[1].split(/\s+/)[0];
+      const pidStr = execSync("lsof -nP -iTCP:443 -sTCP:LISTEN -t", { encoding: "utf8", windowsHide: true }).trim();
+      const pid = parseInt(pidStr.split("\n")[0], 10);
+      if (pid && !isNaN(pid)) {
+        return execSync(`ps -p ${pid} -o comm=`, { encoding: "utf8", windowsHide: true }).trim() || "unknown";
+      }
     }
   } catch {
     return null;
