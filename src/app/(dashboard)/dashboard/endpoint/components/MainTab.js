@@ -17,6 +17,9 @@ export default function MainTab({ machineId }) {
   const [createdKey, setCreatedKey] = useState(null);
   const [visibleKeys, setVisibleKeys] = useState(new Set());
   const [currentPage, setCurrentPage] = useState(1);
+  const [remoteAccessBusy, setRemoteAccessBusy] = useState({ tunnel: false, tailscale: false });
+  const [remoteAccessError, setRemoteAccessError] = useState("");
+  const [remoteAccessInfo, setRemoteAccessInfo] = useState("");
 
   const { copied, copy } = useCopyToClipboard();
 
@@ -152,6 +155,74 @@ export default function MainTab({ machineId }) {
     }
   };
 
+  const refreshTunnelStatus = async () => {
+    await endpointSettingsQuery.refresh();
+  };
+
+  const setRemoteBusy = (key, value) => {
+    setRemoteAccessBusy((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleToggleTunnel = async () => {
+    setRemoteBusy("tunnel", true);
+    setRemoteAccessError("");
+    setRemoteAccessInfo("");
+
+    try {
+      const response = await fetch(tunnelEnabled ? "/api/tunnel/disable" : "/api/tunnel/enable", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to update Cloudflare Tunnel");
+      }
+      setRemoteAccessInfo(
+        tunnelEnabled ? "Cloudflare Tunnel disabled." : (data.publicUrl ? `Cloudflare Tunnel enabled: ${data.publicUrl}` : "Cloudflare Tunnel enabled.")
+      );
+      await refreshTunnelStatus();
+    } catch (error) {
+      setRemoteAccessError(error.message);
+    } finally {
+      setRemoteBusy("tunnel", false);
+    }
+  };
+
+  const handleToggleTailscale = async () => {
+    setRemoteBusy("tailscale", true);
+    setRemoteAccessError("");
+    setRemoteAccessInfo("");
+
+    try {
+      const response = await fetch(tsEnabled ? "/api/tunnel/tailscale-disable" : "/api/tunnel/tailscale-enable", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to update Tailscale Funnel");
+      }
+
+      if (data.needsLogin && data.authUrl) {
+        window.open(data.authUrl, "_blank", "noopener,noreferrer");
+        setRemoteAccessInfo("Tailscale login opened in a new tab. Finish login, then click Enable again.");
+      } else if (data.funnelNotEnabled && data.enableUrl) {
+        window.open(data.enableUrl, "_blank", "noopener,noreferrer");
+        setRemoteAccessInfo("Enable Funnel in Tailscale admin first, then click Enable again.");
+      } else {
+        setRemoteAccessInfo(
+          tsEnabled ? "Tailscale Funnel disabled." : (data.tunnelUrl ? `Tailscale Funnel enabled: ${data.tunnelUrl}` : "Tailscale Funnel enabled.")
+        );
+      }
+
+      await refreshTunnelStatus();
+    } catch (error) {
+      setRemoteAccessError(error.message);
+    } finally {
+      setRemoteBusy("tailscale", false);
+    }
+  };
+
   if (loading) {
     return <div className="text-[var(--color-text-muted)]">Loading...</div>;
   }
@@ -259,6 +330,18 @@ export default function MainTab({ machineId }) {
           {settingsLoading && (
             <div className="text-xs text-[var(--color-text-muted)]">Loading tunnel status...</div>
           )}
+          {(remoteAccessError || remoteAccessInfo) && (
+            <div
+              className="rounded border p-3 text-xs"
+              style={{
+                borderColor: remoteAccessError ? "#ef4444" : "#10b981",
+                background: remoteAccessError ? "#ef44441a" : "#10b9811a",
+                color: remoteAccessError ? "#fca5a5" : "#86efac",
+              }}
+            >
+              {remoteAccessError || remoteAccessInfo}
+            </div>
+          )}
           <div className="flex items-center justify-between rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-3">
             <div className="flex-1">
               <div className="text-sm font-medium text-[var(--color-text-main)]">Cloudflare Tunnel</div>
@@ -267,7 +350,7 @@ export default function MainTab({ machineId }) {
               )}
             </div>
             <StatusBadge status={tunnelEnabled ? "Enabled" : "Disabled"} />
-            <Button size="sm" variant="secondary" className="ml-3">
+            <Button size="sm" variant="secondary" className="ml-3" onClick={handleToggleTunnel} loading={remoteAccessBusy.tunnel || false}>
               {tunnelEnabled ? "Disable" : "Enable"}
             </Button>
           </div>
@@ -279,7 +362,7 @@ export default function MainTab({ machineId }) {
               )}
             </div>
             <StatusBadge status={tsEnabled ? "Enabled" : "Disabled"} />
-            <Button size="sm" variant="secondary" className="ml-3">
+            <Button size="sm" variant="secondary" className="ml-3" onClick={handleToggleTailscale} loading={remoteAccessBusy.tailscale || false}>
               {tsEnabled ? "Disable" : "Enable"}
             </Button>
           </div>
