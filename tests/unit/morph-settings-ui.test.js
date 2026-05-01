@@ -76,7 +76,7 @@ describe("Morph settings UI source", () => {
 
     expect(source).toContain('{ value: "usage", label: "Usage" }');
     expect(source).toContain("Isolated Morph usage");
-    expect(source).toContain("Review Morph-only requests, token flow, and estimated credits.");
+    expect(source).toContain("Review Morph-only requests, token flow, estimated credits, and how much auto compact trims context.");
     expect(source).toContain('fetchJson(`/api/morph/usage/stats?period=${usagePeriod}`)');
     expect(source).toContain('fetchJson("/api/morph/usage/requests?limit=200")');
     expect(source).toContain("By email");
@@ -93,6 +93,13 @@ describe("Morph settings UI source", () => {
     expect(source).toContain("Every Morph request is recorded separately");
     expect(source).toContain("Capability filter");
     expect(source).toContain("Auto refresh (5s)");
+    expect(source).toContain("AUTO_COMPACT_TREND_METRIC_OPTIONS");
+    expect(source).toContain("Saved tokens");
+    expect(source).toContain("Saved chars");
+    expect(source).toContain("% reduction");
+    expect(source).toContain("Switch the trend metric to compare raw savings versus reduction efficiency.");
+    expect(source).toContain("Auto compact trend");
+    expect(source).toContain("metric={autoCompactTrendMetric}");
     expect(byEmailSection).toContain("Email");
     expect(source).toContain("Showing {fmtNumber(filteredEmailUsageEntries.length)} group");
     expect(source).toContain("entry.apiKeyLabel || \"Unknown email\"");

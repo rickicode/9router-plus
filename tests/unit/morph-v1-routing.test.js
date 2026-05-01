@@ -103,7 +103,7 @@ describe("Morph v1 route bridging", () => {
     await expect(response.json()).resolves.toEqual({ source: "chat" });
   });
 
-  it("keeps /v1/responses/compact on the standard handler", async () => {
+  it("routes /v1/responses/compact to Morph native compact when a usable key exists", async () => {
     const { POST } = await import("../../src/app/api/v1/responses/compact/route.js");
     const request = new Request("http://localhost/v1/responses/compact", {
       method: "POST",
@@ -113,6 +113,40 @@ describe("Morph v1 route bridging", () => {
 
     const response = await POST(request);
 
+    expect(getSettings).toHaveBeenCalledTimes(1);
+    expect(dispatchMorphCapability).toHaveBeenCalledWith({
+      capability: "compact",
+      req: request,
+      morphSettings: expect.objectContaining({
+        baseUrl: "https://api.morphllm.com",
+      }),
+      upstreamTarget: { method: "POST", path: "/v1/compact" },
+      requestLabel: "morph:/v1/compact",
+    });
+    expect(handleChat).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ source: "morph-direct" });
+  });
+
+  it("falls back to the standard handler when Morph has no usable compact key", async () => {
+    getSettings.mockResolvedValueOnce({
+      morph: {
+        baseUrl: "https://api.morphllm.com",
+        apiKeys: [{ email: "morph@example.com", key: "mk-1", status: "inactive", isExhausted: false }],
+        roundRobinEnabled: false,
+      },
+    });
+
+    const { POST } = await import("../../src/app/api/v1/responses/compact/route.js");
+    const request = new Request("http://localhost/v1/responses/compact", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "morph-v3-large", messages: [{ role: "user", content: "hi" }] }),
+    });
+
+    const response = await POST(request);
+
+    expect(dispatchMorphCapability).not.toHaveBeenCalled();
     expect(handleChat).toHaveBeenCalledTimes(1);
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ source: "chat" });

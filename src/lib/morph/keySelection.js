@@ -2,15 +2,17 @@ const morphRotationCursors = new Map();
 
 const RETRYABLE_STATUS_CODES = new Set([401, 429]);
 
+function isUsableMorphKey(entry) {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+  if (entry.isExhausted === true) return false;
+  if (entry.status === "inactive") return false;
+  return typeof entry.key === "string" && entry.key.trim().length > 0;
+}
+
 function normalizeMorphApiKeys(apiKeys = []) {
   if (!Array.isArray(apiKeys)) return [];
 
-  return apiKeys.filter((entry) => {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
-    if (entry.isExhausted === true) return false;
-    if (entry.status === "inactive") return false;
-    return typeof entry.key === "string" && entry.key.trim().length > 0;
-  });
+  return apiKeys.filter((entry) => isUsableMorphKey(entry));
 }
 
 function normalizeRotationKey(rotationKey) {
@@ -76,7 +78,7 @@ export function getMorphKeyOrder({ apiKeys = [], roundRobinEnabled = false, rota
     return {
       apiKey: selected.key,
       email: selected.email || null,
-      status: selected.status || "inactive",
+      status: selected.status || "unknown",
       isExhausted: selected.isExhausted === true,
       index,
       attempt: offset,
@@ -101,7 +103,7 @@ export async function executeWithMorphKeyFailover({
   const { startIndex, keyOrder } = getMorphKeyOrder({ apiKeys, roundRobinEnabled, rotationKey });
 
   if (keyOrder.length === 0) {
-    const error = new Error("Morph proxy requires at least one active API key");
+    const error = new Error("Morph proxy requires at least one usable API key");
     error.code = "MORPH_API_KEY_MISSING";
     throw error;
   }

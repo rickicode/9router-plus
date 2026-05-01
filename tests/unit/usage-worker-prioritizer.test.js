@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { USAGE_SUPPORTED_PROVIDERS } from "../../src/shared/constants/providers.js";
 import { prioritizeConnections } from "../../src/lib/usageWorker/prioritizer.js";
@@ -6,6 +6,15 @@ import { isUsageRefreshableConnection } from "../../src/lib/usageWorker/schedule
 
 const settings = { intervalMinutes: 15, batchSize: 10 };
 const now = new Date("2026-05-01T12:00:00.000Z");
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(now);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function baseConnection(overrides = {}) {
   return {

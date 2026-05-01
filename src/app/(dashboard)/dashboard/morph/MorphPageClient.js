@@ -18,6 +18,11 @@ const PERIOD_OPTIONS = [
 const REQUEST_LOG_PAGE_SIZE = 10;
 const REQUEST_LOG_AUTO_REFRESH_MS = 5000;
 const EMAIL_BREAKDOWN_PAGE_SIZE = 8;
+const AUTO_COMPACT_TREND_METRIC_OPTIONS = [
+  { value: "savedTokensEstimate", label: "Saved tokens" },
+  { value: "savedChars", label: "Saved chars" },
+  { value: "avgReductionPercent", label: "% reduction" },
+];
 
 const EMPTY_MORPH_KEY = {
   email: "",
@@ -45,6 +50,16 @@ const EMPTY_USAGE_STATS = {
   byApiKey: {},
   byEntrypoint: {},
   recentRequests: [],
+  autoCompact: {
+    appliedCount: 0,
+    savedTokensEstimate: 0,
+    savedChars: 0,
+    avgReductionPercent: 0,
+    maxReductionPercent: 0,
+    totalOriginalTokensEstimate: 0,
+    totalCompactedTokensEstimate: 0,
+    trend: [],
+  },
 };
 
 const MORPH_ROUTE_EXAMPLES = [
@@ -171,6 +186,7 @@ function formatMorphKeyStatus(entry) {
   if (entry.status === "active") return "Active";
   if (entry.status === "exhausted") return "Exhausted";
   if (entry.status === "inactive") return "Invalid";
+  if (entry.status === "unknown") return "Unverified";
   return "Inactive";
 }
 
@@ -178,6 +194,7 @@ function getMorphKeyStatusTone(entry) {
   if (entry.status === "active") return "text-[var(--color-success)]";
   if (entry.status === "exhausted") return "text-[var(--color-warning)]";
   if (entry.status === "inactive") return "text-[var(--color-danger)]";
+  if (entry.status === "unknown") return "text-[var(--color-info)]";
   return "text-[var(--color-text-muted)]";
 }
 
@@ -230,6 +247,68 @@ function UsageMetricCard({ label, value, hint }) {
   );
 }
 
+function getAutoCompactTrendMetricLabel(metric) {
+  if (metric === "savedChars") return "saved chars";
+  if (metric === "avgReductionPercent") return "% avg reduction";
+  return "saved tokens";
+}
+
+function getAutoCompactTrendMetricValue(entry, metric) {
+  if (metric === "savedChars") return Number(entry?.savedChars) || 0;
+  if (metric === "avgReductionPercent") return Number(entry?.avgReductionPercent) || 0;
+  return Number(entry?.savedTokensEstimate) || 0;
+}
+
+function formatAutoCompactTrendMetric(value, metric) {
+  if (metric === "avgReductionPercent") return `${Number(value || 0).toFixed(1)}%`;
+  return fmtNumber(value);
+}
+
+function AutoCompactTrendChart({ trend = [], metric = "savedTokensEstimate" }) {
+  const maxMetricValue = Math.max(1, ...trend.map((entry) => getAutoCompactTrendMetricValue(entry, metric)));
+  const metricLabel = getAutoCompactTrendMetricLabel(metric);
+
+  if (!trend.length) {
+    return <div className="rounded border border-dashed border-[var(--color-border)] px-4 py-6 text-sm text-[var(--color-text-muted)]">No auto compact runs recorded for this period yet.</div>;
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-end gap-3 overflow-x-auto pb-1">
+        {trend.map((entry) => {
+          const metricValue = getAutoCompactTrendMetricValue(entry, metric);
+          const height = Math.max(24, Math.round((metricValue / maxMetricValue) * 120));
+          return (
+            <div key={entry.date} className="flex min-w-[72px] flex-col items-center gap-2">
+              <div className="text-[11px] text-[var(--color-text-muted)]">{formatAutoCompactTrendMetric(metricValue, metric)}</div>
+              <div className="flex h-[124px] items-end">
+                <div
+                  className="w-10 rounded-t border border-[var(--color-primary)]/40 bg-[var(--color-primary)]/20"
+                  style={{ height }}
+                  title={`${entry.date}: ${formatAutoCompactTrendMetric(metricValue, metric)} ${metricLabel}`}
+                />
+              </div>
+              <div className="text-center text-[11px] text-[var(--color-text-muted)]">
+                <div>{entry.date.slice(5)}</div>
+                <div>{fmtNumber(entry.appliedCount)}x</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        {trend.slice(-3).map((entry) => (
+          <div key={`summary-${entry.date}`} className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-3 py-3">
+            <p className="text-xs uppercase tracking-[0.08em] text-[var(--color-text-muted)]">{entry.date}</p>
+            <p className="mt-2 text-sm font-medium text-[var(--color-text-main)]">{formatAutoCompactTrendMetric(getAutoCompactTrendMetricValue(entry, metric), metric)} {metricLabel}</p>
+            <p className="mt-1 text-xs text-[var(--color-text-muted)]">{fmtNumber(entry.appliedCount)} runs · {Number(entry.avgReductionPercent || 0).toFixed(1)}% avg reduction</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function buildMorphBrowserBaseUrl() {
   if (typeof window === "undefined") {
     return "/morphllm";
@@ -249,6 +328,7 @@ export default function MorphPageClient() {
   const [morphFeedback, setMorphFeedback] = useState({ type: "", message: "" });
   const [validationMessage, setValidationMessage] = useState("");
   const [usagePeriod, setUsagePeriod] = useState("7d");
+  const [autoCompactTrendMetric, setAutoCompactTrendMetric] = useState("savedTokensEstimate");
   const usageKey = `morph-usage-${usagePeriod}`;
   const morphUsageQuery = useDashboardQuery(
     usageKey,
@@ -802,7 +882,7 @@ export default function MorphPageClient() {
             <div className="flex flex-col gap-1">
               <h2 className="text-lg font-semibold tracking-tight text-[var(--color-text-main)]">Morph usage</h2>
               <p className="text-sm leading-6 text-[var(--color-text-muted)]">
-                Review Morph-only requests, token flow, and estimated credits.
+                Review Morph-only requests, token flow, estimated credits, and how much auto compact trims context.
               </p>
             </div>
             <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
@@ -827,6 +907,55 @@ export default function MorphPageClient() {
               <UsageMetricCard label="Estimated credits" value={fmtCredits(usageStats.totalCredits)} hint="Official Morph pricing basis" />
             </div>
           </div>
+
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-medium text-[var(--color-text-main)]">Auto compact impact</h3>
+              <span className="text-xs text-[var(--color-text-muted)]">Estimated from pre/post compact context size</span>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <UsageMetricCard label="Applied" value={fmtNumber(usageStats.autoCompact?.appliedCount)} hint="Successful auto compact runs" />
+              <UsageMetricCard label="Saved tokens" value={fmtNumber(usageStats.autoCompact?.savedTokensEstimate)} hint="Estimated context trimmed" />
+              <UsageMetricCard label="Avg reduction" value={`${Number(usageStats.autoCompact?.avgReductionPercent || 0).toFixed(1)}%`} hint="Average estimated token reduction" />
+              <UsageMetricCard label="Max reduction" value={`${Number(usageStats.autoCompact?.maxReductionPercent || 0).toFixed(1)}%`} hint="Best single-run reduction" />
+            </div>
+          </div>
+
+          <Card className="p-4" title="Auto compact trend" subtitle="Saved context per day for the selected period">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-[var(--color-text-muted)]">Switch the trend metric to compare raw savings versus reduction efficiency.</p>
+              <div className="max-w-full overflow-x-auto">
+                <SegmentedControl
+                  options={AUTO_COMPACT_TREND_METRIC_OPTIONS}
+                  value={autoCompactTrendMetric}
+                  onChange={setAutoCompactTrendMetric}
+                  size="sm"
+                />
+              </div>
+            </div>
+            <AutoCompactTrendChart trend={usageStats.autoCompact?.trend || []} metric={autoCompactTrendMetric} />
+          </Card>
+
+          <Card className="p-4" title="Auto compact breakdown" subtitle="How much context the compact pass removed before chat execution">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.08em] text-[var(--color-text-muted)]">Original est. tokens</p>
+                <p className="mt-2 text-xl font-semibold text-[var(--color-text-main)]">{fmtNumber(usageStats.autoCompact?.totalOriginalTokensEstimate)}</p>
+              </div>
+              <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.08em] text-[var(--color-text-muted)]">Compacted est. tokens</p>
+                <p className="mt-2 text-xl font-semibold text-[var(--color-text-main)]">{fmtNumber(usageStats.autoCompact?.totalCompactedTokensEstimate)}</p>
+              </div>
+              <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.08em] text-[var(--color-text-muted)]">Saved chars</p>
+                <p className="mt-2 text-xl font-semibold text-[var(--color-text-main)]">{fmtNumber(usageStats.autoCompact?.savedChars)}</p>
+              </div>
+              <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.08em] text-[var(--color-text-muted)]">Per-run avg saved</p>
+                <p className="mt-2 text-xl font-semibold text-[var(--color-text-main)]">{fmtNumber((usageStats.autoCompact?.appliedCount || 0) > 0 ? Math.round((usageStats.autoCompact?.savedTokensEstimate || 0) / usageStats.autoCompact.appliedCount) : 0)}</p>
+              </div>
+            </div>
+          </Card>
 
           <div className="grid gap-4 xl:grid-cols-3">
             <Card className="p-4" title="By capability" subtitle={`${fmtNumber(Object.keys(usageStats.byCapability || {}).length)} groups`}>

@@ -99,12 +99,8 @@ export class UsageScheduler {
     }
 
     this.logger.log?.("[UsageWorker] Starting scheduler...");
-
-    this.runConnections({ trigger: "startup", mode: "all" }).catch((error) => {
-      this.logger.error?.("[UsageWorker] Startup run failed:", error);
-    });
-
-    this.logger.log?.("[UsageWorker] Scheduler started");
+    this.scheduleNext();
+    this.logger.log?.("[UsageWorker] Scheduler started; waiting for next scheduled run");
   }
 
   scheduleNext() {

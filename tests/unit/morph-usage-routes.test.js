@@ -19,12 +19,12 @@ describe("Morph usage API routes", () => {
   });
 
   it("returns Morph stats for a valid period", async () => {
-    getMorphUsageStats.mockResolvedValue({ totalRequests: 9 });
+    getMorphUsageStats.mockResolvedValue({ totalRequests: 9, autoCompact: { appliedCount: 2, savedTokensEstimate: 400, trend: [{ date: "2026-05-01", appliedCount: 2, savedTokensEstimate: 400 }] } });
     const { GET } = await import("../../src/app/api/morph/usage/stats/route.js");
     const response = await GET(new Request("http://localhost/api/morph/usage/stats?period=30d"));
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ totalRequests: 9 });
+    await expect(response.json()).resolves.toEqual({ totalRequests: 9, autoCompact: { appliedCount: 2, savedTokensEstimate: 400, trend: [{ date: "2026-05-01", appliedCount: 2, savedTokensEstimate: 400 }] } });
     expect(logMorphApiAccess).toHaveBeenCalledTimes(1);
     expect(getMorphUsageStats).toHaveBeenCalledWith("30d");
   });

@@ -212,7 +212,7 @@ describe("Morph key rotation helper", () => {
         execute: vi.fn(),
       })
     ).rejects.toMatchObject({
-      message: "Morph proxy requires at least one active API key",
+      message: "Morph proxy requires at least one usable API key",
       code: "MORPH_API_KEY_MISSING",
     });
   });

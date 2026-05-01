@@ -27,7 +27,7 @@ describe("Morph settings schema", () => {
         {
           email: "one@example.com",
           key: "key-a-new",
-          status: "inactive",
+          status: "unknown",
           isExhausted: false,
           lastCheckedAt: null,
           lastError: "",
@@ -35,7 +35,7 @@ describe("Morph settings schema", () => {
         {
           email: "two@example.com",
           key: "key-b",
-          status: "inactive",
+          status: "unknown",
           isExhausted: false,
           lastCheckedAt: null,
           lastError: "",
@@ -56,7 +56,7 @@ describe("Morph settings schema", () => {
         {
           email: "key1@local",
           key: "first",
-          status: "inactive",
+          status: "unknown",
           isExhausted: false,
           lastCheckedAt: null,
           lastError: "",
@@ -64,7 +64,7 @@ describe("Morph settings schema", () => {
         {
           email: "key3@local",
           key: "second",
-          status: "inactive",
+          status: "unknown",
           isExhausted: false,
           lastCheckedAt: null,
           lastError: "",
@@ -72,7 +72,7 @@ describe("Morph settings schema", () => {
         {
           email: "key5@local",
           key: "first",
-          status: "inactive",
+          status: "unknown",
           isExhausted: false,
           lastCheckedAt: null,
           lastError: "",
@@ -80,7 +80,7 @@ describe("Morph settings schema", () => {
         {
           email: "key7@local",
           key: "third",
-          status: "inactive",
+          status: "unknown",
           isExhausted: false,
           lastCheckedAt: null,
           lastError: "",

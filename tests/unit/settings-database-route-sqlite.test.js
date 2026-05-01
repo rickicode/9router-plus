@@ -31,6 +31,7 @@ vi.mock("@/lib/connectionStatus.js", () => ({
 }));
 
 vi.mock("@/lib/providerHotState.js", () => ({
+  sanitizeConnectionStatusRecord: vi.fn((record) => (record && typeof record === "object" ? record : {})),
   clearAllHotState: vi.fn(async () => {}),
   clearProviderHotState: vi.fn(async () => {}),
   deleteConnectionHotState: vi.fn(async () => {}),

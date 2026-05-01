@@ -9,6 +9,7 @@ import { DEFAULT_AUTO_COMPACT_SETTINGS } from "open-sse/utils/autoCompactCore.js
 
 const DEFAULT_CHAT_RUNTIME_SETTINGS = {
   upstreamTimeoutMs: 45000,
+  compactUpstreamTimeoutMs: 300000,
   streamIdleTimeoutMs: 120000,
   maxInflight: 2000,
   providerMaxInflight: 600,
@@ -39,6 +40,10 @@ function normalizeChatRuntimeForm(value = {}) {
       source.upstreamTimeoutMs,
       DEFAULT_CHAT_RUNTIME_SETTINGS.upstreamTimeoutMs,
     ),
+    compactUpstreamTimeoutSeconds: msToSecondsString(
+      source.compactUpstreamTimeoutMs,
+      DEFAULT_CHAT_RUNTIME_SETTINGS.compactUpstreamTimeoutMs,
+    ),
     streamIdleTimeoutSeconds: msToSecondsString(
       source.streamIdleTimeoutMs,
       DEFAULT_CHAT_RUNTIME_SETTINGS.streamIdleTimeoutMs,
@@ -55,6 +60,7 @@ function normalizeChatRuntimeForm(value = {}) {
 function buildChatRuntimePayload(form) {
   return {
     upstreamTimeoutMs: secondsStringToMs(form.upstreamTimeoutSeconds),
+    compactUpstreamTimeoutMs: secondsStringToMs(form.compactUpstreamTimeoutSeconds),
     streamIdleTimeoutMs: secondsStringToMs(form.streamIdleTimeoutSeconds),
     maxInflight: Number.parseInt(form.maxInflight, 10),
     providerMaxInflight: Number.parseInt(form.providerMaxInflight, 10),
@@ -470,6 +476,7 @@ export default function ProfileSettingsContent() {
   const validateChatRuntimePayload = (payload) => {
     const positiveFields = [
       ["upstreamTimeoutMs", "Upstream timeout"],
+      ["compactUpstreamTimeoutMs", "Compact upstream timeout"],
       ["streamIdleTimeoutMs", "Stream idle timeout"],
       ["maxInflight", "Global concurrency"],
       ["providerMaxInflight", "Provider concurrency"],
@@ -543,7 +550,7 @@ export default function ProfileSettingsContent() {
   const updateAutoCompactEnabled = async (enabled) => {
     if (enabled && !hasUsableMorphApiKey(settings)) {
       setAutoCompactForm((prev) => ({ ...prev, enabled: false }));
-      setAutoCompactStatus({ type: "error", message: "Add an active Morph API key before enabling auto compact" });
+      setAutoCompactStatus({ type: "error", message: "Add a usable Morph API key before enabling auto compact" });
       return;
     }
     const nextForm = { ...autoCompactForm, enabled };
@@ -1118,6 +1125,16 @@ export default function ProfileSettingsContent() {
               onChange={(e) => setChatRuntimeForm((prev) => ({ ...prev, upstreamTimeoutSeconds: e.target.value }))}
               disabled={loading || chatRuntimeLoading}
               hint="Default 45. Saved to backend in milliseconds."
+            />
+            <Input
+              type="number"
+              min="1"
+              step="1"
+              label="Compact upstream timeout (seconds)"
+              value={chatRuntimeForm.compactUpstreamTimeoutSeconds}
+              onChange={(e) => setChatRuntimeForm((prev) => ({ ...prev, compactUpstreamTimeoutSeconds: e.target.value }))}
+              disabled={loading || chatRuntimeLoading}
+              hint="Default 300. Used for compact flows across all providers."
             />
             <Input
               type="number"
