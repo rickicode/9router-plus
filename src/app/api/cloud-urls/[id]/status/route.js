@@ -6,21 +6,7 @@ import {
   buildWorkerDashboardUrl,
 } from "@/lib/cloudWorkerClient";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
-
-function hasValidOrigin(request) {
-  const origin = request.headers.get("origin");
-  const host = request.headers.get("host");
-
-  if (!host) return false;
-  if (process.env.NODE_ENV === "production" && !origin) return false;
-  if (!origin) return true;
-
-  try {
-    return new URL(origin).host === host;
-  } catch {
-    return false;
-  }
-}
+import { hasValidCloudRouteOrigin } from "@/lib/cloudRequestAuth";
 
 function maskSecret(secret) {
   if (typeof secret !== "string" || secret.length < 12) return "••••";
@@ -53,7 +39,7 @@ function shouldRevealSecret(request) {
  * the link.
  */
 export async function GET(request, context) {
-  if (!hasValidOrigin(request)) {
+  if (!hasValidCloudRouteOrigin(request)) {
     return NextResponse.json({ error: "CSRF validation failed" }, { status: 403 });
   }
 

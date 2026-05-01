@@ -50,6 +50,24 @@ function backupKey(timestamp) {
   return `backups/sqlite-${timestamp}.db`;
 }
 
+function cloneRecord(value) {
+  if (value === undefined) return undefined;
+  return structuredClone(value);
+}
+
+function mergeProviderMaps(runtimeProviders = {}, localProviders = {}) {
+  const merged = { ...runtimeProviders };
+
+  for (const [providerId, localProvider] of Object.entries(localProviders || {})) {
+    merged[providerId] = {
+      ...(runtimeProviders?.[providerId] || {}),
+      ...cloneRecord(localProvider),
+    };
+  }
+
+  return merged;
+}
+
 /**
  * Get machine data from R2 (with request-scope caching)
  * @param {string} machineId
@@ -116,13 +134,67 @@ export async function getRuntimeRegistration(machineId, env) {
  * @returns {Promise<Object|null>}
  */
 export async function getRuntimeConfig(machineId, env, options = {}) {
-  const registration = await getRuntimeRegistration(machineId, env);
-  if (!registration) {
+  const registration = await getRuntimeRegistration(machineId, env) || {};
+
+  const loader = options.runtimeConfigLoader || runtimeConfigLoader;
+  const runtimeConfig = await loader.load(machineId, registration, {
+    env,
+    forceRefresh: options.forceRefresh === true,
+  });
+
+  if (!runtimeConfig || env?.R2_RUNTIME) {
+    return runtimeConfig;
+  }
+
+  const machineData = options.machineData || await getMachineData(machineId, env);
+  if (!machineData) {
+    return runtimeConfig;
+  }
+
+  return {
+    ...runtimeConfig,
+    providers: mergeProviderMaps(runtimeConfig?.providers, machineData?.providers),
+  };
+}
+
+export async function ensureMachineProviderState(machineId, connectionId, env, options = {}) {
+  const runtimeConfig = options.runtimeConfig || await getRuntimeConfig(machineId, env, {
+    runtimeConfigLoader: options.runtimeConfigLoader,
+  });
+
+  if (!runtimeConfig?.providers || !connectionId) {
     return null;
   }
 
+  return runtimeConfig;
+}
+
+export async function updateRuntimeProviderState(machineId, connectionId, updater, env, options = {}) {
+  if (!connectionId || typeof updater !== "function") {
+    return null;
+  }
+
+  const runtimeConfig = options.runtimeConfig || await getRuntimeConfig(machineId, env, options);
+  const provider = runtimeConfig?.providers?.[connectionId];
+  if (!provider) {
+    return null;
+  }
+
+  updater(provider, runtimeConfig);
+  provider.updatedAt = new Date().toISOString();
+  return runtimeConfig;
+}
+
+export async function invalidateRuntimeConfig(machineId, env, options = {}) {
+  const registration = options.registration || await getRuntimeRegistration(machineId, env);
   const loader = options.runtimeConfigLoader || runtimeConfigLoader;
-  return loader.load(machineId, registration);
+
+  if (typeof loader.invalidate !== "function") {
+    return false;
+  }
+
+  loader.invalidate(machineId, registration || {});
+  return true;
 }
 
 /**

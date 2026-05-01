@@ -157,7 +157,7 @@ export async function POST(request) {
             ...(shouldReactivate
               ? {
                   backoffLevel: 0,
-                  reasonCode: "unknown",
+                  reasonCode: null,
                   reasonDetail: null,
                 }
               : {}),

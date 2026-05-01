@@ -502,14 +502,31 @@ async function getCodexUsage(accessToken) {
     const primaryWindow = rateLimit.primary_window;
     const secondaryWindow = rateLimit.secondary_window;
     const quotas = {};
+    const normalizeUsedPercent = (window) => {
+      const usedPercent = Number(window?.used_percent);
+      const remainingPercent = Number(window?.remaining_percent);
+
+      if (Number.isFinite(remainingPercent)) {
+        return Math.max(0, Math.min(100, 100 - remainingPercent));
+      }
+
+      if (Number.isFinite(usedPercent)) {
+        return Math.max(0, Math.min(100, usedPercent));
+      }
+
+      return 0;
+    };
 
     if (primaryWindow) {
       const sessionResetAt = parseResetTime(primaryWindow.reset_at ? primaryWindow.reset_at * 1000 : null);
+      const used = normalizeUsedPercent(primaryWindow);
+      const remaining = Math.max(0, 100 - used);
 
       quotas.session = {
-        used: primaryWindow.used_percent || 0,
+        used,
         total: 100,
-        remaining: 100 - (primaryWindow.used_percent || 0),
+        remaining,
+        remainingPercentage: remaining,
         resetAt: sessionResetAt,
         unlimited: false,
       };
@@ -517,13 +534,25 @@ async function getCodexUsage(accessToken) {
 
     if (secondaryWindow) {
       const weeklyResetAt = parseResetTime(secondaryWindow.reset_at ? secondaryWindow.reset_at * 1000 : null);
+      const used = normalizeUsedPercent(secondaryWindow);
+      const remaining = Math.max(0, 100 - used);
 
       quotas.weekly = {
-        used: secondaryWindow.used_percent || 0,
+        used,
         total: 100,
-        remaining: 100 - (secondaryWindow.used_percent || 0),
+        remaining,
+        remainingPercentage: remaining,
         resetAt: weeklyResetAt,
         unlimited: false,
+      };
+    }
+
+    if (Object.keys(quotas).length === 0) {
+      return {
+        plan: data.plan_type || "unknown",
+        limitReached: rateLimit.limit_reached || false,
+        quotas,
+        message: "Codex connected, but the usage API did not include detailed rate-limit windows.",
       };
     }
 

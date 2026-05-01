@@ -79,8 +79,8 @@ function hasPrivateR2Config(settings = {}) {
 export async function GET() {
   try {
     const settings = await getSettings();
-    const runtimeConfigured = String(settings.r2RuntimePublicBaseUrl || "").trim() !== "";
     const backupConfigured = hasPrivateR2Config(settings);
+    const runtimeConfigured = backupConfigured || String(settings.r2RuntimePublicBaseUrl || "").trim() !== "";
     const configured = runtimeConfigured || backupConfigured;
 
     if (!configured) {

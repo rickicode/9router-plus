@@ -18,10 +18,19 @@ import {
   getConnectionFilterStatus,
   normalizeConnectionFilterStatus,
 } from "@/lib/connectionStatus";
-import { getStoredQuotaPresentation } from "./utils";
+import { getQuotaPresentation } from "./utils";
 
 const DEFAULT_PAGE_SIZE = 24;
 const STATUS_POLL_INTERVAL_MS = 15000;
+const ACTIVE_STATUS_POLL_INTERVAL_MS = 2500;
+
+function isSchedulerActivelyChanging(status) {
+  return Boolean(
+    status?.status === "running"
+    || status?.status === "cancelling"
+    || status?.restartRequested
+  );
+}
 
 function getSupportedOAuthConnections(connections = []) {
   return connections.filter(
@@ -96,7 +105,51 @@ function getRelativeTime(dateString) {
   return "Just now";
 }
 
+function getTimeUntil(dateString) {
+  if (!dateString) return null;
+
+  const timestamp = new Date(dateString).getTime();
+  if (!Number.isFinite(timestamp)) return null;
+
+  const diffMs = timestamp - Date.now();
+  if (diffMs <= 0) return "now";
+
+  const totalMinutes = Math.ceil(diffMs / (1000 * 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours <= 0) return `${totalMinutes} ${totalMinutes === 1 ? "minute" : "minutes"}`;
+  if (minutes === 0) return `${hours} ${hours === 1 ? "hour" : "hours"}`;
+  return `${hours} ${hours === 1 ? "hour" : "hours"} ${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+}
+
+function formatAbsoluteDateTime(dateString) {
+  if (!dateString) return null;
+
+  const date = new Date(dateString);
+  if (!Number.isFinite(date.getTime())) return null;
+
+  return date.toLocaleString("en-US", {
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 function getSchedulerTone(status, enabled) {
+  if (enabled === undefined || enabled === null) {
+    return {
+      icon: "schedule",
+      label: "Starting usage worker",
+      tone: "text-[var(--color-primary)]",
+      surface: "border-[var(--color-primary-border)] bg-[var(--color-primary-soft)]",
+    };
+  }
+
   if (!enabled) {
     return {
       icon: "pause_circle",
@@ -131,7 +184,7 @@ function getSchedulerTone(status, enabled) {
     default:
       return {
         icon: "schedule",
-        label: "Watching shared state",
+        label: "Auto-checking usage",
         tone: "text-[var(--color-success)]",
         surface: "border-[var(--color-success-border)] bg-[var(--color-success-soft)]",
       };
@@ -139,35 +192,41 @@ function getSchedulerTone(status, enabled) {
 }
 
 function getSchedulerMessage(status = {}) {
-  if (!status) return "Shared quota state is loaded from the backend scheduler.";
+  if (!status) return "Usage data is loaded from the latest background check.";
+
+  if (status.enabled === undefined || status.enabled === null) {
+    return "Usage Worker is starting. Status will update shortly.";
+  }
 
   if (!status.enabled) {
-    return "Automatic quota sweeps are disabled. Stored state remains visible until the scheduler is re-enabled.";
+    return "Automatic usage checks are disabled. Existing quota data will stay visible until checks are enabled again.";
   }
 
   if (status.status === "running") {
+    const completedCount = status?.currentRun?.progress?.completedCount ?? status?.progress?.completedCount;
+    const totalCount = status?.currentRun?.progress?.totalCount ?? status?.progress?.totalCount;
     const rangeStart = status?.currentRun?.progress?.currentBatchStart ?? status?.progress?.currentBatchStart;
     const rangeEnd = status?.currentRun?.progress?.currentBatchEnd ?? status?.progress?.currentBatchEnd;
     if (Number.isFinite(rangeStart) && Number.isFinite(rangeEnd)) {
-      return `Backend sweep sedang cek ${rangeStart} sampai ${rangeEnd}.`;
+      return `Checking accounts ${rangeStart} to ${rangeEnd}${Number.isFinite(completedCount) && Number.isFinite(totalCount) ? ` (${completedCount}/${totalCount} done)` : ""}.`;
     }
 
-    return "Backend sweep is updating shared quota state now. Cards will reflect changes on the next lightweight status refresh.";
+    return "Usage Worker is checking accounts in the background. Quota cards will update shortly.";
   }
 
   if (status.status === "cancelling" || status.restartRequested) {
-    return "A manual refresh requested a restart. The backend will cancel the current sweep and begin a fresh one.";
+    return "A new refresh was requested. Usage Worker is restarting the background check.";
   }
 
   if (status.status === "error") {
-    return status.error?.message || "The last scheduler run failed. Stored state is still shown while the backend recovers.";
+    return status.error?.message || "The last background usage check failed. Existing quota data is still shown while the worker recovers.";
   }
 
   if (status.lastRun?.finishedAt) {
-    return `Last backend sweep completed ${getRelativeTime(status.lastRun.finishedAt)}.`;
+    return `Last background usage check completed ${getRelativeTime(status.lastRun.finishedAt)}.`;
   }
 
-  return "Quota cards show the latest backend-maintained shared state without browser fan-out polling.";
+  return "Quota data is updated automatically in the background.";
 }
 
 export default function ProviderLimits() {
@@ -190,9 +249,11 @@ export default function ProviderLimits() {
   const [schedulerStatusLoading, setSchedulerStatusLoading] = useState(true);
   const [schedulerStatusError, setSchedulerStatusError] = useState("");
   const [refreshActionError, setRefreshActionError] = useState("");
+  const [refreshActionNotice, setRefreshActionNotice] = useState("");
   const [refreshingAll, setRefreshingAll] = useState(false);
   const [refreshingConnectionIds, setRefreshingConnectionIds] = useState({});
   const [connectionRefreshErrors, setConnectionRefreshErrors] = useState({});
+  const [latestTestResults, setLatestTestResults] = useState({});
   const [deletingId, setDeletingId] = useState(null);
   const [togglingId, setTogglingId] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -218,7 +279,7 @@ export default function ProviderLimits() {
     }
 
     try {
-      const response = await fetch("/api/quota-refresh/status", { cache: "no-store" });
+      const response = await fetch("/api/usage-worker/status", { cache: "no-store" });
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
         throw new Error(data.error || "Failed to load scheduler status");
@@ -239,6 +300,30 @@ export default function ProviderLimits() {
     }
   }, []);
 
+  const fetchLiveTestResults = useCallback(async () => {
+    try {
+      const response = await fetch("/api/providers/test-batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "oauth" }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to fetch connection test results");
+      }
+
+      const resultMap = Object.fromEntries(
+        (data.results || []).map((result) => [result.connectionId, result])
+      );
+      setLatestTestResults(resultMap);
+      return resultMap;
+    } catch (error) {
+      console.error("Error fetching live test results:", error);
+      return null;
+    }
+  }, []);
+
   const refreshSharedState = useCallback(async ({ silentStatus = false } = {}) => {
     try {
       await fetchConnections();
@@ -254,19 +339,36 @@ export default function ProviderLimits() {
     const initializeData = async () => {
       setConnectionsLoading(true);
       await refreshSharedState();
+      await fetchLiveTestResults();
+      await refreshSharedState({ silentStatus: true });
       setConnectionsLoading(false);
     };
 
     initializeData();
-  }, [refreshSharedState]);
+  }, [fetchLiveTestResults, refreshSharedState]);
 
   useEffect(() => {
+    const intervalMs = isSchedulerActivelyChanging(schedulerStatus)
+      ? ACTIVE_STATUS_POLL_INTERVAL_MS
+      : STATUS_POLL_INTERVAL_MS;
+
     const intervalId = setInterval(() => {
       refreshSharedState({ silentStatus: true }).catch(() => {});
-    }, STATUS_POLL_INTERVAL_MS);
+    }, intervalMs);
 
     return () => clearInterval(intervalId);
-  }, [refreshSharedState]);
+  }, [refreshSharedState, schedulerStatus]);
+
+  useEffect(() => {
+    if (!refreshActionNotice) return undefined;
+    if (isSchedulerActivelyChanging(schedulerStatus)) return undefined;
+
+    const timeoutId = setTimeout(() => {
+      setRefreshActionNotice("");
+    }, 5000);
+
+    return () => clearTimeout(timeoutId);
+  }, [refreshActionNotice, schedulerStatus]);
 
   useEffect(() => {
     let cancelled = false;
@@ -345,12 +447,13 @@ export default function ProviderLimits() {
   const refreshAll = useCallback(async () => {
     setRefreshingAll(true);
     setRefreshActionError("");
+    setRefreshActionNotice("");
 
     try {
-      const response = await fetch("/api/quota-refresh/run", {
+      const response = await fetch("/api/usage-worker/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: "dashboard_manual_refresh" }),
+        body: JSON.stringify({ reason: "dashboard_manual_refresh", mode: "all" }),
       });
 
       const data = await response.json().catch(() => ({}));
@@ -362,6 +465,16 @@ export default function ProviderLimits() {
       if (data?.snapshot) {
         setSchedulerStatus(data.snapshot);
         setSchedulerStatusError("");
+      }
+
+      if (data?.reason === "override_requested") {
+        setRefreshActionNotice("Usage Worker is restarting the current background check with a fresh run.");
+      } else if (data?.reason === "queued_full_refresh") {
+        setRefreshActionNotice("Full usage refresh queued. It will check every account after the current run finishes.");
+      } else if (data?.reason === "run_triggered_status_pending") {
+        setRefreshActionNotice("Full usage refresh request was sent. The worker is busy, so status will update as progress events arrive.");
+      } else if (data?.reason === "run_triggered") {
+        setRefreshActionNotice("Full usage refresh started in the background. Every account will be checked automatically.");
       }
 
       await refreshSharedState({ silentStatus: true });
@@ -389,14 +502,56 @@ export default function ProviderLimits() {
     });
 
     try {
-      const response = await fetch(`/api/usage/${connectionId}`, {
+      const response = await fetch(`/api/usage/${encodeURIComponent(connectionId)}?test=1`, {
         cache: "no-store",
       });
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
+        if (data.testResult) {
+          setLatestTestResults((prev) => ({
+            ...prev,
+            [connectionId]: {
+              connectionId,
+              valid: data.testResult.valid === true,
+              error: data.testResult.error || data.error || "Failed to refresh usage",
+              testedAt: data.testResult.testedAt || new Date().toISOString(),
+            },
+          }));
+        }
         throw new Error(data.error || "Failed to refresh usage");
       }
+
+      const testResult = data.testResult || {
+        connectionId,
+        valid: true,
+        error: null,
+      };
+
+      if (data.usage) {
+        const refreshedAt = new Date().toISOString();
+        setConnections((prev) => prev.map((connection) => (
+          connection.id === connectionId
+            ? {
+                ...connection,
+                usageSnapshot: data.usage,
+                lastUsageRefresh: refreshedAt,
+                lastCheckedAt: refreshedAt,
+                reasonDetail: testResult.error || null,
+              }
+            : connection
+        )));
+      }
+
+      setLatestTestResults((prev) => ({
+        ...prev,
+        [connectionId]: {
+          connectionId,
+          valid: testResult.valid !== false,
+          error: testResult.error || null,
+          testedAt: testResult.testedAt || new Date().toISOString(),
+        },
+      }));
 
       await refreshSharedState({ silentStatus: true });
     } catch (error) {
@@ -444,9 +599,9 @@ export default function ProviderLimits() {
   const quotaCards = useMemo(
     () => supportedConnections.map((conn) => ({
       connection: conn,
-      quota: getStoredQuotaPresentation(conn),
+      quota: getQuotaPresentation(conn, latestTestResults[conn.id] || null),
     })),
-    [supportedConnections],
+    [latestTestResults, supportedConnections],
   );
 
   const visibleQuotaCards = useMemo(() => {
@@ -470,8 +625,21 @@ export default function ProviderLimits() {
   const schedulerMessage = getSchedulerMessage(schedulerStatus);
   const schedulerLastUpdated = schedulerStatus?.lastRun?.finishedAt
     || schedulerStatus?.currentRun?.startedAt
-    || schedulerStatus?.nextScheduledAt
+    || schedulerStatus?.nextRunAt
     || null;
+  const workerStartedRelative = schedulerStatus?.startedAt
+    ? getRelativeTime(schedulerStatus.startedAt)
+    : null;
+  const workerStartedAbsolute = schedulerStatus?.startedAt
+    ? formatAbsoluteDateTime(schedulerStatus.startedAt)
+    : null;
+  const schedulerProgress = schedulerStatus?.currentRun?.progress || schedulerStatus?.progress || null;
+  const nextRunRelative = schedulerStatus?.nextRunAt
+    ? getTimeUntil(schedulerStatus.nextRunAt)
+    : null;
+  const nextRunAbsolute = schedulerStatus?.nextRunAt
+    ? formatAbsoluteDateTime(schedulerStatus.nextRunAt)
+    : null;
   const refreshButtonLabel = schedulerStatus?.status === "running"
     ? "Restart Sweep"
     : schedulerStatus?.restartRequested
@@ -556,13 +724,30 @@ export default function ProviderLimits() {
               <p className="text-xs leading-5 text-text-muted">
                 {schedulerMessage}
               </p>
-              {(schedulerStatus?.nextScheduledAt || schedulerStatus?.currentRun?.trigger) && (
+              {(schedulerStatus?.startedAt || schedulerStatus?.nextRunAt || schedulerStatus?.currentRun?.trigger) && (
                 <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-text-muted">
+                  {schedulerStatus?.startedAt && (
+                    <span title={workerStartedAbsolute || schedulerStatus.startedAt}>
+                      Worker started {workerStartedRelative || "unknown"}
+                      {workerStartedAbsolute ? ` (${workerStartedAbsolute})` : ""}
+                    </span>
+                  )}
                   {schedulerStatus?.currentRun?.trigger && (
                     <span>Trigger: {schedulerStatus.currentRun.trigger}</span>
                   )}
-                  {schedulerStatus?.nextScheduledAt && (
-                    <span>Next sweep {getRelativeTime(schedulerStatus.nextScheduledAt)}</span>
+                  {Number.isFinite(schedulerProgress?.completedCount) && Number.isFinite(schedulerProgress?.totalCount) && (
+                    <span>
+                      Progress: {schedulerProgress.completedCount}/{schedulerProgress.totalCount}
+                      {Number.isFinite(schedulerProgress?.successCount) ? ` | success ${schedulerProgress.successCount}` : ""}
+                      {Number.isFinite(schedulerProgress?.errorCount) ? ` | error ${schedulerProgress.errorCount}` : ""}
+                      {Number.isFinite(schedulerProgress?.skippedCount) ? ` | skipped ${schedulerProgress.skippedCount}` : ""}
+                    </span>
+                  )}
+                  {schedulerStatus?.nextRunAt && (
+                    <span title={nextRunAbsolute || schedulerStatus.nextRunAt}>
+                      Next check in {nextRunRelative || "unknown"}
+                      {nextRunAbsolute ? ` (${nextRunAbsolute})` : ""}
+                    </span>
                   )}
                 </div>
               )}
@@ -575,7 +760,7 @@ export default function ProviderLimits() {
             key={`quota-search-${searchQuery}`}
             label="Search accounts"
             icon="search"
-            defaultValue={searchQuery}
+            value={searchQuery}
             onChange={(e) => {
               const value = e.target.value;
               setCurrentPage(1);
@@ -588,7 +773,7 @@ export default function ProviderLimits() {
           <Select
             key={`quota-status-${statusFilter}`}
             label="Status"
-            defaultValue={statusFilter}
+            value={statusFilter}
             onChange={(e) => {
               const nextValue = normalizeConnectionFilterStatus(e.target.value);
               setCurrentPage(1);
@@ -614,7 +799,7 @@ export default function ProviderLimits() {
             disabled={refreshingAll}
             loading={refreshingAll}
             className="w-full lg:w-auto"
-            title="Request backend quota refresh sweep"
+            title="Request backend usage worker refresh"
           >
             {refreshButtonLabel}
           </Button>
@@ -623,6 +808,12 @@ export default function ProviderLimits() {
         {(schedulerStatusError || refreshActionError) && (
           <div className="rounded border border-[var(--color-danger-border)] bg-[var(--color-danger-soft)] px-3 py-2 text-xs text-[var(--color-danger)]">
             {refreshActionError || schedulerStatusError}
+          </div>
+        )}
+
+        {refreshActionNotice && !refreshActionError && !schedulerStatusError && (
+          <div className="rounded border border-[var(--color-primary-border)] bg-[var(--color-primary-soft)] px-3 py-2 text-xs text-[var(--color-primary)]">
+            {refreshActionNotice}
           </div>
         )}
 
@@ -635,7 +826,7 @@ export default function ProviderLimits() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {paginatedConnections.map((conn) => {
-          const quota = getStoredQuotaPresentation(conn);
+          const quota = getQuotaPresentation(conn, latestTestResults[conn.id] || null);
           const isInactive = conn.isActive === false;
           const rowBusy = deletingId === conn.id || togglingId === conn.id;
           const isRefreshingConnection = Boolean(refreshingConnectionIds[conn.id]);
@@ -739,17 +930,17 @@ export default function ProviderLimits() {
                     {connectionRefreshError}
                   </div>
                 )}
-                {quota.message ? (
+                {quota.quotas?.length > 0 ? (
+                  <QuotaTable quotas={quota.quotas} compact />
+                ) : quota.message ? (
                   <div className="rounded border border-[var(--color-warning-border)] bg-[var(--color-warning-soft)] px-3 py-3 text-xs text-text-muted">
                     {quota.message}
                   </div>
-                ) : quota.quotas?.length > 0 ? (
-                  <QuotaTable quotas={quota.quotas} compact />
                 ) : (
                   <div className="rounded border border-dashed border-border bg-surface/70 px-3 py-4 text-center">
                     <p className="text-xs font-medium text-text-main">Waiting for backend quota snapshot</p>
                     <p className="mt-1 text-xs text-text-muted">
-                      Use the reload icon to refresh just this account, or Refresh All to request a backend sweep.
+                      Use the reload icon to refresh just this account, or Refresh All to start a background usage check.
                     </p>
                   </div>
                 )}

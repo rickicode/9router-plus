@@ -113,6 +113,88 @@ export async function fetchWorkerStatus(workerUrl, secret, machineId) {
   return body;
 }
 
+export async function refreshWorkerRuntime(workerUrl, secret, machineId) {
+  const mid = machineId || (await getConsistentMachineId());
+  const url = `${normalizeUrl(workerUrl)}/admin/runtime/refresh`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Cloud-Secret": secret,
+    },
+    body: JSON.stringify({ machineId: mid }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+
+  let body = null;
+  try { body = await res.json(); } catch { /* ignore */ }
+
+  if (!res.ok) {
+    const message = body?.error || `runtime refresh failed (HTTP ${res.status})`;
+    const err = new Error(message);
+    err.status = res.status;
+    throw err;
+  }
+
+  return body || {};
+}
+
+export async function unregisterWorker(workerUrl, secret, machineId) {
+  const mid = machineId || (await getConsistentMachineId());
+  const url = `${normalizeUrl(workerUrl)}/admin/unregister`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Cloud-Secret": secret,
+    },
+    body: JSON.stringify({ machineId: mid }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+
+  let body = null;
+  try { body = await res.json(); } catch { /* ignore */ }
+
+  if (!res.ok) {
+    const message = body?.error || `unregister failed (HTTP ${res.status})`;
+    const err = new Error(message);
+    err.status = res.status;
+    throw err;
+  }
+
+  return body || {};
+}
+
+export async function fetchWorkerUsageEvents(workerUrl, secret, machineId, { cursor = 0, limit = 500 } = {}) {
+  const mid = machineId || (await getConsistentMachineId());
+  const params = new URLSearchParams({
+    machineId: mid,
+    cursor: String(Number(cursor) || 0),
+    limit: String(Number(limit) || 500),
+  });
+  const url = `${normalizeUrl(workerUrl)}/admin/usage/events?${params}`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { "X-Cloud-Secret": secret },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+
+  let body = null;
+  try { body = await res.json(); } catch { /* ignore */ }
+
+  if (!res.ok) {
+    const message = body?.error || `usage events fetch failed (HTTP ${res.status})`;
+    const err = new Error(message);
+    err.status = res.status;
+    throw err;
+  }
+
+  return body || { events: [], nextCursor: Number(cursor) || 0 };
+}
+
 /**
  * Build the URL the user can open in a browser tab to view the live worker
  * dashboard. The token is included in the query string because the dashboard

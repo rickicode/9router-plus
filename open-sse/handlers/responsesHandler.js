@@ -7,6 +7,8 @@ import { handleChatCore } from "./chatCore.js";
 import { convertResponsesApiFormat } from "../translator/helpers/responsesApiHelper.js";
 import { createResponsesApiTransformStream } from "../transformer/responsesTransformer.js";
 import { convertResponsesStreamToJson } from "../transformer/streamToJsonConverter.js";
+import { createErrorResult } from "../utils/error.js";
+import { HTTP_STATUS } from "../config/runtimeConfig.js";
 
 /**
  * Handle /v1/responses request
@@ -70,11 +72,16 @@ export async function handleResponsesCore({ body, modelInfo, credentials, log, o
       };
     } catch (error) {
       console.error("[Responses API] Stream-to-JSON conversion failed:", error);
-      return {
-        success: false,
-        status: 500,
-        error: "Failed to convert streaming response to JSON"
-      };
+      if (error?.name === "AbortError") {
+        const status = error.code === "UPSTREAM_TIMEOUT" || error.code === "STREAM_IDLE_TIMEOUT"
+          ? HTTP_STATUS.GATEWAY_TIMEOUT
+          : 499;
+        return createErrorResult(
+          status,
+          error.message || (status === HTTP_STATUS.GATEWAY_TIMEOUT ? "Upstream request timed out" : "Request aborted")
+        );
+      }
+      return createErrorResult(HTTP_STATUS.BAD_GATEWAY, "Failed to convert streaming response to JSON");
     }
   }
 

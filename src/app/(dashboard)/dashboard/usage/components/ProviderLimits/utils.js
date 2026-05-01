@@ -1,4 +1,5 @@
 import { getModelsByProviderId } from "open-sse/config/providerModels.js";
+import { getConnectionCentralizedStatus } from "@/lib/connectionStatus";
 
 /**
  * Format ISO date string to countdown format (inspired by vscode-antigravity-cockpit)
@@ -228,24 +229,108 @@ export function parseStoredUsageSnapshot(connection = {}) {
   }
 }
 
+function isRawProviderQuotaErrorMessage(message) {
+  if (typeof message !== "string") return false;
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("{") && normalized.includes("error")) {
+    try {
+      const parsed = JSON.parse(message);
+      if (parsed?.error?.type === "usage_limit_reached") return true;
+      if (parsed?.error?.message?.toLowerCase().includes("usage limit")) return true;
+    } catch {
+      // Continue with string checks.
+    }
+  }
+
+  return normalized.includes("usage_limit_reached")
+    || normalized.includes("usage limit has been reached")
+    || (normalized.includes("[429]") && normalized.includes("error"));
+}
+
+function getSafeQuotaMessage(connection = {}, raw = null, quotas = []) {
+  const rawMessage = raw?.message || null;
+  if (!rawMessage) return null;
+  if (isRawProviderQuotaErrorMessage(rawMessage)) {
+    if (quotas.length > 0) return null;
+    return connection?.reasonDetail && !isRawProviderQuotaErrorMessage(connection.reasonDetail)
+      ? connection.reasonDetail
+      : "Quota exhausted. Waiting for the next reset.";
+  }
+  return rawMessage;
+}
+
+function getMissingSnapshotMessage(connection = {}) {
+  const status = getConnectionCentralizedStatus(connection);
+  const reasonDetail = connection?.reasonDetail || null;
+
+  if (status === "exhausted") {
+    return reasonDetail || `Quota status for ${connection?.provider || "provider"} was checked, but detailed quota numbers are not available yet.`;
+  }
+
+  if (status === "eligible" || status === "unknown") {
+    return reasonDetail || `Usage for ${connection?.provider || "provider"} was checked, but the provider did not return a detailed quota snapshot.`;
+  }
+
+  return `No quota snapshot is available for ${connection?.provider || "provider"} yet. Refresh usage to check this account.`;
+}
+
 export function getStoredQuotaPresentation(connection = {}) {
   const raw = parseStoredUsageSnapshot(connection);
+  const canonicalStatus = getConnectionCentralizedStatus(connection);
+  const hasDisabledConnectionIssue = canonicalStatus === "disabled";
+  const hasBlockedConnectionIssue = canonicalStatus === "blocked";
+  const hasBeenChecked = Boolean(connection?.lastCheckedAt);
+
+  if (hasDisabledConnectionIssue || hasBlockedConnectionIssue) {
+    return {
+      quotas: [],
+      plan: raw?.plan || null,
+      message: connection?.reasonDetail || null,
+      raw,
+      hasSnapshot: Boolean(raw),
+    };
+  }
 
   if (!raw) {
     return {
       quotas: [],
       plan: null,
-      message: null,
+      message: hasBeenChecked
+        ? getMissingSnapshotMessage(connection)
+        : `Scheduler has not produced quota data for ${connection?.provider || "provider"} yet. This account is still pending its first usage check.`,
       raw: null,
       hasSnapshot: false,
     };
   }
 
+  const quotas = parseQuotaData(connection.provider, raw);
+
   return {
-    quotas: parseQuotaData(connection.provider, raw),
+    quotas,
     plan: raw.plan || null,
-    message: raw.message || null,
+    message: getSafeQuotaMessage(connection, raw, quotas),
     raw,
     hasSnapshot: true,
   };
+}
+
+export function getQuotaPresentation(connection = {}, latestTestResult = null) {
+  const stored = getStoredQuotaPresentation(connection);
+  if (stored.quotas?.length > 0) {
+    return stored;
+  }
+
+  if (latestTestResult && latestTestResult.valid === false && latestTestResult.error) {
+    const raw = parseStoredUsageSnapshot(connection);
+    return {
+      quotas: [],
+      plan: raw?.plan || null,
+      message: latestTestResult.error,
+      raw,
+      hasSnapshot: Boolean(raw),
+    };
+  }
+
+  return stored;
 }

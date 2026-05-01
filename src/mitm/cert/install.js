@@ -7,13 +7,34 @@ const err = (msg) => console.error(`[${new Date().toLocaleTimeString("en-US", { 
 
 const IS_WIN = process.platform === "win32";
 const IS_MAC = process.platform === "darwin";
-const LINUX_CERT_DIR = "/usr/local/share/ca-certificates";
+const LINUX_CERT_FILE = "9router-root-ca.crt";
+const LINUX_CERT_STORES = [
+  { dir: "/etc/ca-certificates/trust-source/anchors", update: "update-ca-trust", label: "Arch/CachyOS" },
+  { dir: "/etc/pki/ca-trust/source/anchors", update: "update-ca-trust", label: "Fedora/RHEL" },
+  { dir: "/usr/local/share/ca-certificates", update: "update-ca-certificates", label: "Debian/Ubuntu" },
+];
 
 // Get SHA1 fingerprint from cert file using Node.js crypto
 function getCertFingerprint(certPath) {
   const pem = fs.readFileSync(certPath, "utf-8");
   const der = Buffer.from(pem.replace(/-----[^-]+-----/g, "").replace(/\s/g, ""), "base64");
   return crypto.createHash("sha1").update(der).digest("hex").toUpperCase().match(/.{2}/g).join(":");
+}
+
+function commandExists(command) {
+  try {
+    require("child_process").execSync(`command -v ${command}`, { stdio: "ignore", windowsHide: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveLinuxCertStore() {
+  const existing = LINUX_CERT_STORES.find((store) => fs.existsSync(store.dir) && commandExists(store.update));
+  if (existing) return existing;
+
+  return LINUX_CERT_STORES.find((store) => commandExists(store.update)) || null;
 }
 
 /**
@@ -147,8 +168,7 @@ async function uninstallCertWindows() {
 }
 
 function checkCertInstalledLinux() {
-  const certFile = `${LINUX_CERT_DIR}/9router-root-ca.crt`;
-  return Promise.resolve(fs.existsSync(certFile));
+  return Promise.resolve(LINUX_CERT_STORES.some((store) => fs.existsSync(`${store.dir}/${LINUX_CERT_FILE}`)));
 }
 
 async function installCertLinux(sudoPassword, certPath) {
@@ -156,14 +176,19 @@ async function installCertLinux(sudoPassword, certPath) {
     log(`🔐 Cert: cannot install to system store without sudo — trust this file on clients: ${certPath}`);
     return;
   }
-  const destFile = `${LINUX_CERT_DIR}/9router-root-ca.crt`;
-  // Try update-ca-certificates (Debian/Ubuntu), fallback to update-ca-trust (Fedora/RHEL)
-  const cmd = `cp "${certPath}" "${destFile}" && (update-ca-certificates 2>/dev/null || update-ca-trust 2>/dev/null || true)`;
+
+  const store = resolveLinuxCertStore();
+  if (!store) {
+    throw new Error("Certificate install failed: no supported Linux trust tool found");
+  }
+
+  const destFile = `${store.dir}/${LINUX_CERT_FILE}`;
+  const cmd = `mkdir -p "${store.dir}" && cp "${certPath}" "${destFile}" && ${store.update}`;
   try {
     await execWithPassword(cmd, sudoPassword);
-    log("🔐 Cert: ✅ installed to Linux trust store");
+    log(`🔐 Cert: ✅ installed to Linux trust store (${store.label})`);
   } catch (error) {
-    throw new Error("Certificate install failed");
+    throw new Error(`Certificate install failed: ${error.message || "unknown error"}`);
   }
 }
 
@@ -171,13 +196,19 @@ async function uninstallCertLinux(sudoPassword) {
   if (!isSudoAvailable()) {
     return;
   }
-  const destFile = `${LINUX_CERT_DIR}/9router-root-ca.crt`;
-  const cmd = `rm -f "${destFile}" && (update-ca-certificates 2>/dev/null || update-ca-trust 2>/dev/null || true)`;
+
+  const stores = LINUX_CERT_STORES.filter((store) => fs.existsSync(`${store.dir}/${LINUX_CERT_FILE}`) || commandExists(store.update));
+  const commands = stores.map((store) => `rm -f "${store.dir}/${LINUX_CERT_FILE}"`).join(" && ");
+  const updateCommands = [...new Set(stores.map((store) => store.update).filter(commandExists))].join(" && ");
+  const cmd = [commands, updateCommands].filter(Boolean).join(" && ");
+
+  if (!cmd) return;
+
   try {
     await execWithPassword(cmd, sudoPassword);
     log("🔐 Cert: ✅ uninstalled from Linux trust store");
   } catch (error) {
-    throw new Error("Failed to uninstall certificate");
+    throw new Error(`Failed to uninstall certificate: ${error.message || "unknown error"}`);
   }
 }
 

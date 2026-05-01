@@ -30,7 +30,7 @@ vi.mock("@/lib/connectionStatus.js", () => ({
   })),
 }));
 
-vi.mock("@/lib/quotaStateStore.js", () => ({
+vi.mock("@/lib/providerHotState.js", () => ({
   clearAllHotState: vi.fn(async () => {}),
   clearProviderHotState: vi.fn(async () => {}),
   deleteConnectionHotState: vi.fn(async () => {}),

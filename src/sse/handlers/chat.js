@@ -21,6 +21,7 @@ import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
 import { attachChatSlotRelease, tryAcquireChatSlot } from "@/lib/chat/concurrencyLimiter.js";
+import { maybeAutoCompactChatBody } from "@/lib/chat/autoCompact.js";
 import { setChatRuntimeSettings } from "open-sse/utils/abort.js";
 
 const codexModelIds = new Set((PROVIDER_MODELS.cx || []).map((entry) => entry?.id).filter(Boolean));
@@ -98,6 +99,11 @@ export async function handleChat(request, clientRawRequest = null) {
   const userAgent = request?.headers?.get("user-agent") || "";
   const bypassResponse = await handleBypassRequest(body, modelStr, userAgent, !!settings.ccFilterNaming);
   if (bypassResponse) return bypassResponse.response || bypassResponse;
+
+  body = await maybeAutoCompactChatBody({ body, settings, request, log });
+  if (clientRawRequest?.body) {
+    clientRawRequest = { ...clientRawRequest, body };
+  }
 
   // Check if model is a combo (has multiple models with fallback)
   const comboModels = await getComboModels(modelStr);
@@ -302,7 +308,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
             quotaState: "ok",
             authState: "ok",
             healthStatus: "healthy",
-            reasonCode: "unknown",
+            reasonCode: null,
             reasonDetail: null,
             nextRetryAt: null,
             resetAt: null,

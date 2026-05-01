@@ -5,9 +5,15 @@ compatibility_flags = ["nodejs_compat"]
 
 [alias]
 "@/lib/usageDb.js" = "./src/stubs/usageDb.js"
+"open-sse/config/codexInstructionsResolver.js" = "./src/stubs/codexInstructionsResolver.js"
 "undici" = "./src/stubs/undici.js"
 
 # R2 bucket for all data (providers, settings, usage, backups)
 [[r2_buckets]]
 binding = "R2_DATA"
+bucket_name = "9router-data"
+
+# Private runtime artifacts written by 9router and read by the Worker.
+[[r2_buckets]]
+binding = "R2_RUNTIME"
 bucket_name = "9router-data"

@@ -4,6 +4,8 @@
  * Global in-memory state for worker
  * Reset on cold start
  */
+const USAGE_EVENT_RESET_INTERVAL_MS = 60_000;
+
 const workerState = {
   // Round-robin indexes per provider
   roundRobinIndexes: new Map(),  // provider → index
@@ -13,6 +15,12 @@ const workerState = {
   
   // Usage tracking per connection
   usage: new Map(),              // connectionId → {requests, tokensInput, tokensOutput, errors, lastUsed}
+
+  // Temporary usage/request event buffer for 9router polling
+  usageEvents: [],
+  usageCursor: 0,
+  lastUsageResetAt: Date.now(),
+  usageResetIntervalMs: USAGE_EVENT_RESET_INTERVAL_MS,
   
   // Last sync timestamp
   lastSyncAt: null,
@@ -49,7 +57,24 @@ export function clearState() {
   workerState.roundRobinIndexes.clear();
   workerState.stickyMap.clear();
   workerState.usage.clear();
+  workerState.usageEvents = [];
+  workerState.usageCursor = 0;
+  workerState.lastUsageResetAt = Date.now();
   workerState.lastSyncAt = null;
+}
+
+export function resetUsageEvents(now = Date.now()) {
+  workerState.usageEvents = [];
+  workerState.lastUsageResetAt = now;
+}
+
+export function maybeResetUsageEvents(now = Date.now()) {
+  if (now - workerState.lastUsageResetAt < workerState.usageResetIntervalMs) {
+    return false;
+  }
+
+  resetUsageEvents(now);
+  return true;
 }
 
 /**

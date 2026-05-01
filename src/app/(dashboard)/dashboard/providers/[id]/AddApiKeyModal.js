@@ -103,7 +103,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
               healthStatus: "healthy",
               quotaState: "ok",
               authState: "ok",
-              reasonCode: "unknown",
+              reasonCode: null,
               reasonDetail: null,
               nextRetryAt: null,
               resetAt: null,

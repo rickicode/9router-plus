@@ -11,7 +11,8 @@ import {
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import * as log from "../utils/logger.js";
 import { parseApiKey, extractBearerToken } from "../utils/apiKey.js";
-import { getMachineData, saveMachineData, getRuntimeConfig } from "../services/storage.js";
+import { getRuntimeConfig, updateRuntimeProviderState } from "../services/storage.js";
+import { recordUsageEvent } from "../services/usage.js";
 
 /**
  * Handle POST /v1/embeddings and /{machineId}/v1/embeddings requests.
@@ -29,6 +30,7 @@ import { getMachineData, saveMachineData, getRuntimeConfig } from "../services/s
  * @param {string|null} machineIdOverride - From URL path (old format), or null (new format)
  */
 export async function handleEmbeddings(request, env, ctx, machineIdOverride = null) {
+  const requestStartedAt = Date.now();
   if (request.method === "OPTIONS") {
     return new Response(null, {
       headers: {
@@ -146,11 +148,36 @@ export async function handleEmbeddings(request, env, ctx, machineIdOverride = nu
       }
     });
 
-    if (result.success) return result.response;
+    if (result.success) {
+      recordUsageEvent({
+        type: "embeddings",
+        endpoint: new URL(request.url).pathname,
+        provider,
+        model,
+        connectionId: credentials.id,
+        status: result.response?.status || 200,
+        tokensInput: 0,
+        tokensOutput: 0,
+        latencyMs: Date.now() - requestStartedAt,
+      });
+      return result.response;
+    }
 
     const { shouldFallback } = checkFallbackError(result.status, result.error);
 
     if (shouldFallback) {
+      recordUsageEvent({
+        type: "embeddings",
+        endpoint: new URL(request.url).pathname,
+        provider,
+        model,
+        connectionId: credentials.id,
+        status: result.status,
+        tokensInput: 0,
+        tokensOutput: 0,
+        error: result.error,
+        latencyMs: Date.now() - requestStartedAt,
+      });
       log.warn("EMBEDDINGS_FALLBACK", `${provider.toUpperCase()} | ${credentials.id} | ${result.status}`);
       await markAccountUnavailable(machineId, credentials.id, result.status, result.error, env);
       excludedConnectionIds.add(credentials.id);
@@ -242,32 +269,30 @@ async function getProviderCredentials(machineId, provider, env, excludedConnecti
 }
 
 async function markAccountUnavailable(machineId, connectionId, status, errorText, env) {
-  const data = await getMachineData(machineId, env);
-  if (!data?.providers?.[connectionId]) return;
+  const updated = await updateRuntimeProviderState(machineId, connectionId, (conn) => {
+    const backoffLevel = conn.backoffLevel || 0;
+    const { cooldownMs, newBackoffLevel } = checkFallbackError(status, errorText, backoffLevel);
+    const rateLimitedUntil = getUnavailableUntil(cooldownMs);
+    const reason = typeof errorText === "string" ? errorText.slice(0, 100) : "Provider error";
 
-  const conn = data.providers[connectionId];
-  const backoffLevel = conn.backoffLevel || 0;
-  const { cooldownMs, newBackoffLevel } = checkFallbackError(status, errorText, backoffLevel);
-  const rateLimitedUntil = getUnavailableUntil(cooldownMs);
-  const reason = typeof errorText === "string" ? errorText.slice(0, 100) : "Provider error";
+    const nowIso = new Date().toISOString();
+    conn.backoffLevel = newBackoffLevel ?? backoffLevel;
+    conn.routingStatus = "blocked";
+    conn.healthStatus = status >= 500 ? "unhealthy" : "degraded";
+    conn.quotaState = status === 429 ? "exhausted" : "ok";
+    conn.authState = (status === 401 || status === 403) ? "invalid" : "ok";
+    conn.reasonCode = status === 429
+      ? "quota_exhausted"
+      : ((status === 401 || status === 403) ? "auth_invalid" : "usage_request_failed");
+    conn.reasonDetail = reason;
+    conn.nextRetryAt = rateLimitedUntil;
+    conn.resetAt = rateLimitedUntil;
+    conn.lastCheckedAt = nowIso;
+  }, env);
+  const conn = updated?.providers?.[connectionId];
+  if (!conn) return;
 
-  const nowIso = new Date().toISOString();
-  data.providers[connectionId].backoffLevel = newBackoffLevel ?? backoffLevel;
-  data.providers[connectionId].routingStatus = "blocked";
-  data.providers[connectionId].healthStatus = status >= 500 ? "unhealthy" : "degraded";
-  data.providers[connectionId].quotaState = status === 429 ? "exhausted" : "ok";
-  data.providers[connectionId].authState = (status === 401 || status === 403) ? "invalid" : "ok";
-  data.providers[connectionId].reasonCode = status === 429
-    ? "quota_exhausted"
-    : ((status === 401 || status === 403) ? "auth_invalid" : "usage_request_failed");
-  data.providers[connectionId].reasonDetail = reason;
-  data.providers[connectionId].nextRetryAt = rateLimitedUntil;
-  data.providers[connectionId].resetAt = rateLimitedUntil;
-  data.providers[connectionId].lastCheckedAt = nowIso;
-  data.providers[connectionId].updatedAt = nowIso;
-
-  await saveMachineData(machineId, data, env);
-  log.warn("EMBEDDINGS_ACCOUNT", `${connectionId} | unavailable until ${rateLimitedUntil}`);
+  log.warn("EMBEDDINGS_ACCOUNT", `${connectionId} | unavailable until ${conn.nextRetryAt}`);
 }
 
 async function clearAccountError(machineId, connectionId, currentCredentials, env) {
@@ -283,40 +308,36 @@ async function clearAccountError(machineId, connectionId, currentCredentials, en
 
   if (!hasError) return;
 
-  const data = await getMachineData(machineId, env);
-  if (!data?.providers?.[connectionId]) return;
+  const updated = await updateRuntimeProviderState(machineId, connectionId, (conn) => {
+    conn.backoffLevel = 0;
+    conn.routingStatus = "eligible";
+    conn.authState = "ok";
+    conn.healthStatus = "healthy";
+    conn.quotaState = "ok";
+    conn.reasonCode = "unknown";
+    conn.reasonDetail = null;
+    conn.nextRetryAt = null;
+    conn.resetAt = null;
+    conn.lastCheckedAt = new Date().toISOString();
+  }, env);
+  if (!updated?.providers?.[connectionId]) return;
 
-  data.providers[connectionId].backoffLevel = 0;
-  data.providers[connectionId].routingStatus = "eligible";
-  data.providers[connectionId].authState = "ok";
-  data.providers[connectionId].healthStatus = "healthy";
-  data.providers[connectionId].quotaState = "ok";
-  data.providers[connectionId].reasonCode = "unknown";
-  data.providers[connectionId].reasonDetail = null;
-  data.providers[connectionId].nextRetryAt = null;
-  data.providers[connectionId].resetAt = null;
-  data.providers[connectionId].lastCheckedAt = new Date().toISOString();
-  data.providers[connectionId].updatedAt = new Date().toISOString();
-
-  await saveMachineData(machineId, data, env);
   log.info("EMBEDDINGS_ACCOUNT", `${connectionId} | error cleared`);
 }
 
 async function updateCredentials(machineId, connectionId, newCredentials, env) {
-  const data = await getMachineData(machineId, env);
-  if (!data?.providers?.[connectionId]) return;
+  const updated = await updateRuntimeProviderState(machineId, connectionId, (conn) => {
+    conn.accessToken = newCredentials.accessToken;
+    if (newCredentials.refreshToken)
+      conn.refreshToken = newCredentials.refreshToken;
+    if (newCredentials.expiresIn) {
+      conn.expiresAt = new Date(
+        Date.now() + newCredentials.expiresIn * 1000
+      ).toISOString();
+      conn.expiresIn = newCredentials.expiresIn;
+    }
+  }, env);
+  if (!updated?.providers?.[connectionId]) return;
 
-  data.providers[connectionId].accessToken = newCredentials.accessToken;
-  if (newCredentials.refreshToken)
-    data.providers[connectionId].refreshToken = newCredentials.refreshToken;
-  if (newCredentials.expiresIn) {
-    data.providers[connectionId].expiresAt = new Date(
-      Date.now() + newCredentials.expiresIn * 1000
-    ).toISOString();
-    data.providers[connectionId].expiresIn = newCredentials.expiresIn;
-  }
-  data.providers[connectionId].updatedAt = new Date().toISOString();
-
-  await saveMachineData(machineId, data, env);
-  log.debug("EMBEDDINGS_TOKEN", `credentials updated | ${connectionId}`);
+  log.debug("EMBEDDINGS_TOKEN", `credentials updated in runtime cache | ${connectionId}`);
 }

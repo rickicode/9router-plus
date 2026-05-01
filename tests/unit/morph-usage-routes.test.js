@@ -47,4 +47,31 @@ describe("Morph usage API routes", () => {
     expect(logMorphApiAccess).toHaveBeenCalledTimes(1);
     expect(getMorphRecentRequests).toHaveBeenCalledWith(500);
   });
+
+  it("prints Morph access logs in pink", async () => {
+    vi.doUnmock("@/app/api/morph/_shared.js");
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const { logMorphApiAccess } = await import("../../src/app/api/morph/_shared.js");
+
+    const pathname = logMorphApiAccess(new Request("http://localhost/morphllm/v1/chat/completions", {
+      method: "POST",
+    }));
+
+    expect(pathname).toBe("/morphllm/v1/chat/completions");
+    expect(consoleSpy).toHaveBeenCalledWith("\x1b[38;5;205m[morph] access POST /morphllm/v1/chat/completions\x1b[0m");
+  });
+
+  it("colors Morph pending lifecycle logs pink", async () => {
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const { trackPendingRequest } = await import("../../src/lib/usageDb.js");
+
+    trackPendingRequest("morph:/v1/chat/completions", "morph", "morph:/v1/chat/completions", true, false, {
+      endpoint: "/morphllm/v1/chat/completions",
+      target: "/v1/chat/completions",
+    });
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/^\x1b\[38;5;205m\[\d{2}:\d{2}:\d{2}\] \[PENDING\] START \| provider=morph \| model=morph:\/v1\/chat\/completions \| endpoint=\/morphllm\/v1\/chat\/completions \| target=\/v1\/chat\/completions\x1b\[0m$/)
+    );
+  });
 });

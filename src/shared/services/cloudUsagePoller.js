@@ -2,12 +2,35 @@ import { getConsistentMachineId } from "@/shared/utils/machineId";
 import { atomicUpdateProviderConnection } from "@/lib/localDb";
 import { getCloudUrl } from "@/lib/cloudUrlResolver";
 
+const DEFAULT_CLOUD_USAGE_POLL_INTERVAL_MS = 15000;
+
+function normalizeCloudUsage(value) {
+  if (Array.isArray(value)) {
+    return value.map(normalizeCloudUsage);
+  }
+
+  if (value && typeof value === "object") {
+    return Object.keys(value)
+      .sort()
+      .reduce((acc, key) => {
+        acc[key] = normalizeCloudUsage(value[key]);
+        return acc;
+      }, {});
+  }
+
+  return value ?? null;
+}
+
+function isSameCloudUsage(left, right) {
+  return JSON.stringify(normalizeCloudUsage(left)) === JSON.stringify(normalizeCloudUsage(right));
+}
+
 /**
  * Cloud usage poller
  * Polls worker usage endpoint every interval
  */
 export class CloudUsagePoller {
-  constructor(machineId = null, intervalMs = 3000) {
+  constructor(machineId = null, intervalMs = DEFAULT_CLOUD_USAGE_POLL_INTERVAL_MS) {
     this.machineId = machineId;
     this.intervalMs = intervalMs;
     this.intervalId = null;
@@ -15,6 +38,7 @@ export class CloudUsagePoller {
     this.lastError = null;
     this.lastPollDuration = null;
     this.lastPollSuccess = false;
+    this.pollInFlight = null;
   }
 
   /**
@@ -37,12 +61,12 @@ export class CloudUsagePoller {
 
     await this.initializeMachineId();
 
-    this.poll().catch((error) => {
+    this.runPollCycle().catch((error) => {
       console.error("[CloudUsagePoller] Poll failed:", error);
     });
 
     this.intervalId = setInterval(() => {
-      this.poll().catch((error) => {
+      this.runPollCycle().catch((error) => {
         console.error("[CloudUsagePoller] Poll failed:", error);
       });
     }, this.intervalMs);
@@ -55,6 +79,19 @@ export class CloudUsagePoller {
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
+    }
+  }
+
+  async runPollCycle() {
+    if (this.pollInFlight) {
+      return this.pollInFlight;
+    }
+
+    this.pollInFlight = this.poll();
+    try {
+      return await this.pollInFlight;
+    } finally {
+      this.pollInFlight = null;
     }
   }
 
@@ -108,12 +145,19 @@ export class CloudUsagePoller {
 
         for (const [connId, usage] of Object.entries(data.usage || {})) {
           try {
-            await atomicUpdateProviderConnection(connId, (current) => ({
-              providerSpecificData: {
-                ...(current.providerSpecificData || {}),
-                cloudUsage: usage,
-              },
-            }));
+            await atomicUpdateProviderConnection(connId, (current) => {
+              const currentCloudUsage = current?.providerSpecificData?.cloudUsage;
+              if (isSameCloudUsage(currentCloudUsage, usage)) {
+                return null;
+              }
+
+              return {
+                providerSpecificData: {
+                  ...(current.providerSpecificData || {}),
+                  cloudUsage: usage,
+                },
+              };
+            });
           } catch (err) {
             console.error("[CloudUsagePoller] Atomic update failed for", connId, err);
           }
@@ -154,7 +198,7 @@ export class CloudUsagePoller {
 
 let usagePoller = null;
 
-export async function getCloudUsagePoller(machineId = null, intervalMs = 1000) {
+export async function getCloudUsagePoller(machineId = null, intervalMs = DEFAULT_CLOUD_USAGE_POLL_INTERVAL_MS) {
   if (!usagePoller || usagePoller.intervalMs !== intervalMs) {
     if (usagePoller?.isRunning()) {
       console.log(`[CloudUsagePoller] Stopping existing poller (interval: ${usagePoller.intervalMs}ms)`);

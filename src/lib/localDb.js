@@ -5,14 +5,17 @@ import { DATA_DIR } from "@/lib/dataDir.js";
 import { isHotStateKey } from "@/lib/hotStateKeys.js";
 import { DB_SQLITE_FILE, clearHotStateForProvider, closeSqliteDb, deleteEntity, ensureSchema, getSqliteDb, loadAllDataFromSqlite, loadSingletonFromSqlite, markProviderHotStateInvalidated, migrateFromJSON, rebuildHotStateFromConnections, saveAllDataToSqlite, upsertEntities, upsertEntity, upsertSingleton } from "@/lib/sqliteHelpers.js";
 import { getConnectionEffectiveStatus, getConnectionStatusDetails } from "@/lib/connectionStatus.js";
-import { sanitizeConnectionStatusRecord } from "./providerHotState.js";
-import { normalizeQuotaSchedulerSettings } from "./quotaRefreshPlanner.js";
-import { clearAllHotState, clearProviderHotState, deleteConnectionHotState, extractHotState, mergeConnectionsWithHotState, setConnectionHotState, isHotOnlyUpdate, isRedisHotStateReady } from "@/lib/quotaStateStore.js";
+import { sanitizeConnectionStatusRecord, clearAllHotState, clearProviderHotState, deleteConnectionHotState, extractHotState, mergeConnectionsWithHotState, setConnectionHotState, isHotOnlyUpdate, isRedisHotStateReady } from "@/lib/providerHotState.js";
+import { normalizeUsageWorkerSettings } from "@/lib/usageWorker/config.js";
 import {
   createDefaultOpenCodePreferences,
   normalizeOpenCodePreferences,
   validateOpenCodePreferences,
 } from "@/lib/opencodeSync/schema.js";
+import {
+  DEFAULT_AUTO_COMPACT_SETTINGS,
+  normalizeAutoCompactSettings as normalizeAutoCompactSettingsCore,
+} from "open-sse/utils/autoCompactCore.js";
 
 const DEFAULT_MITM_ROUTER_BASE = "http://localhost:20128";
 export const DB_BACKUP_FORMAT = "9router-db-v1";
@@ -169,6 +172,12 @@ const DEFAULT_SETTINGS = {
   outboundProxyUrl: "",
   outboundNoProxy: "",
   mitmRouterBaseUrl: DEFAULT_MITM_ROUTER_BASE,
+  usageWorker: {
+    enabled: true,
+    intervalMinutes: 15,
+    cadenceMs: 900000,
+    batchSize: 10,
+  },
   quotaExhaustedThresholdPercent: 10,
   
   // Security settings
@@ -189,8 +198,13 @@ const DEFAULT_SETTINGS = {
   r2LastSqliteBackupFingerprint: null,
   r2BackupEncryptionKey: null,
   r2Config: DEFAULT_R2_CONFIG,
+  cloudUsageSync: {
+    cursorsByWorkerId: {},
+    seenEventIds: {},
+  },
   morph: DEFAULT_MORPH_SETTINGS,
   chatRuntime: DEFAULT_CHAT_RUNTIME_SETTINGS,
+  autoCompact: DEFAULT_AUTO_COMPACT_SETTINGS,
 };
 
 const LEGACY_REMOVED_SETTINGS_KEYS = [
@@ -269,6 +283,15 @@ export function normalizeChatRuntimeSettings(settings = {}) {
 
 export function getDefaultChatRuntimeSettings() {
   return { ...DEFAULT_CHAT_RUNTIME_SETTINGS };
+}
+
+export function normalizeAutoCompactSettings(settings = {}) {
+  return normalizeAutoCompactSettingsCore(settings);
+}
+
+function hasUsableMorphApiKey(morph = {}) {
+  return Array.isArray(morph?.apiKeys)
+    && morph.apiKeys.some((entry) => entry?.key && entry.status !== "inactive" && entry.isExhausted !== true);
 }
 
 function normalizeRoutingStrategy(value, fallback = "fill-first") {
@@ -438,13 +461,11 @@ function mergeSettingsWithDefaults(settings = {}) {
     sourceSettings?.quotaExhaustedThresholdPercent
   );
 
-  merged.quotaScheduler = {
-    ...normalizeQuotaSchedulerSettings(
-      sourceSettings?.quotaScheduler && typeof sourceSettings.quotaScheduler === "object" && !Array.isArray(sourceSettings.quotaScheduler)
-        ? sourceSettings.quotaScheduler
-        : {}
-    ),
-  };
+  merged.usageWorker = normalizeUsageWorkerSettings(
+    sourceSettings?.usageWorker && typeof sourceSettings.usageWorker === "object" && !Array.isArray(sourceSettings.usageWorker)
+      ? sourceSettings.usageWorker
+      : {}
+  );
 
   merged.r2Config = {
     ...DEFAULT_R2_CONFIG,
@@ -454,6 +475,10 @@ function mergeSettingsWithDefaults(settings = {}) {
   };
   merged.morph = normalizeMorphSettings(sourceSettings?.morph);
   merged.chatRuntime = normalizeChatRuntimeSettings(sourceSettings?.chatRuntime);
+  merged.autoCompact = normalizeAutoCompactSettings(sourceSettings?.autoCompact);
+  if (!hasUsableMorphApiKey(merged.morph)) {
+    merged.autoCompact.enabled = false;
+  }
   merged.routing = normalizeRoutingSettings(sourceSettings);
   applyLegacyRoutingAliases(merged);
 
@@ -1352,6 +1377,9 @@ export async function getProviderConnectionById(id) {
 export async function createProviderConnection(data) {
   const db = await getDb();
   const normalizedData = stripLegacyMirrorStatusPatch(data || {});
+  if (typeof normalizedData.email === "string") {
+    normalizedData.email = normalizedData.email.trim().toLowerCase() || undefined;
+  }
 
   // Wrap entire upsert logic in local mutex to prevent in-process races.
   let result;
@@ -1495,6 +1523,9 @@ export async function updateProviderConnection(id, data) {
     const providerId = db.data.providerConnections[index].provider;
     const current = db.data.providerConnections[index];
     const sanitizedInput = stripLegacyMirrorStatusPatch(data || {});
+    if (typeof sanitizedInput.email === "string") {
+      sanitizedInput.email = sanitizedInput.email.trim().toLowerCase() || undefined;
+    }
     const hotStatePatch = extractHotState(sanitizedInput);
     const hasHotStateUpdates = Object.keys(hotStatePatch).length > 0;
     const dbPatch = Object.fromEntries(
@@ -2074,9 +2105,9 @@ export async function updateSettings(updates) {
     db.data.settings = mergeSettingsWithDefaults({
       ...db.data.settings,
       ...nextUpdates,
-      quotaScheduler: {
-        ...(db.data.settings?.quotaScheduler || {}),
-        ...(nextUpdates?.quotaScheduler || {}),
+      usageWorker: {
+        ...(db.data.settings?.usageWorker || {}),
+        ...(nextUpdates?.usageWorker || {}),
       },
     });
     await persistDbWrite(db);

@@ -1,7 +1,7 @@
 import { getProviderConnections, validateApiKey, updateProviderConnection, getSettings } from "@/lib/localDb";
 import { getEligibleConnections } from "@/lib/providerHotState";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
-import { applyLiveQuotaUpdate, getCodexLiveQuotaSignal, getConnectionAuthBlockedPatch, getConnectionRecoveryPatch, isConfirmedAuthBlockedError, isUpstreamProcessingError, syncUsageStatus } from "../../lib/usageStatus.js";
+import { applyLiveQuotaUpdate, getCodexLiveQuotaSignal, getConnectionAuthBlockedPatch, getConnectionRecoveryPatch, getLiveRequestRecoveryPatch, isConfirmedAuthBlockedError, isUpstreamProcessingError, syncUsageStatus } from "../../lib/usageStatus.js";
 import { formatRetryAfter, checkFallbackError, isModelLockActive, buildModelLockUpdate, getEarliestModelLockUntil } from "open-sse/services/accountFallback.js";
 import { resolveProviderId, FREE_PROVIDERS } from "@/shared/constants/providers.js";
 import * as log from "../utils/logger.js";
@@ -171,6 +171,13 @@ function buildSelectionPool(provider, providerId, connections, excludeSet, model
       log.warn("AUTH", `${provider} | centralized eligibility unavailable, using canonical fallback (${fallbackPool.length}/${availableConnections.length})`);
       if (fallbackPool.length > 0) {
         selectionPool = fallbackPool;
+      } else if (providerId === "codex") {
+        log.warn("AUTH", `${provider} | centralized eligibility unavailable and no canonical Codex fallback candidates remain`);
+        return {
+          availableConnections,
+          selectionPool: [],
+          rateLimitedResult: null,
+        };
       }
     }
 
@@ -374,6 +381,10 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
  */
 export async function markAccountUnavailable(connectionId, status, errorText, provider = null, model = null, resetsAtMs = null) {
   if (!connectionId || connectionId === "noauth") return { shouldFallback: false, cooldownMs: 0 };
+  if (isProviderRequestValidationError(status, errorText, provider)) {
+    return { shouldFallback: false, cooldownMs: 0 };
+  }
+
   const connections = await getProviderConnections({ provider });
   const conn = connections.find(c => c.id === connectionId);
   const backoffLevel = conn?.backoffLevel || 0;
@@ -542,7 +553,7 @@ export async function clearAccountError(connectionId, currentConnection, model =
 
   // Only reset full router-visible blocked state if no active locks remain
   if (remainingActiveLocks.length === 0) {
-    Object.assign(clearObj, getConnectionRecoveryPatch());
+    Object.assign(clearObj, getLiveRequestRecoveryPatch());
   }
 
   await updateProviderConnection(connectionId, clearObj);
@@ -573,4 +584,14 @@ export function extractApiKey(request) {
 export async function isValidApiKey(apiKey) {
   if (!apiKey) return false;
   return await validateApiKey(apiKey);
+}
+
+function isProviderRequestValidationError(status, errorText, provider = null) {
+  if (Number(status) !== 400) return false;
+  const normalized = String(errorText || "").toLowerCase();
+  if (!normalized) return false;
+
+  return normalized.includes("content_length_exceeds_threshold")
+    || normalized.includes("input is too long")
+    || (provider === "kiro" && normalized.includes("content length"));
 }

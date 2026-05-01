@@ -36,6 +36,21 @@ async function loadModulesWithTempDataDir() {
   return { dataDir, localDb, routeModule };
 }
 
+async function seedCloudUrl(localDb, overrides = {}) {
+  await localDb.atomicUpdateSettings((settings) => ({
+    ...settings,
+    cloudUrls: [
+      {
+        id: "worker-1",
+        url: "https://worker1.example.com/",
+        name: "Worker 1",
+        secret: "test-cloud-secret",
+        ...overrides,
+      },
+    ],
+  }));
+}
+
 beforeEach(() => {
   process.env.NODE_ENV = "development";
 });
@@ -108,5 +123,177 @@ describe("cloud-urls race condition", () => {
     expect(savedUrls).toContain("https://worker1.example.com/");
     expect(savedUrls).toContain("https://worker2.example.com/");
     expect(savedUrls).toContain("https://worker3.example.com/");
+  });
+
+  it("allows localhost DELETE requests without origin metadata in development", async () => {
+    const { localDb, routeModule } = await loadModulesWithTempDataDir();
+    const { DELETE } = routeModule;
+
+    vi.stubGlobal("fetch", vi.fn(async (url, options = {}) => {
+      if (String(url).endsWith("/admin/unregister") && options.method === "POST") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true, machineId: "machine-1" }),
+        };
+      }
+
+      return { ok: false, status: 404, json: async () => ({ error: "not found" }) };
+    }));
+
+    await seedCloudUrl(localDb);
+
+    const response = await DELETE(
+      new Request("http://localhost:20128/api/cloud-urls", {
+        method: "DELETE",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ id: "worker-1" }),
+      })
+    );
+
+    expect(response.ok).toBe(true);
+    expect(response.body.remoteUnregistered).toBe(true);
+    const settings = await localDb.getSettings();
+    expect(settings.cloudUrls).toEqual([]);
+  });
+
+  it("keeps deleting local config when remote worker record is already missing", async () => {
+    const { localDb, routeModule } = await loadModulesWithTempDataDir();
+    const { DELETE } = routeModule;
+
+    vi.stubGlobal("fetch", vi.fn(async (url, options = {}) => {
+      if (String(url).endsWith("/admin/unregister") && options.method === "POST") {
+        return {
+          ok: false,
+          status: 404,
+          json: async () => ({ error: "Machine not registered" }),
+        };
+      }
+
+      return { ok: false, status: 404, json: async () => ({ error: "not found" }) };
+    }));
+
+    await seedCloudUrl(localDb);
+
+    const response = await DELETE(
+      new Request("http://localhost:20128/api/cloud-urls", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "worker-1" }),
+      })
+    );
+
+    expect(response.ok).toBe(true);
+    expect(response.body.remoteUnregistered).toBe(false);
+    expect((await localDb.getSettings()).cloudUrls).toEqual([]);
+  });
+
+  it("blocks local deletion when worker rejects the secret during unregister", async () => {
+    const { localDb, routeModule } = await loadModulesWithTempDataDir();
+    const { DELETE } = routeModule;
+
+    vi.stubGlobal("fetch", vi.fn(async (url, options = {}) => {
+      if (String(url).endsWith("/admin/unregister") && options.method === "POST") {
+        return {
+          ok: false,
+          status: 401,
+          json: async () => ({ error: "Unauthorized" }),
+        };
+      }
+
+      return { ok: false, status: 404, json: async () => ({ error: "not found" }) };
+    }));
+
+    await seedCloudUrl(localDb);
+
+    const response = await DELETE(
+      new Request("http://localhost:20128/api/cloud-urls", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "worker-1" }),
+      })
+    );
+
+    expect(response.status).toBe(409);
+    expect(response.body.error).toContain("Remote record was not removed");
+    expect((await localDb.getSettings()).cloudUrls).toHaveLength(1);
+  });
+
+  it("accepts delete when browser origin is same-origin but the internal request URL uses a different loopback host", async () => {
+    const { localDb, routeModule } = await loadModulesWithTempDataDir();
+    const { DELETE } = routeModule;
+
+    vi.stubGlobal("fetch", vi.fn(async (url, options = {}) => {
+      if (String(url).endsWith("/admin/unregister") && options.method === "POST") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true, machineId: "machine-1" }),
+        };
+      }
+
+      return { ok: false, status: 404, json: async () => ({ error: "not found" }) };
+    }));
+
+    await seedCloudUrl(localDb);
+
+    const response = await DELETE(
+      new Request("http://127.0.0.1:20128/api/cloud-urls", {
+        method: "DELETE",
+        headers: {
+          "content-type": "application/json",
+          origin: "http://localhost:20128",
+          referer: "http://localhost:20128/dashboard/endpoint?tab=cloud",
+          "sec-fetch-site": "same-origin",
+          "x-requested-with": "XMLHttpRequest",
+        },
+        body: JSON.stringify({ id: "worker-1" }),
+      })
+    );
+
+    expect(response.ok).toBe(true);
+    expect(response.body.remoteUnregistered).toBe(true);
+    expect((await localDb.getSettings()).cloudUrls).toEqual([]);
+  });
+
+  it("accepts delete when forwarded localhost origin differs from the internal request host", async () => {
+    const { localDb, routeModule } = await loadModulesWithTempDataDir();
+    const { DELETE } = routeModule;
+
+    vi.stubGlobal("fetch", vi.fn(async (url, options = {}) => {
+      if (String(url).endsWith("/admin/unregister") && options.method === "POST") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true, machineId: "machine-1" }),
+        };
+      }
+
+      return { ok: false, status: 404, json: async () => ({ error: "not found" }) };
+    }));
+
+    await seedCloudUrl(localDb);
+
+    const response = await DELETE(
+      new Request("http://0.0.0.0:20128/api/cloud-urls", {
+        method: "DELETE",
+        headers: {
+          "content-type": "application/json",
+          host: "0.0.0.0:20128",
+          origin: "http://localhost:20128",
+          referer: "http://localhost:20128/dashboard/endpoint?tab=cloud",
+          "x-forwarded-host": "localhost:20128",
+          "x-forwarded-proto": "http",
+          "sec-fetch-site": "same-origin",
+        },
+        body: JSON.stringify({ id: "worker-1" }),
+      })
+    );
+
+    expect(response.ok).toBe(true);
+    expect(response.body.remoteUnregistered).toBe(true);
+    expect((await localDb.getSettings()).cloudUrls).toEqual([]);
   });
 });

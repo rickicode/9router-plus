@@ -1,6 +1,10 @@
 import {
   exportDb,
+  getProviderConnections,
 } from "@/lib/localDb";
+
+export const R2_FULL_CREDENTIALS_OBJECT_KEY = "runtime/credentials.full.json";
+export const R2_RUNTIME_CONFIG_OBJECT_KEY = "runtime/runtime.config.json";
 
 function cloneRecord(value) {
   if (value === undefined) return undefined;
@@ -42,6 +46,12 @@ function normalizeRuntimeMorphSettings(morph = {}) {
     apiKeys,
     roundRobinEnabled: morph.roundRobinEnabled === true,
   };
+}
+
+function buildRoutingStrategySettings(settings = {}) {
+  const safeSettings = buildRuntimeSettings(settings);
+  delete safeSettings.morph;
+  return safeSettings;
 }
 
 function buildRuntimeSettings(settings = {}) {
@@ -109,6 +119,27 @@ function normalizeArtifactState(snapshot) {
   };
 }
 
+async function getRuntimeArtifactState(snapshot = null) {
+  if (isArtifactState(snapshot)) {
+    const resolved = normalizeArtifactState(snapshot);
+    const mergedConnections = await getProviderConnections();
+    if (Array.isArray(mergedConnections) && mergedConnections.length > 0) {
+      resolved.providerConnections = mergedConnections.map((connection) => cloneRecord(connection));
+    }
+    return resolved;
+  }
+
+  const [exportedSnapshot, mergedConnections] = await Promise.all([
+    exportDb(),
+    getProviderConnections(),
+  ]);
+  const resolved = normalizeArtifactState(exportedSnapshot);
+  resolved.providerConnections = Array.isArray(mergedConnections)
+    ? mergedConnections.map((connection) => cloneRecord(connection))
+    : [];
+  return resolved;
+}
+
 export async function buildBackupArtifact(state = null) {
   if (isArtifactState(state)) {
     return cloneRecord(state);
@@ -120,8 +151,8 @@ export async function buildBackupArtifact(state = null) {
 export async function buildRuntimeArtifact(stateOrOptions = null, maybeOptions = {}) {
   const hasProvidedState = isArtifactState(stateOrOptions);
   const resolved = hasProvidedState
-    ? normalizeArtifactState(stateOrOptions)
-    : normalizeArtifactState(await exportDb());
+    ? await getRuntimeArtifactState(stateOrOptions)
+    : await getRuntimeArtifactState();
   const options = hasProvidedState ? maybeOptions : stateOrOptions || {};
   const providers = {};
 
@@ -142,13 +173,69 @@ export async function buildRuntimeArtifact(stateOrOptions = null, maybeOptions =
   };
 }
 
+export async function buildEligibleRuntimeArtifact(stateOrOptions = null, maybeOptions = {}) {
+  const runtime = await buildRuntimeArtifact(stateOrOptions, maybeOptions);
+
+  return {
+    generatedAt: runtime.generatedAt,
+    providers: runtime.providers,
+  };
+}
+
+export async function buildFullCredentialsArtifact(stateOrOptions = null, maybeOptions = {}) {
+  const hasProvidedState = isArtifactState(stateOrOptions);
+  const resolved = hasProvidedState
+    ? await getRuntimeArtifactState(stateOrOptions)
+    : await getRuntimeArtifactState();
+  const options = hasProvidedState ? maybeOptions : stateOrOptions || {};
+  const providers = {};
+
+  for (const connection of resolved.providerConnections) {
+    if (!connection?.id) continue;
+    if (connection.isActive === false) continue;
+    if (connection.routingStatus !== "eligible") continue;
+    providers[connection.id] = sanitizeRuntimeConnection(connection);
+  }
+
+  const morph = normalizeRuntimeMorphSettings(resolved.settings?.morph);
+
+  return {
+    schemaVersion: 1,
+    generatedAt: resolveGeneratedAt(options),
+    providers,
+    morph: morph || null,
+  };
+}
+
+export async function buildRuntimeConfigArtifact(stateOrOptions = null, maybeOptions = {}) {
+  const hasProvidedState = isArtifactState(stateOrOptions);
+  const resolved = hasProvidedState
+    ? normalizeArtifactState(stateOrOptions)
+    : normalizeArtifactState(await exportDb());
+  const options = hasProvidedState ? maybeOptions : stateOrOptions || {};
+  const settings = buildRoutingStrategySettings(resolved.settings);
+
+  return {
+    schemaVersion: 1,
+    generatedAt: resolveGeneratedAt(options),
+    strategy: settings?.strategy || "priority",
+    modelAliases: cloneRecord(resolved.modelAliases),
+    combos: cloneRecord(resolved.combos),
+    apiKeys: normalizeRuntimeApiKeys(resolved.apiKeys),
+    settings,
+  };
+}
+
 export async function buildR2ArtifactsFromState() {
   const state = await exportDb();
   const generatedAt = new Date().toISOString();
-  const [backup, runtime] = await Promise.all([
+  const [backup, runtime, eligible, credentials, runtimeConfig] = await Promise.all([
     buildBackupArtifact(state),
     buildRuntimeArtifact(state, { generatedAt }),
+    buildEligibleRuntimeArtifact(state, { generatedAt }),
+    buildFullCredentialsArtifact(state, { generatedAt }),
+    buildRuntimeConfigArtifact(state, { generatedAt }),
   ]);
 
-  return { backup, runtime };
+  return { backup, runtime, eligible, credentials, runtimeConfig };
 }

@@ -71,6 +71,7 @@ describe("Morph dispatch upstream HTTP mapping", () => {
       headers: {
         Authorization: "Bearer TEST_MORPH_KEY_A",
         "Content-Type": "application/json",
+        "Accept-Encoding": "identity",
       },
       body: requestBody,
     });
@@ -151,15 +152,15 @@ describe("Morph dispatch upstream HTTP mapping", () => {
       requestLabel: "morph:/v1/chat/completions",
     });
 
-    expect(consoleLogSpy).toHaveBeenCalledWith("[morph] POST /morphllm/v1/chat/completions upstream=/v1/chat/completions model=morph-v3-large");
+    expect(consoleLogSpy).toHaveBeenCalledWith("\x1b[38;5;205m[morph] POST /morphllm/v1/chat/completions upstream=/v1/chat/completions model=morph-v3-large\x1b[0m");
   });
 
   it.each([
-    ["apply", "/morphllm/v1/chat/completions", { model: "morph-v3-large", messages: [] }, "morph-v3-large", "/v1/chat/completions"],
-    ["compact", "/morphllm/v1/compact", { input: "hello" }, "morph-compactor", "/v1/compact"],
-    ["embeddings", "/morphllm/v1/embeddings", { model: "morph-embedding-v4", input: ["hello"] }, "morph-embedding-v4", "/v1/embeddings"],
-    ["rerank", "/morphllm/v1/rerank", { query: "q", documents: ["a", "b"] }, "morph-rerank-v4", "/v1/rerank"],
-  ])("logs Morph endpoint access for %s", async (capability, pathName, payload, expectedModel, expectedUpstream) => {
+    ["apply", "/morphllm/v1/chat/completions", "/v1/chat/completions", "morph-v3-large"],
+    ["compact", "/morphllm/v1/compact", "/v1/compact", "morph-compactor"],
+    ["embeddings", "/morphllm/v1/embeddings", "/v1/embeddings", "morph-embedding-v4"],
+    ["rerank", "/morphllm/v1/rerank", "/v1/rerank", "morph-rerank-v4"],
+  ])("logs Morph endpoint access for %s", async (capability, pathName, upstreamPath, model) => {
     vi.spyOn(usageDb, "trackPendingRequest").mockImplementation(() => {});
     const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(morphUsageDb, "saveMorphUsage").mockResolvedValue(null);
@@ -178,7 +179,7 @@ describe("Morph dispatch upstream HTTP mapping", () => {
       req: new Request(`http://localhost${pathName}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ model: model, messages: [] }),
       }),
       morphSettings: {
         baseUrl: "https://api.morphllm.com/",
@@ -187,7 +188,7 @@ describe("Morph dispatch upstream HTTP mapping", () => {
       },
     });
 
-    expect(consoleLogSpy).toHaveBeenCalledWith(`[morph] POST ${pathName} upstream=${expectedUpstream} model=${expectedModel}`);
+    expect(consoleLogSpy).toHaveBeenCalledWith(`\x1b[38;5;205m[morph] POST ${pathName} upstream=${upstreamPath} model=${model}\x1b[0m`);
   });
 
   it("logs request completion as error when upstream fetch fails", async () => {
@@ -467,6 +468,55 @@ describe("Morph dispatch upstream HTTP mapping", () => {
     expect(response.headers.get("Content-Type")).toBe("text/event-stream");
     expect(cloneTextSpy).not.toHaveBeenCalled();
     expect(saveMorphUsageSpy).toHaveBeenCalledWith(expect.objectContaining({
+      tokens: {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+      },
+    }), { propagateError: true });
+  });
+
+  it("does not fail pass-through when usage body buffering cannot be decoded", async () => {
+    vi.spyOn(usageDb, "trackPendingRequest").mockImplementation(() => {});
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const saveMorphUsageSpy = vi.spyOn(morphUsageDb, "saveMorphUsage").mockResolvedValue(null);
+    vi.spyOn(localDb, "atomicUpdateSettings").mockImplementation(async (mutator) => mutator({
+      morph: {
+        apiKeys: [{ email: "stable@example.com", key: "TEST_MORPH_KEY_A", status: "active", isExhausted: false, lastError: "" }],
+      },
+    }));
+
+    const fetchResponse = new Response(JSON.stringify({ ok: true, usage: { prompt_tokens: 7, completion_tokens: 8 } }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+    vi.spyOn(fetchResponse, "clone").mockReturnValue({
+      text: vi.fn(async () => {
+        throw new TypeError("Decompression failed");
+      }),
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => fetchResponse));
+
+    const response = await dispatchMorphCapability({
+      capability: "apply",
+      req: new Request("http://localhost/morphllm/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "morph-v3-large", messages: [] }),
+      }),
+      morphSettings: {
+        baseUrl: "https://api.morphllm.com/",
+        apiKeys: [{ email: "stable@example.com", key: "TEST_MORPH_KEY_A", status: "active", isExhausted: false }],
+        roundRobinEnabled: false,
+      },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ok: true, usage: { prompt_tokens: 7, completion_tokens: 8 } });
+    expect(consoleWarnSpy).toHaveBeenCalledWith("[morph] Skipping usage body read:", expect.any(TypeError));
+    expect(saveMorphUsageSpy).toHaveBeenCalledWith(expect.objectContaining({
+      status: "ok",
       tokens: {
         prompt_tokens: 0,
         completion_tokens: 0,

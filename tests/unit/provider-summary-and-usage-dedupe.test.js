@@ -1,17 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import { createSingleFlight, runWithConcurrency } from "../../src/app/(dashboard)/dashboard/usage/components/ProviderLimits/refreshQueue.js";
-import { runUsageRefreshJob } from "../../src/lib/usageRefreshQueue.js";
+import { runDedupedUsageRefreshJob, runUsageRefreshJob } from "../../src/lib/usageRefreshQueue.js";
 
 const providerConnections = [];
 const providerNodes = [];
 const providerConnectionById = new Map();
 
-const getProviderConnections = vi.fn(async () => providerConnections);
-const getProviderNodes = vi.fn(async () => providerNodes);
-const getProxyPoolById = vi.fn(async () => null);
-const getProviderConnectionById = vi.fn(async (id) => providerConnectionById.get(id) || null);
-const updateProviderConnection = vi.fn(async () => ({}));
+const mockedLocalDb = vi.hoisted(() => ({
+  getProviderConnections: vi.fn(async () => providerConnections),
+  getProviderNodes: vi.fn(async () => providerNodes),
+  getProxyPoolById: vi.fn(async () => null),
+  getProviderConnectionById: vi.fn(async (id) => providerConnectionById.get(id) || null),
+  getSettings: vi.fn(async () => ({})),
+  updateProviderConnection: vi.fn(async () => ({})),
+}));
+
+const getProviderConnections = mockedLocalDb.getProviderConnections;
+const getProviderNodes = mockedLocalDb.getProviderNodes;
+const getProxyPoolById = mockedLocalDb.getProxyPoolById;
+const getProviderConnectionById = mockedLocalDb.getProviderConnectionById;
+const getSettings = mockedLocalDb.getSettings;
+const updateProviderConnection = mockedLocalDb.updateProviderConnection;
 const getUsageForProvider = vi.fn(async () => ({ message: "ok", plan: "pro" }));
 const writeConnectionHotState = vi.fn(async ({ patch }) => patch);
 const projectLegacyConnectionState = vi.fn((snapshot = {}) => ({
@@ -76,12 +86,14 @@ vi.mock("@/shared/constants/config", () => ({
 
 vi.mock("@/shared/constants/providers", () => ({
   FREE_TIER_PROVIDERS: {},
+  USAGE_SUPPORTED_PROVIDERS: ["codex", "github", "claude", "antigravity", "kiro", "kimi-coding", "ollama"],
   isOpenAICompatibleProvider: () => false,
   isAnthropicCompatibleProvider: () => false,
 }));
 
 vi.mock("@/lib/localDb", () => ({
   getProviderConnectionById,
+  getSettings,
   updateProviderConnection,
   getConnectionStatusSummary: (connections = []) => ({
     connected: connections.filter((c) => c.testStatus === "active" || c.testStatus === "success").length,
@@ -120,6 +132,7 @@ describe("provider summary API and usage dedupe", () => {
     getProviderNodes.mockClear();
     getProxyPoolById.mockClear();
     getProviderConnectionById.mockClear();
+    getSettings.mockClear();
     updateProviderConnection.mockClear();
     getUsageForProvider.mockClear();
     writeConnectionHotState.mockClear();
@@ -139,7 +152,8 @@ describe("provider summary API and usage dedupe", () => {
     mockRedisClient.multi.mockClear();
     getProviderConnections.mockResolvedValue(providerConnections);
     getProviderNodes.mockResolvedValue(providerNodes);
-    process.env.USAGE_QUEUE_CONCURRENCY = "3";
+    getSettings.mockResolvedValue({});
+    process.env.USAGE_QUEUE_CONCURRENCY = "1";
     delete process.env.USAGE_QUEUE_WAIT_TIMEOUT_MS;
     delete process.env.USAGE_QUEUE_MAX_QUEUED;
     delete process.env.USAGE_QUEUE_REDIS_RETRY_COOLDOWN_MS;
@@ -277,6 +291,52 @@ describe("provider summary API and usage dedupe", () => {
 
     expect(responses.every((response) => response.status === 200)).toBe(true);
     expect(maxActiveCalls).toBeLessThanOrEqual(3);
+  });
+
+  it("dedupes overlapping jobs for the same connection in the shared queue helper", async () => {
+    let calls = 0;
+    const first = runDedupedUsageRefreshJob("shared-conn", async () => {
+      calls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return "ok";
+    });
+    const second = runDedupedUsageRefreshJob("shared-conn", async () => {
+      calls += 1;
+      return "duplicate";
+    });
+
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    expect(firstResult).toBe("ok");
+    expect(secondResult).toBe("ok");
+    expect(calls).toBe(1);
+  });
+
+  it("runs refresh jobs serially across different connections by default", async () => {
+    const activeConnections = new Set();
+    let maxInFlight = 0;
+
+    const first = runUsageRefreshJob("conn-a", async () => {
+      activeConnections.add("conn-a");
+      maxInFlight = Math.max(maxInFlight, activeConnections.size);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      activeConnections.delete("conn-a");
+      return "a";
+    });
+
+    const second = runUsageRefreshJob("conn-b", async () => {
+      activeConnections.add("conn-b");
+      maxInFlight = Math.max(maxInFlight, activeConnections.size);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      activeConnections.delete("conn-b");
+      return "b";
+    });
+
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    expect(firstResult).toBe("a");
+    expect(secondResult).toBe("b");
+    expect(maxInFlight).toBe(1);
   });
 
   it("times out queued memory jobs that wait too long", async () => {

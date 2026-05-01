@@ -131,7 +131,7 @@ export async function handleImageGeneration(request) {
           quotaState: "ok",
           authState: "ok",
           healthStatus: "healthy",
-          reasonCode: "unknown",
+          reasonCode: null,
           reasonDetail: null,
           nextRetryAt: null,
           resetAt: null,

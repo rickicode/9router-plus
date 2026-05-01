@@ -81,24 +81,24 @@ describe("resolveCodexInstructionsFromConfig (sync, no file IO)", () => {
 });
 
 describe("custom instructions file IO", () => {
-  it("read returns null when no file exists", () => {
+  it("read returns null when no file exists", async () => {
     const { readCustomCodexInstructionsFile } = resolverModule;
-    expect(readCustomCodexInstructionsFile()).toBe(null);
+    await expect(readCustomCodexInstructionsFile()).resolves.toBe(null);
   });
 
-  it("write -> read round-trips content; delete clears it", () => {
+  it("write -> read round-trips content; delete clears it", async () => {
     const { writeCustomCodexInstructionsFile, readCustomCodexInstructionsFile, deleteCustomCodexInstructionsFile } =
       resolverModule;
 
-    writeCustomCodexInstructionsFile("Hello custom Codex prompt");
-    expect(readCustomCodexInstructionsFile()).toBe("Hello custom Codex prompt");
+    await writeCustomCodexInstructionsFile("Hello custom Codex prompt");
+    await expect(readCustomCodexInstructionsFile()).resolves.toBe("Hello custom Codex prompt");
 
-    deleteCustomCodexInstructionsFile();
-    expect(readCustomCodexInstructionsFile()).toBe(null);
+    await deleteCustomCodexInstructionsFile();
+    await expect(readCustomCodexInstructionsFile()).resolves.toBe(null);
   });
 
-  it("delete is a no-op when file does not exist", () => {
+  it("delete is a no-op when file does not exist", async () => {
     const { deleteCustomCodexInstructionsFile } = resolverModule;
-    expect(() => deleteCustomCodexInstructionsFile()).not.toThrow();
+    await expect(deleteCustomCodexInstructionsFile()).resolves.toBeUndefined();
   });
 });

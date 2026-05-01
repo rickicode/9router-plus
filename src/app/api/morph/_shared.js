@@ -1,5 +1,8 @@
 import { getSettings } from "@/lib/localDb.js";
 
+const ANSI_PINK = "\x1b[38;5;205m";
+const ANSI_RESET = "\x1b[0m";
+
 function getMorphPath(request) {
   if (!request) {
     return "/morphllm";
@@ -22,7 +25,7 @@ export function logMorphApiAccess(request) {
     return pathname;
   }
 
-  console.log(`[morph] access ${request?.method || "GET"} ${pathname}`);
+  console.log(`${ANSI_PINK}[morph] access ${request?.method || "GET"} ${pathname}${ANSI_RESET}`);
   return pathname;
 }
 

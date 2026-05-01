@@ -16,6 +16,7 @@ export function selectCredential(machineData, provider, apiKey) {
   const providerOverride = routing.providerStrategies?.[provider] || settings.providerStrategies?.[provider] || {};
   const strategy = providerOverride.strategy
     || providerOverride.fallbackStrategy
+    || machineData.strategy
     || routing.strategy
     || (settings.roundRobin ? "round-robin" : "fill-first");
   const stickyEnabled = routing.sticky?.enabled ?? settings.sticky;

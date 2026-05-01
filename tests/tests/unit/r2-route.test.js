@@ -26,7 +26,7 @@ vi.mock("@/lib/connectionStatus.js", () => ({
   })),
 }));
 
-vi.mock("@/lib/quotaStateStore.js", () => ({
+vi.mock("@/lib/providerHotState.js", () => ({
   clearAllHotState: vi.fn(async () => {}),
   clearProviderHotState: vi.fn(async () => {}),
   deleteConnectionHotState: vi.fn(async () => {}),
@@ -144,7 +144,7 @@ describe("localDb R2 settings", () => {
           {
             id: "worker-1",
             url: "https://worker.example.com",
-            secret: "worker-secret-123456",
+            secret: "********************",
           },
         ],
       },
@@ -158,11 +158,10 @@ describe("localDb R2 settings", () => {
     });
     const payload = await response.json();
 
-    expect(response.status).toBe(400);
-    expect(payload).toEqual({
-      error: "Cannot clear runtime URL while cloud workers are registered.",
-    });
-    expect(cloudWorkerClientMocks.registerWithWorker).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(payload.success).toBe(true);
+    expect(payload.r2RuntimePublicBaseUrl).toBe("");
+    expect(cloudWorkerClientMocks.registerWithWorker).toHaveBeenCalledTimes(1);
   });
 
   it("PATCH reports worker registration failures without failing the settings save", async () => {
@@ -548,21 +547,21 @@ describe("Task 6 direct R2 routes", () => {
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
       configured: true,
+      runtimeConfigured: true,
+      backupConfigured: false,
+      backupReady: false,
+      restoreReady: false,
       r2BackupEnabled: true,
       r2LastRuntimePublishAt: "2026-04-27T01:00:00.000Z",
       r2LastBackupAt: "2026-04-27T02:00:00.000Z",
       r2LastRestoreAt: "2026-04-27T03:00:00.000Z",
       status: {
-        state: "ready",
-        summary: expect.stringContaining("Direct R2 configured"),
+        state: "runtime-only",
+        summary: expect.stringContaining("Runtime publishing is configured"),
       },
-      backupArtifactUrl: "https://storage.example.com/runtime/backup.json",
-      backupArtifact: {
-        generatedAt: "2026-04-27T02:00:00.000Z",
-        sqlite: {
-          key: "sqlite/latest.db",
-        },
-      },
+      backupArtifactUrl: null,
+      backupArtifact: null,
+      artifactError: null,
     });
     expect(JSON.stringify(payload)).not.toContain("provider-token");
     expect(JSON.stringify(payload)).not.toContain("r2-secret");
@@ -590,16 +589,20 @@ describe("Task 6 direct R2 routes", () => {
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
       configured: true,
+      runtimeConfigured: true,
+      backupConfigured: false,
+      backupReady: false,
+      restoreReady: false,
       r2BackupEnabled: true,
       r2LastRuntimePublishAt: "2026-04-27T01:00:00.000Z",
       r2LastBackupAt: "2026-04-27T02:00:00.000Z",
       status: {
-        state: "published",
-        summary: expect.stringContaining("Direct R2 configured"),
+        state: "runtime-only",
+        summary: expect.stringContaining("Runtime publishing is configured"),
       },
       backupArtifactUrl: null,
       backupArtifact: null,
-      artifactError: "backup.json missing",
+      artifactError: null,
     });
   });
 
@@ -712,6 +715,18 @@ describe("Task 6 direct R2 routes", () => {
     });
 
     vi.doMock("@/lib/r2BackupClient", () => ({
+      readBackupArtifactFromSettings: vi.fn().mockResolvedValue({
+        artifactUrl: "https://storage.example.com/runtime/backup.json",
+        artifact: {
+          generatedAt: "2026-04-27T05:00:00.000Z",
+          machineId: "machine-123",
+          sqlite: {
+            key: "sqlite/latest.db",
+            url: "https://storage.example.com/runtime/sqlite/latest.db",
+            size: 4321,
+          },
+        },
+      }),
       restoreFromDirectBackupSettings: vi.fn().mockResolvedValue({
         success: true,
         restoredBackup: "sqlite/latest.db",
@@ -722,14 +737,16 @@ describe("Task 6 direct R2 routes", () => {
 
     const route = await import("../../../src/app/api/r2/restore/route.js");
     const response = await route.POST({
-      json: async () => ({}),
+      json: async () => ({ confirmRestore: true }),
     });
     const payload = await response.json();
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
       success: true,
-      restoredBackup: "sqlite/latest.db",
+      restoredBackup: {
+        key: "sqlite/latest.db",
+      },
     });
     await expect(localDb.getSettings()).resolves.toMatchObject({
       r2LastRestoreAt: expect.any(String),
@@ -751,6 +768,18 @@ describe("Task 6 direct R2 routes", () => {
     });
 
     vi.doMock("@/lib/r2BackupClient", () => ({
+      readBackupArtifactFromSettings: vi.fn().mockResolvedValue({
+        artifactUrl: "https://storage.example.com/runtime/backup.json",
+        artifact: {
+          generatedAt: "2026-04-27T05:00:00.000Z",
+          machineId: "machine-123",
+          sqlite: {
+            key: "sqlite/latest.db",
+            url: "https://storage.example.com/runtime/sqlite/latest.db",
+            size: 4321,
+          },
+        },
+      }),
       restoreFromDirectBackupSettings: vi.fn().mockResolvedValue({
         success: false,
         error: "restore rejected",
@@ -759,7 +788,7 @@ describe("Task 6 direct R2 routes", () => {
 
     const route = await import("../../../src/app/api/r2/restore/route.js");
     const response = await route.POST({
-      json: async () => ({}),
+      json: async () => ({ confirmRestore: true }),
     });
     const payload = await response.json();
 
@@ -788,12 +817,24 @@ describe("Task 6 direct R2 routes", () => {
     });
 
     vi.doMock("@/lib/r2BackupClient", () => ({
+      readBackupArtifactFromSettings: vi.fn().mockResolvedValue({
+        artifactUrl: "https://storage.example.com/runtime/backup.json",
+        artifact: {
+          generatedAt: "2026-04-27T05:00:00.000Z",
+          machineId: "machine-123",
+          sqlite: {
+            key: "sqlite/latest.db",
+            url: "https://storage.example.com/runtime/sqlite/latest.db",
+            size: 4321,
+          },
+        },
+      }),
       restoreFromDirectBackupSettings: vi.fn().mockRejectedValue(new Error("restore exploded")),
     }));
 
     const route = await import("../../../src/app/api/r2/restore/route.js");
     const response = await route.POST({
-      json: async () => ({}),
+      json: async () => ({ confirmRestore: true }),
     });
     const payload = await response.json();
 

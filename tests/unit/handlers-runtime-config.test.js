@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
+import path from "node:path";
+
+const repoRoot = path.resolve(import.meta.dirname, "../..");
+const fromRepoRoot = (...segments) => path.join(repoRoot, ...segments);
 
 const HANDLERS = [
-  "cloud/src/handlers/chat.js",
-  "cloud/src/handlers/embeddings.js",
-  "cloud/src/handlers/verify.js",
-  "cloud/src/handlers/health.js",
+  fromRepoRoot("cloud", "src", "handlers", "chat.js"),
+  fromRepoRoot("cloud", "src", "handlers", "embeddings.js"),
+  fromRepoRoot("cloud", "src", "handlers", "verify.js"),
+  fromRepoRoot("cloud", "src", "handlers", "health.js"),
 ];
 
 describe("cloud handlers runtime config migration", () => {
@@ -17,8 +21,8 @@ describe("cloud handlers runtime config migration", () => {
   });
 
   it("keeps machine-data reads in chat and embeddings only for mutation helpers", () => {
-    const chat = fs.readFileSync("cloud/src/handlers/chat.js", "utf8");
-    const embeddings = fs.readFileSync("cloud/src/handlers/embeddings.js", "utf8");
+    const chat = fs.readFileSync(fromRepoRoot("cloud", "src", "handlers", "chat.js"), "utf8");
+    const embeddings = fs.readFileSync(fromRepoRoot("cloud", "src", "handlers", "embeddings.js"), "utf8");
 
     expect(chat).toContain("const data = await getRuntimeConfig(machineId, env);");
     expect(embeddings).toContain("const data = await getRuntimeConfig(machineId, env);");
@@ -27,7 +31,7 @@ describe("cloud handlers runtime config migration", () => {
   });
 
   it("uses runtime config for chat fallback credential selection", () => {
-    const chat = fs.readFileSync("cloud/src/handlers/chat.js", "utf8");
+    const chat = fs.readFileSync(fromRepoRoot("cloud", "src", "handlers", "chat.js"), "utf8");
     const helperStart = chat.indexOf("async function getProviderCredentials");
     const helperEnd = chat.indexOf("async function markAccountUnavailable", helperStart);
     const helperSource = chat.slice(helperStart, helperEnd);
@@ -37,7 +41,7 @@ describe("cloud handlers runtime config migration", () => {
   });
 
   it("bounds embeddings fallback retries", () => {
-    const embeddings = fs.readFileSync("cloud/src/handlers/embeddings.js", "utf8");
+    const embeddings = fs.readFileSync(fromRepoRoot("cloud", "src", "handlers", "embeddings.js"), "utf8");
 
     expect(embeddings).toContain("const MAX_RETRIES = 10");
     expect(embeddings).toContain("while (retryCount < MAX_RETRIES)");
@@ -45,7 +49,7 @@ describe("cloud handlers runtime config migration", () => {
   });
 
   it("tracks all failed chat fallback credentials", () => {
-    const chat = fs.readFileSync("cloud/src/handlers/chat.js", "utf8");
+    const chat = fs.readFileSync(fromRepoRoot("cloud", "src", "handlers", "chat.js"), "utf8");
 
     expect(chat).toContain("const excludedConnectionIds = new Set()");
     expect(chat).toContain("excludedConnectionIds.has(credentials?.id)");

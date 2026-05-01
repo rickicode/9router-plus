@@ -1,7 +1,33 @@
 // cloud/src/handlers/usage.js
-import { getAllUsage } from "../services/usage.js";
+import { getAllUsage, getUsageEvents } from "../services/usage.js";
 import { getState } from "../services/state.js";
+import { getMachineData } from "../services/storage.js";
+import { extractSecret, isSecretValid } from "../utils/secret.js";
 import * as log from "../utils/logger.js";
+
+function jsonResponse(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    },
+  });
+}
+
+async function authorizeUsageRequest(request, machineId, env) {
+  const data = await getMachineData(machineId, env);
+  if (!data) {
+    return { ok: false, response: jsonResponse({ error: "Machine not registered" }, 404) };
+  }
+
+  const presented = extractSecret(request);
+  if (!isSecretValid(presented, data)) {
+    return { ok: false, response: jsonResponse({ error: "Unauthorized" }, 401) };
+  }
+
+  return { ok: true, data };
+}
 
 /**
  * GET /worker/usage/:machineId
@@ -43,5 +69,42 @@ export async function handleUsage(request, env, machineId) {
       "Content-Type": "application/json",
       "Access-Control-Allow-Origin": "*"
     }
+  });
+}
+
+export async function handleAdminUsageEvents(request, env) {
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "*"
+      }
+    });
+  }
+
+  if (request.method !== "GET") {
+    return jsonResponse({ error: "Method not allowed" }, 405);
+  }
+
+  const url = new URL(request.url);
+  const machineId = String(url.searchParams.get("machineId") || "").trim();
+  if (!machineId) {
+    return jsonResponse({ error: "Missing machineId" }, 400);
+  }
+
+  const auth = await authorizeUsageRequest(request, machineId, env);
+  if (!auth.ok) return auth.response;
+
+  const result = getUsageEvents({
+    cursor: url.searchParams.get("cursor"),
+    limit: url.searchParams.get("limit"),
+  });
+
+  log.info("USAGE", `Returned ${result.events.length} buffered events for ${machineId}`);
+  return jsonResponse({
+    success: true,
+    machineId,
+    ...result,
   });
 }

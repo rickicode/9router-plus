@@ -28,6 +28,7 @@ vi.mock("@/lib/network/proxyTest", () => ({
 vi.mock("@/shared/constants/providers", () => ({
   isOpenAICompatibleProvider: () => true,
   isAnthropicCompatibleProvider: () => false,
+  USAGE_SUPPORTED_PROVIDERS: ["codex", "kiro"],
 }));
 
 vi.mock("open-sse/config/providerModels.js", () => ({
@@ -68,6 +69,20 @@ vi.mock("../../src/lib/usageStatus.js", () => ({
     backoffLevel: 0,
     lastCheckedAt: "2026-04-22T00:00:00.000Z",
     lastTested: "2026-04-22T00:00:00.000Z",
+  }),
+  getLiveRequestRecoveryPatch: ({ usageSnapshot } = {}) => ({
+    routingStatus: "eligible",
+    healthStatus: "healthy",
+    quotaState: "ok",
+    authState: "ok",
+    reasonCode: "unknown",
+    reasonDetail: null,
+    nextRetryAt: null,
+    resetAt: null,
+    backoffLevel: 0,
+    lastCheckedAt: "2026-04-22T00:00:00.000Z",
+    allowAuthRecovery: true,
+    ...(usageSnapshot !== undefined ? { usageSnapshot } : {}),
   }),
   getConnectionAuthBlockedPatch: (error, { lastCheckedAt } = {}) => {
     if (!["Token invalid or revoked", "Token expired", "Token expired and refresh failed"].includes(error)) {
@@ -129,12 +144,6 @@ describe("provider test recovery", () => {
 
     expect(result.valid).toBe(true);
     expect(updateProviderConnection).toHaveBeenCalledWith("conn-test", expect.objectContaining({
-      testStatus: "active",
-      lastError: null,
-      lastErrorAt: null,
-      lastErrorType: null,
-      rateLimitedUntil: null,
-      errorCode: null,
       backoffLevel: 0,
       routingStatus: "eligible",
       quotaState: "ok",
@@ -144,6 +153,8 @@ describe("provider test recovery", () => {
       reasonDetail: null,
       nextRetryAt: null,
       resetAt: null,
+      allowAuthRecovery: true,
+      usageSnapshot: expect.stringContaining("Detailed quota snapshot is pending usage refresh"),
     }));
   });
 
@@ -172,6 +183,64 @@ describe("provider test recovery", () => {
       testStatus: "expired",
       lastError: "Token invalid or revoked",
       lastErrorType: "auth_invalid",
+    }));
+  });
+
+  it("revives auth-invalid accounts when a later successful lightweight test proves refresh works", async () => {
+    connectionById.set("conn-auth-sticky", {
+      id: "conn-auth-sticky",
+      provider: "openai-compatible",
+      authType: "apikey",
+      apiKey: "secret",
+      providerSpecificData: { baseUrl: "https://example.test/v1" },
+      routingStatus: "blocked",
+      authState: "invalid",
+      reasonCode: "auth_invalid",
+      reasonDetail: "Token expired",
+    });
+
+    const { testSingleConnection } = await import("../../src/app/api/providers/[id]/test/testUtils.js");
+    const result = await testSingleConnection("conn-auth-sticky");
+
+    expect(result.valid).toBe(true);
+    expect(updateProviderConnection).toHaveBeenCalledWith("conn-auth-sticky", expect.objectContaining({
+      routingStatus: "eligible",
+      authState: "ok",
+      lastCheckedAt: expect.any(String),
+      allowAuthRecovery: true,
+    }));
+  });
+
+  it("does not clear usage quota exhaustion on successful credential test", async () => {
+    connectionById.set("conn-codex-exhausted", {
+      id: "conn-codex-exhausted",
+      provider: "codex",
+      authType: "oauth",
+      accessToken: "valid-token",
+      routingStatus: "exhausted",
+      quotaState: "exhausted",
+      authState: "ok",
+      healthStatus: "healthy",
+      reasonCode: "quota_exhausted",
+      reasonDetail: "Codex session quota exhausted",
+      resetAt: "2026-05-01T13:00:00.000Z",
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 400 })));
+
+    const { testSingleConnection } = await import("../../src/app/api/providers/[id]/test/testUtils.js");
+    const result = await testSingleConnection("conn-codex-exhausted");
+
+    expect(result.valid).toBe(true);
+    expect(updateProviderConnection).toHaveBeenCalledWith("conn-codex-exhausted", expect.objectContaining({
+      routingStatus: "exhausted",
+      quotaState: "exhausted",
+      authState: "ok",
+      healthStatus: "healthy",
+      reasonCode: "quota_exhausted",
+      reasonDetail: "Codex session quota exhausted",
+      resetAt: "2026-05-01T13:00:00.000Z",
+      usageSnapshot: expect.stringContaining("Detailed quota snapshot is pending usage refresh"),
     }));
   });
 });

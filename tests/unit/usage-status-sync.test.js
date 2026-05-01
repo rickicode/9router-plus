@@ -7,11 +7,14 @@ const getProviderConnections = vi.fn(async ({ provider } = {}) => {
   if (!provider) return [...mockConnections];
   return mockConnections.filter((conn) => conn.provider === provider);
 });
+const getSettings = vi.fn(async () => ({ quotaExhaustedThresholdPercent: 10 }));
 const getUsageForProvider = vi.fn(async () => ({ ok: true }));
+const testSingleConnection = vi.fn(async () => ({ valid: true }));
 const writeConnectionHotState = vi.fn(async ({ patch }) => patch);
 const needsRefresh = vi.fn(() => false);
 const refreshCredentials = vi.fn(async () => null);
 const runUsageRefreshJob = vi.fn(async (_connectionId, handler) => handler());
+const runDedupedUsageRefreshJob = vi.fn(async (_connectionId, handler) => handler());
 let writeConnectionHotStateImpl = async ({ patch }) => patch;
 let providerHotStateActualModule = null;
 
@@ -28,6 +31,7 @@ vi.mock("next/server", () => ({
 vi.mock("@/lib/localDb", () => ({
   getProviderConnectionById,
   getProviderConnections,
+  getSettings,
   updateProviderConnection,
 }));
 
@@ -44,6 +48,10 @@ vi.mock("@/lib/providerHotState", async () => {
   };
 });
 
+vi.mock("@/app/api/providers/[id]/test/testUtils.js", () => ({
+  testSingleConnection,
+}));
+
 vi.mock("open-sse/services/usage.js", () => ({
   getUsageForProvider,
 }));
@@ -59,6 +67,7 @@ vi.mock("open-sse/executors/index.js", () => ({
 
 vi.mock("../../src/lib/usageRefreshQueue.js", () => ({
   runUsageRefreshJob,
+  runDedupedUsageRefreshJob,
 }));
 
 vi.mock("@/lib/connectionStatus", async () => await import("../../src/lib/connectionStatus.js"));
@@ -69,7 +78,11 @@ describe("usage request status sync", () => {
     updateProviderConnection.mockClear();
     getProviderConnectionById.mockClear();
     getProviderConnections.mockClear();
+    getSettings.mockClear();
+    getSettings.mockResolvedValue({ quotaExhaustedThresholdPercent: 10 });
     getUsageForProvider.mockClear();
+    testSingleConnection.mockClear();
+    testSingleConnection.mockResolvedValue({ valid: true });
     writeConnectionHotState.mockClear();
     needsRefresh.mockClear();
     refreshCredentials.mockClear();
@@ -77,6 +90,8 @@ describe("usage request status sync", () => {
     refreshCredentials.mockImplementation(async () => null);
     runUsageRefreshJob.mockClear();
     runUsageRefreshJob.mockImplementation(async (_connectionId, handler) => handler());
+    runDedupedUsageRefreshJob.mockClear();
+    runDedupedUsageRefreshJob.mockImplementation(async (_connectionId, handler) => handler());
     writeConnectionHotStateImpl = async ({ patch }) => patch;
     delete process.env.REDIS_URL;
     delete process.env.REDIS_HOST;
@@ -380,6 +395,7 @@ describe("usage request status sync", () => {
       reasonDetail: "Weekly quota exhausted",
       nextRetryAt: "2026-04-26T00:00:00.000Z",
       lastCheckedAt: "2026-04-25T12:00:00.000Z",
+      usageSnapshot: expect.any(String),
       version: expect.any(Number),
     });
     expect(durableSnapshot).not.toHaveProperty("apiKey");
@@ -396,12 +412,13 @@ describe("usage request status sync", () => {
         reasonDetail: "Weekly quota exhausted",
         nextRetryAt: "2026-04-26T00:00:00.000Z",
         lastCheckedAt: "2026-04-25T12:00:00.000Z",
+        usageSnapshot: expect.any(String),
         version: expect.any(Number),
       },
     });
   });
 
-  it("does not promote Codex 401 unavailable responses to eligible", async () => {
+  it("records Codex usage API 401 responses as degraded usage-check failures instead of auth failures", async () => {
     const { applyCanonicalUsageRefresh } = await import("../../src/lib/usageStatus.js");
 
     await applyCanonicalUsageRefresh({ id: "conn-codex-401", provider: "codex" }, {
@@ -412,13 +429,44 @@ describe("usage request status sync", () => {
       connectionId: "conn-codex-401",
       provider: "codex",
       patch: expect.objectContaining({
-        routingStatus: "blocked",
-        authState: "invalid",
-        reasonCode: "auth_invalid",
+        routingStatus: "eligible",
+        healthStatus: "degraded",
+        authState: "ok",
+        reasonCode: "usage_request_failed",
         reasonDetail: "Codex connected. Usage API temporarily unavailable (401).",
       }),
     }));
     expect(updateProviderConnection).not.toHaveBeenCalled();
+  });
+
+  it("does not let generic eligible usage patches revive auth-invalid connections", async () => {
+    const { syncUsageStatus } = await import("../../src/lib/usageStatus.js");
+
+    const snapshot = await syncUsageStatus({
+      id: "conn-auth-invalid",
+      provider: "codex",
+      routingStatus: "blocked",
+      authState: "invalid",
+      reasonCode: "auth_invalid",
+      reasonDetail: "Token expired",
+    }, {
+      routingStatus: "eligible",
+      authState: "ok",
+      healthStatus: "healthy",
+      quotaState: "ok",
+      reasonCode: "unknown",
+      reasonDetail: null,
+    });
+
+    expect(writeConnectionHotState).not.toHaveBeenCalledWith(expect.objectContaining({
+      connectionId: "conn-auth-invalid",
+    }));
+    expect(snapshot).toMatchObject({
+      routingStatus: "blocked",
+      authState: "invalid",
+      reasonCode: "auth_invalid",
+      reasonDetail: "Token expired",
+    });
   });
 
   it("marks codex as exhausted when remaining falls below the default global threshold", async () => {
@@ -444,6 +492,78 @@ describe("usage request status sync", () => {
         quotaState: "exhausted",
         reasonCode: "quota_threshold",
         nextRetryAt: "2026-04-25T00:00:00.000Z",
+      }),
+    }));
+  });
+
+  it("marks codex as exhausted when remainingPercentage is a numeric string at the configured threshold", async () => {
+    const { applyCanonicalUsageRefresh } = await import("../../src/lib/usageStatus.js");
+
+    await applyCanonicalUsageRefresh(
+      { id: "conn-threshold-string", provider: "codex" },
+      {
+        plan: "pro",
+        quotas: {
+          weekly: {
+            used: "99",
+            total: "100",
+            remaining: "1",
+            remainingPercentage: "1",
+            resetAt: "2026-04-25T00:00:00.000Z",
+          },
+        },
+      },
+      { globalExhaustedThreshold: 10 }
+    );
+
+    expect(writeConnectionHotState).toHaveBeenCalledWith(expect.objectContaining({
+      connectionId: "conn-threshold-string",
+      provider: "codex",
+      patch: expect.objectContaining({
+        routingStatus: "exhausted",
+        quotaState: "exhausted",
+        reasonCode: "quota_threshold",
+        nextRetryAt: "2026-04-25T00:00:00.000Z",
+      }),
+    }));
+  });
+
+  it("uses settings threshold for manual usage refreshes without scheduler options", async () => {
+    mockConnections.push({
+      id: "conn-manual-threshold",
+      provider: "codex",
+      authType: "oauth",
+      accessToken: "token",
+      refreshToken: "refresh",
+      testStatus: "unknown",
+    });
+    getSettings.mockResolvedValueOnce({ quotaExhaustedThresholdPercent: 10 });
+    getUsageForProvider.mockResolvedValueOnce({
+      plan: "pro",
+      quotas: {
+        weekly: {
+          used: 99,
+          total: 100,
+          remaining: 1,
+          remainingPercentage: 1,
+          resetAt: "2026-04-25T00:00:00.000Z",
+        },
+      },
+    });
+
+    const { GET } = await import("../../src/app/api/usage/[connectionId]/route.js");
+    const response = await GET(new Request("http://localhost/api/usage/conn-manual-threshold?test=1"), {
+      params: Promise.resolve({ connectionId: "conn-manual-threshold" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(writeConnectionHotState).toHaveBeenCalledWith(expect.objectContaining({
+      connectionId: "conn-manual-threshold",
+      provider: "codex",
+      patch: expect.objectContaining({
+        routingStatus: "exhausted",
+        quotaState: "exhausted",
+        reasonCode: "quota_threshold",
       }),
     }));
   });
@@ -604,10 +724,36 @@ describe("usage request status sync", () => {
         quotaState: "exhausted",
         reasonCode: "quota_exhausted",
         reasonDetail: "Codex quota exhausted",
+        usageSnapshot: expect.any(String),
       }),
     }));
     expect(updateProviderConnection).not.toHaveBeenCalled();
     expect(getUsageForProvider).not.toHaveBeenCalled();
+  });
+
+  it("recognizes Codex usage_limit_reached payloads as quota exhaustion", async () => {
+    const { getCodexLiveQuotaSignal } = await import("../../src/lib/usageStatus.js");
+
+    const signal = getCodexLiveQuotaSignal(
+      { id: "conn-live-json", provider: "codex" },
+      {
+        statusCode: 429,
+        errorText: JSON.stringify({
+          error: {
+            type: "usage_limit_reached",
+            message: "The usage limit has been reached",
+            resets_at: 1777777777,
+          },
+        }),
+      }
+    );
+
+    expect(signal).toMatchObject({
+      kind: "quota_exhausted",
+      reasonCode: "quota_exhausted",
+      reasonDetail: "Codex quota exhausted",
+      resetAt: new Date(1777777777 * 1000).toISOString(),
+    });
   });
 
   it("does not treat generic Codex 429 throttling as quota exhaustion", async () => {
@@ -631,7 +777,7 @@ describe("usage request status sync", () => {
       testStatus: "unknown",
     });
 
-    runUsageRefreshJob.mockRejectedValueOnce(Object.assign(
+    runDedupedUsageRefreshJob.mockRejectedValueOnce(Object.assign(
       new Error("Usage refresh queue is overloaded. Please retry shortly."),
       { status: 503 },
     ));
@@ -646,6 +792,52 @@ describe("usage request status sync", () => {
       error: "Usage refresh queue is overloaded. Please retry shortly.",
     });
     expect(getUsageForProvider).not.toHaveBeenCalled();
+  });
+
+
+  it("merges providerSpecificData from forced refresh before retrying usage", async () => {
+    const connection = {
+      id: "conn-refresh-psd",
+      provider: "github",
+      authType: "oauth",
+      accessToken: "old-token",
+      refreshToken: "refresh-token",
+      providerSpecificData: { existingFlag: true },
+    };
+
+    mockConnections.push(connection);
+    refreshCredentials.mockResolvedValueOnce({
+      accessToken: "new-token",
+      refreshToken: "new-refresh",
+      expiresIn: 3600,
+      providerSpecificData: { copilotToken: "new-copilot", copilotTokenExpiresAt: 123456 },
+    });
+    getUsageForProvider.mockResolvedValueOnce({ message: "ok" });
+
+    const { GET } = await import("../../src/app/api/usage/[connectionId]/route.js");
+    const response = await GET(new Request("http://localhost/api/usage/conn-refresh-psd"), {
+      params: Promise.resolve({ connectionId: "conn-refresh-psd" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(updateProviderConnection).toHaveBeenCalledWith("conn-refresh-psd", expect.objectContaining({
+      accessToken: "new-token",
+      refreshToken: "new-refresh",
+      providerSpecificData: {
+        existingFlag: true,
+        copilotToken: "new-copilot",
+        copilotTokenExpiresAt: 123456,
+      },
+    }));
+    expect(getUsageForProvider).toHaveBeenCalledWith(expect.objectContaining({
+      accessToken: "new-token",
+      refreshToken: "new-refresh",
+      providerSpecificData: {
+        existingFlag: true,
+        copilotToken: "new-copilot",
+        copilotTokenExpiresAt: 123456,
+      },
+    }));
   });
 
   it("writes canonical blocked-auth state when credential refresh confirms re-authorization is required", async () => {
@@ -748,9 +940,9 @@ describe("usage request status sync", () => {
       connectionId: "conn-reauthorize-required",
       provider: "codex",
       patch: expect.objectContaining({
-        routingStatus: "blocked",
+        routingStatus: "disabled",
         authState: "invalid",
-        reasonCode: "auth_invalid",
+        reasonCode: "reauthorization_required",
         reasonDetail: "Failed to refresh credentials. Please re-authorize the connection.",
       }),
     }));
@@ -784,9 +976,9 @@ describe("usage request status sync", () => {
       connectionId: "conn-usage-throws-unauthorized",
       provider: "codex",
       patch: expect.objectContaining({
-        routingStatus: "blocked",
+        routingStatus: "disabled",
         authState: "invalid",
-        reasonCode: "auth_invalid",
+        reasonCode: "reauthorization_required",
         reasonDetail: "401 Unauthorized: token revoked",
       }),
     }));
@@ -871,6 +1063,133 @@ describe("usage request status sync", () => {
     expect(updateProviderConnection).not.toHaveBeenCalled();
   });
 
+  it("does not persist transient upstream timeouts into account status", async () => {
+    mockConnections.push({
+      id: "conn-usage-timeout",
+      provider: "codex",
+      authType: "oauth",
+      accessToken: "token",
+      refreshToken: "refresh",
+      routingStatus: "eligible",
+      authState: "ok",
+      reasonCode: "unknown",
+      reasonDetail: null,
+      testStatus: "active",
+    });
+
+    getUsageForProvider
+      .mockRejectedValueOnce(Object.assign(
+        new Error("codex upstream timed out after 45000ms"),
+        { status: 504, code: "UPSTREAM_TIMEOUT" },
+      ))
+      .mockRejectedValueOnce(Object.assign(
+        new Error("codex upstream timed out after 45000ms"),
+        { status: 504, code: "UPSTREAM_TIMEOUT" },
+      ));
+
+    const { GET } = await import("../../src/app/api/usage/[connectionId]/route.js");
+    const response = await GET(new Request("http://localhost/api/usage/conn-usage-timeout"), {
+      params: Promise.resolve({ connectionId: "conn-usage-timeout" }),
+    });
+
+    expect(response.status).toBe(504);
+    expect(getUsageForProvider).toHaveBeenCalledTimes(2);
+    expect(writeConnectionHotState).toHaveBeenCalledWith(expect.objectContaining({
+      connectionId: "conn-usage-timeout",
+      provider: "codex",
+      patch: expect.objectContaining({
+        lastCheckedAt: expect.any(String),
+        usageSnapshot: expect.stringContaining("Usage check temporarily unavailable. Retrying..."),
+      }),
+    }));
+
+    const [[{ patch }]] = writeConnectionHotState.mock.calls.slice(-1);
+    expect(patch).not.toHaveProperty("routingStatus", "blocked");
+    expect(patch).not.toHaveProperty("reasonDetail", "codex upstream timed out after 45000ms");
+    expect(patch).not.toHaveProperty("reasonCode", "usage_request_failed");
+  });
+
+  it("recovers successfully when a transient usage timeout succeeds on retry", async () => {
+    mockConnections.push({
+      id: "conn-usage-timeout-recovered",
+      provider: "codex",
+      authType: "oauth",
+      accessToken: "token",
+      refreshToken: "refresh",
+      routingStatus: "eligible",
+      authState: "ok",
+      testStatus: "active",
+    });
+
+    getUsageForProvider
+      .mockRejectedValueOnce(Object.assign(
+        new Error("codex upstream timed out after 45000ms"),
+        { status: 504, code: "UPSTREAM_TIMEOUT" },
+      ))
+      .mockResolvedValueOnce({
+        plan: "pro",
+        quotas: {
+          weekly: {
+            used: 40,
+            total: 100,
+            remaining: 60,
+            resetAt: "2026-04-25T00:00:00.000Z",
+          },
+        },
+      });
+
+    const { GET } = await import("../../src/app/api/usage/[connectionId]/route.js");
+    const response = await GET(new Request("http://localhost/api/usage/conn-usage-timeout-recovered"), {
+      params: Promise.resolve({ connectionId: "conn-usage-timeout-recovered" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(getUsageForProvider).toHaveBeenCalledTimes(2);
+    expect(writeConnectionHotState).toHaveBeenCalledWith(expect.objectContaining({
+      connectionId: "conn-usage-timeout-recovered",
+      provider: "codex",
+      patch: expect.objectContaining({
+        routingStatus: "eligible",
+        quotaState: "ok",
+        usageSnapshot: expect.any(String),
+      }),
+    }));
+  });
+
+  it("persists a fallback usage snapshot for generic usage failures", async () => {
+    mockConnections.push({
+      id: "conn-usage-generic-failure",
+      provider: "codex",
+      authType: "oauth",
+      accessToken: "token",
+      refreshToken: "refresh",
+      routingStatus: "eligible",
+      authState: "ok",
+      testStatus: "active",
+    });
+
+    getUsageForProvider.mockRejectedValueOnce(Object.assign(
+      new Error("Upstream request failed"),
+      { status: 500 },
+    ));
+
+    const { GET } = await import("../../src/app/api/usage/[connectionId]/route.js");
+    const response = await GET(new Request("http://localhost/api/usage/conn-usage-generic-failure"), {
+      params: Promise.resolve({ connectionId: "conn-usage-generic-failure" }),
+    });
+
+    expect(response.status).toBe(500);
+    expect(writeConnectionHotState).toHaveBeenCalledWith(expect.objectContaining({
+      connectionId: "conn-usage-generic-failure",
+      provider: "codex",
+      patch: expect.objectContaining({
+        routingStatus: "blocked",
+        reasonCode: "usage_request_failed",
+        usageSnapshot: expect.stringContaining("Upstream request failed"),
+      }),
+    }));
+  });
+
   it("classifies 403 usage errors as auth-blocked when auth evidence is present", async () => {
     mockConnections.push({
       id: "conn-usage-throws-auth-403",
@@ -902,6 +1221,7 @@ describe("usage request status sync", () => {
         authState: "invalid",
         reasonCode: "auth_invalid",
         reasonDetail: "Access denied: invalid token",
+        usageSnapshot: expect.any(String),
       }),
     }));
     expect(updateProviderConnection).not.toHaveBeenCalled();
@@ -1020,7 +1340,7 @@ describe("usage request status sync", () => {
       "conn-clear-eligible",
       expect.objectContaining({
         modelLock_gpt4: null,
-        reasonCode: "unknown",
+        reasonCode: null,
         reasonDetail: null,
       })
     );

@@ -28,8 +28,8 @@ function normalizeMitmRouterBaseUrlInput(input) {
 
 const isWin = process.platform === "win32";
 
-function getPassword(provided) {
-  return provided || getCachedPassword() || null;
+function getPassword(provided, getCachedPassword) {
+  return provided || getCachedPassword?.() || null;
 }
 
 function checkIsAdmin() {
@@ -76,10 +76,11 @@ export async function POST(request) {
     const {
       startServer,
       getCachedPassword,
+      setCachedPassword,
       loadEncryptedPassword,
     } = await loadMitmManager();
     const { apiKey, sudoPassword, mitmRouterBaseUrl } = await request.json();
-    const pwd = getPassword(sudoPassword) || await loadEncryptedPassword() || "";
+    const pwd = getPassword(sudoPassword, getCachedPassword) || await loadEncryptedPassword() || "";
 
     if (!apiKey || (!isWin && !pwd)) {
       return NextResponse.json(
@@ -116,11 +117,12 @@ export async function DELETE(request) {
     const {
       stopServer,
       getCachedPassword,
+      setCachedPassword,
       loadEncryptedPassword,
     } = await loadMitmManager();
     const body = await request.json().catch(() => ({}));
     const { sudoPassword } = body;
-    const pwd = getPassword(sudoPassword) || await loadEncryptedPassword() || "";
+    const pwd = getPassword(sudoPassword, getCachedPassword) || await loadEncryptedPassword() || "";
 
     if (!isWin && !pwd) {
       return NextResponse.json({ error: "Missing sudoPassword" }, { status: 400 });
@@ -144,28 +146,35 @@ export async function PATCH(request) {
       disableToolDNS,
       trustCert,
       getCachedPassword,
+      setCachedPassword,
       loadEncryptedPassword,
       getMitmStatus,
     } = await loadMitmManager();
     const { tool, action, sudoPassword } = await request.json();
-    const pwd = getPassword(sudoPassword) || await loadEncryptedPassword() || "";
+    const pwd = getPassword(sudoPassword, getCachedPassword) || await loadEncryptedPassword() || "";
 
-    if (!tool || !action) {
-      return NextResponse.json({ error: "tool and action required" }, { status: 400 });
+    if (!action) {
+      return NextResponse.json({ error: "action required" }, { status: 400 });
     }
     if (!isWin && !pwd) {
       return NextResponse.json({ error: "Missing sudoPassword" }, { status: 400 });
+    }
+
+    if (action === "trust-cert") {
+      await trustCert(pwd);
+      if (!isWin && sudoPassword) setCachedPassword(sudoPassword);
+      const status = await getMitmStatus();
+      return NextResponse.json({ success: true, certTrusted: status.certTrusted });
+    }
+
+    if (!tool) {
+      return NextResponse.json({ error: "tool required" }, { status: 400 });
     }
 
     if (action === "enable") {
       await enableToolDNS(tool, pwd);
     } else if (action === "disable") {
       await disableToolDNS(tool, pwd);
-    } else if (action === "trust-cert") {
-      await trustCert(pwd);
-      if (!isWin && sudoPassword) setCachedPassword(sudoPassword);
-      const status = await getMitmStatus();
-      return NextResponse.json({ success: true, certTrusted: status.certTrusted });
     } else {
       return NextResponse.json({ error: "action must be enable, disable, or trust-cert" }, { status: 400 });
     }

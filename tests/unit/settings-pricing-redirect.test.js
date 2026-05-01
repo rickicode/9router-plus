@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-const appDir = path.resolve(import.meta.dirname, "../../src/app/dashboard/settings");
+const appDir = path.resolve(import.meta.dirname, "../../src/app/(dashboard)/dashboard/settings");
 
 describe("unified settings page module", () => {
   it("adds the consolidated settings route entry and legacy pricing redirect shim", async () => {

@@ -1,5 +1,5 @@
 import * as log from "../utils/logger.js";
-import { getMachineData, saveMachineData } from "../services/storage.js";
+import { deleteMachineData, getMachineData, saveMachineData, invalidateRuntimeConfig, getRuntimeConfig } from "../services/storage.js";
 import { getState, getUptime } from "../services/state.js";
 import { getAllUsage } from "../services/usage.js";
 import { extractSecret, isSecretValid, constantTimeEqual } from "../utils/secret.js";
@@ -30,8 +30,8 @@ function normalizeRuntimeUrl(value) {
     return { error: "Invalid runtimeUrl" };
   }
 
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    return { error: "Invalid runtimeUrl" };
+  if (url.protocol !== "https:") {
+    return { error: "runtimeUrl must use HTTPS" };
   }
 
   return url.toString().replace(/\/$/, "");
@@ -205,7 +205,97 @@ export async function handleAdminStatusJson(request, env) {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
 
-  return jsonResponse(buildStatusPayload(machineId, data));
+  const runtimeConfig = await getRuntimeConfig(machineId, env, { machineData: data });
+  return jsonResponse(buildStatusPayload(machineId, data, runtimeConfig));
+}
+
+export async function handleAdminRuntimeRefresh(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: "Invalid JSON body" }, 400);
+  }
+
+  const machineId = String(body?.machineId || "").trim();
+  if (!machineId) {
+    return jsonResponse({ error: "Invalid machineId" }, 400);
+  }
+
+  const data = await getMachineData(machineId, env);
+  if (!data) {
+    return jsonResponse({ error: "Machine not registered" }, 404);
+  }
+
+  const presented = extractSecret(request);
+  if (!isSecretValid(presented, data)) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
+  }
+
+  await invalidateRuntimeConfig(machineId, env, {
+    registration: data?.meta?.runtimeUrl
+      ? {
+          runtimeUrl: data.meta.runtimeUrl,
+          cacheTtlMs: Number.isFinite(data.meta.cacheTtlSeconds)
+            ? data.meta.cacheTtlSeconds * 1000
+            : data.meta.cacheTtlMs,
+        }
+      : null,
+  });
+
+  const runtimeConfig = await getRuntimeConfig(machineId, env, { forceRefresh: true });
+
+  const refreshedAt = new Date().toISOString();
+  data.meta = {
+    ...(data.meta || {}),
+    runtimeRefreshRequestedAt: refreshedAt,
+    runtimeArtifactsLoadedAt: runtimeConfig?.generatedAt || refreshedAt,
+  };
+  await saveMachineData(machineId, data, env);
+
+  return jsonResponse({
+    success: true,
+    machineId,
+    refreshedAt,
+    runtimeGeneratedAt: runtimeConfig?.generatedAt || null,
+    credentialsGeneratedAt: runtimeConfig?.credentialsGeneratedAt || null,
+    runtimeConfigGeneratedAt: runtimeConfig?.runtimeConfigGeneratedAt || null,
+    version: WORKER_VERSION,
+  });
+}
+
+export async function handleAdminUnregister(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: "Invalid JSON body" }, 400);
+  }
+
+  const machineId = String(body?.machineId || "").trim();
+  if (!machineId) {
+    return jsonResponse({ error: "Invalid machineId" }, 400);
+  }
+
+  const data = await getMachineData(machineId, env);
+  if (!data) {
+    return jsonResponse({ error: "Machine not registered" }, 404);
+  }
+
+  const presented = extractSecret(request);
+  if (!isSecretValid(presented, data)) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
+  }
+
+  await deleteMachineData(machineId, env);
+  log.info("ADMIN", "Unregistered machine", { machineId });
+
+  return jsonResponse({
+    success: true,
+    machineId,
+    unregisteredAt: new Date().toISOString(),
+    version: WORKER_VERSION,
+  });
 }
 
 /**
@@ -240,18 +330,20 @@ export async function handleAdminStatusHtml(request, env) {
     });
   }
 
-  const payload = buildStatusPayload(machineId, data);
+  const runtimeConfig = await getRuntimeConfig(machineId, env, { machineData: data });
+  const payload = buildStatusPayload(machineId, data, runtimeConfig);
   return new Response(renderDashboard(payload), {
     status: 200,
     headers: HTML_HEADERS
   });
 }
 
-function buildStatusPayload(machineId, data) {
+function buildStatusPayload(machineId, data, runtimeConfig = null) {
   const state = getState();
   const usage = getAllUsage();
+  const effectiveConfig = runtimeConfig || data || {};
 
-  const providers = Object.entries(data.providers || {}).map(([id, p]) => ({
+  const providers = Object.entries(effectiveConfig.providers || {}).map(([id, p]) => ({
     id,
     provider: p.provider,
     name: p.name,
@@ -287,9 +379,9 @@ function buildStatusPayload(machineId, data) {
       providers: providers.length,
       activeProviders: providers.filter((p) => p.isActive).length,
       eligibleProviders: providers.filter((p) => p.routingStatus === "eligible" && p.isActive).length,
-      modelAliases: Object.keys(data.modelAliases || {}).length,
-      combos: (data.combos || []).length,
-      apiKeys: (data.apiKeys || []).length
+      modelAliases: Object.keys(effectiveConfig.modelAliases || {}).length,
+      combos: (effectiveConfig.combos || []).length,
+      apiKeys: (effectiveConfig.apiKeys || []).length
     }
   };
 }

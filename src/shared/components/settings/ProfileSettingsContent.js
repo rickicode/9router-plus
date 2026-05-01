@@ -5,6 +5,7 @@ import { Card, Button, Toggle, Input } from "@/shared/components";
 import { useTheme } from "@/shared/hooks/useTheme";
 import { cn } from "@/shared/utils/cn";
 import { APP_CONFIG } from "@/shared/constants/config";
+import { DEFAULT_AUTO_COMPACT_SETTINGS } from "open-sse/utils/autoCompactCore.js";
 
 const DEFAULT_CHAT_RUNTIME_SETTINGS = {
   upstreamTimeoutMs: 45000,
@@ -17,11 +18,31 @@ const DEFAULT_CHAT_RUNTIME_SETTINGS = {
   highThroughputSelection: true,
 };
 
+const MS_PER_SECOND = 1000;
+
+function msToSecondsString(value, fallbackMs) {
+  const numericValue = Number(value);
+  const resolvedMs = Number.isFinite(numericValue) && numericValue > 0 ? numericValue : fallbackMs;
+  return String(Math.max(1, Math.round(resolvedMs / MS_PER_SECOND)));
+}
+
+function secondsStringToMs(value) {
+  const seconds = Number.parseFloat(value);
+  if (!Number.isFinite(seconds)) return Number.NaN;
+  return Math.round(seconds * MS_PER_SECOND);
+}
+
 function normalizeChatRuntimeForm(value = {}) {
   const source = value && typeof value === "object" ? value : {};
   return {
-    upstreamTimeoutMs: String(source.upstreamTimeoutMs ?? DEFAULT_CHAT_RUNTIME_SETTINGS.upstreamTimeoutMs),
-    streamIdleTimeoutMs: String(source.streamIdleTimeoutMs ?? DEFAULT_CHAT_RUNTIME_SETTINGS.streamIdleTimeoutMs),
+    upstreamTimeoutSeconds: msToSecondsString(
+      source.upstreamTimeoutMs,
+      DEFAULT_CHAT_RUNTIME_SETTINGS.upstreamTimeoutMs,
+    ),
+    streamIdleTimeoutSeconds: msToSecondsString(
+      source.streamIdleTimeoutMs,
+      DEFAULT_CHAT_RUNTIME_SETTINGS.streamIdleTimeoutMs,
+    ),
     maxInflight: String(source.maxInflight ?? DEFAULT_CHAT_RUNTIME_SETTINGS.maxInflight),
     providerMaxInflight: String(source.providerMaxInflight ?? DEFAULT_CHAT_RUNTIME_SETTINGS.providerMaxInflight),
     accountMaxInflight: String(source.accountMaxInflight ?? DEFAULT_CHAT_RUNTIME_SETTINGS.accountMaxInflight),
@@ -33,8 +54,8 @@ function normalizeChatRuntimeForm(value = {}) {
 
 function buildChatRuntimePayload(form) {
   return {
-    upstreamTimeoutMs: Number.parseInt(form.upstreamTimeoutMs, 10),
-    streamIdleTimeoutMs: Number.parseInt(form.streamIdleTimeoutMs, 10),
+    upstreamTimeoutMs: secondsStringToMs(form.upstreamTimeoutSeconds),
+    streamIdleTimeoutMs: secondsStringToMs(form.streamIdleTimeoutSeconds),
     maxInflight: Number.parseInt(form.maxInflight, 10),
     providerMaxInflight: Number.parseInt(form.providerMaxInflight, 10),
     accountMaxInflight: Number.parseInt(form.accountMaxInflight, 10),
@@ -42,6 +63,28 @@ function buildChatRuntimePayload(form) {
     observabilitySampleRate: Number.parseFloat(form.observabilitySampleRate),
     highThroughputSelection: form.highThroughputSelection === true,
   };
+}
+
+function normalizeAutoCompactForm(value = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    enabled: source.enabled === true,
+    minMessages: String(source.minMessages ?? DEFAULT_AUTO_COMPACT_SETTINGS.minMessages),
+    compressionRatio: String(source.compressionRatio ?? DEFAULT_AUTO_COMPACT_SETTINGS.compressionRatio),
+  };
+}
+
+function buildAutoCompactPayload(form) {
+  return {
+    enabled: form.enabled === true,
+    minMessages: Number.parseInt(form.minMessages, 10),
+    compressionRatio: Number.parseFloat(form.compressionRatio),
+  };
+}
+
+function hasUsableMorphApiKey(settings = {}) {
+  return Array.isArray(settings?.morph?.apiKeys)
+    && settings.morph.apiKeys.some((entry) => entry?.key && entry.status !== "inactive" && entry.isExhausted !== true);
 }
 
 function SectionIntro({ icon, title, description, tone = "neutral", eyebrow = "Settings" }) {
@@ -81,13 +124,13 @@ export default function ProfileSettingsContent() {
     },
   });
   const [loading, setLoading] = useState(true);
-  const [quotaForm, setQuotaForm] = useState({
+  const [usageWorkerForm, setUsageWorkerForm] = useState({
     enabled: true,
     cadenceMinutes: "15",
     exhaustedThresholdPercent: "10",
   });
-  const [quotaStatus, setQuotaStatus] = useState({ type: "", message: "" });
-  const [quotaLoading, setQuotaLoading] = useState(false);
+  const [usageWorkerStatus, setUsageWorkerStatus] = useState({ type: "", message: "" });
+  const [usageWorkerLoading, setUsageWorkerLoading] = useState(false);
   const [passwords, setPasswords] = useState({ current: "", new: "", confirm: "" });
   const [passStatus, setPassStatus] = useState({ type: "", message: "" });
   const [passLoading, setPassLoading] = useState(false);
@@ -108,16 +151,19 @@ export default function ProfileSettingsContent() {
   const [chatRuntimeForm, setChatRuntimeForm] = useState(normalizeChatRuntimeForm(DEFAULT_CHAT_RUNTIME_SETTINGS));
   const [chatRuntimeStatus, setChatRuntimeStatus] = useState({ type: "", message: "" });
   const [chatRuntimeLoading, setChatRuntimeLoading] = useState(false);
+  const [autoCompactForm, setAutoCompactForm] = useState(normalizeAutoCompactForm(DEFAULT_AUTO_COMPACT_SETTINGS));
+  const [autoCompactStatus, setAutoCompactStatus] = useState({ type: "", message: "" });
+  const [autoCompactLoading, setAutoCompactLoading] = useState(false);
 
   useEffect(() => {
     fetch("/api/settings")
       .then((res) => res.json())
       .then((data) => {
         setSettings(data);
-        setQuotaForm({
-          enabled: data?.quotaScheduler?.enabled !== false,
+        setUsageWorkerForm({
+          enabled: data?.usageWorker?.enabled !== false,
           cadenceMinutes: String(
-            Math.max(15, Math.round((data?.quotaScheduler?.cadenceMs || 900000) / 60000))
+            Math.max(15, Math.round((data?.usageWorker?.cadenceMs || 900000) / 60000))
           ),
           exhaustedThresholdPercent: String(
             Number.isFinite(data?.quotaExhaustedThresholdPercent)
@@ -131,6 +177,7 @@ export default function ProfileSettingsContent() {
           outboundNoProxy: data?.outboundNoProxy || "",
         });
         setChatRuntimeForm(normalizeChatRuntimeForm(data?.chatRuntime));
+        setAutoCompactForm(normalizeAutoCompactForm(data?.autoCompact));
         setStickyDurationInput(String(data?.routing?.sticky?.durationSeconds || data?.stickyDuration || 300));
         setLoading(false);
       })
@@ -147,15 +194,16 @@ export default function ProfileSettingsContent() {
       const data = await res.json();
       setSettings(data);
       setChatRuntimeForm(normalizeChatRuntimeForm(data?.chatRuntime));
+      setAutoCompactForm(normalizeAutoCompactForm(data?.autoCompact));
       setStickyDurationInput(String(data?.routing?.sticky?.durationSeconds || data?.stickyDuration || 300));
     } catch (err) {
       console.error("Failed to reload settings:", err);
     }
   };
 
-  const updateQuotaScheduler = async (updates, successMessage = "Quota scheduler updated") => {
-    setQuotaLoading(true);
-    setQuotaStatus({ type: "", message: "" });
+  const updateUsageWorker = async (updates, successMessage = "Usage worker updated") => {
+    setUsageWorkerLoading(true);
+    setUsageWorkerStatus({ type: "", message: "" });
     try {
       const res = await fetch("/api/settings", {
         method: "PATCH",
@@ -165,10 +213,10 @@ export default function ProfileSettingsContent() {
       const data = await res.json();
       if (res.ok) {
         setSettings((prev) => ({ ...prev, ...data }));
-        setQuotaForm({
-          enabled: data?.quotaScheduler?.enabled !== false,
+        setUsageWorkerForm({
+          enabled: data?.usageWorker?.enabled !== false,
           cadenceMinutes: String(
-            Math.max(15, Math.round((data?.quotaScheduler?.cadenceMs || 900000) / 60000))
+            Math.max(15, Math.round((data?.usageWorker?.cadenceMs || 900000) / 60000))
           ),
           exhaustedThresholdPercent: String(
             Number.isFinite(data?.quotaExhaustedThresholdPercent)
@@ -176,43 +224,43 @@ export default function ProfileSettingsContent() {
               : 10
           ),
         });
-        setQuotaStatus({ type: "success", message: successMessage });
+        setUsageWorkerStatus({ type: "success", message: successMessage });
       } else {
-        setQuotaStatus({ type: "error", message: data.error || "Failed to update quota scheduler" });
+        setUsageWorkerStatus({ type: "error", message: data.error || "Failed to update usage worker" });
       }
     } catch {
-      setQuotaStatus({ type: "error", message: "An error occurred" });
+      setUsageWorkerStatus({ type: "error", message: "An error occurred" });
     } finally {
-      setQuotaLoading(false);
+      setUsageWorkerLoading(false);
     }
   };
 
-  const updateQuotaSchedulerEnabled = async (enabled) => {
-    setQuotaForm((prev) => ({ ...prev, enabled }));
-    await updateQuotaScheduler(
-      { quotaScheduler: { enabled } },
-      enabled ? "Quota scheduler enabled" : "Quota scheduler disabled"
+  const updateUsageWorkerEnabled = async (enabled) => {
+    setUsageWorkerForm((prev) => ({ ...prev, enabled }));
+    await updateUsageWorker(
+      { usageWorker: { enabled } },
+      enabled ? "Usage worker enabled" : "Usage worker disabled"
     );
   };
 
-  const applyQuotaSettings = async (e) => {
+  const applyUsageWorkerSettings = async (e) => {
     e.preventDefault();
-    const minutes = Number.parseInt(quotaForm.cadenceMinutes, 10);
+    const minutes = Number.parseInt(usageWorkerForm.cadenceMinutes, 10);
     if (!Number.isFinite(minutes) || minutes < 15) {
-      setQuotaStatus({ type: "error", message: "Scheduler interval must be at least 15 minutes" });
+      setUsageWorkerStatus({ type: "error", message: "Scheduler interval must be at least 15 minutes" });
       return;
     }
-    const threshold = Number.parseFloat(quotaForm.exhaustedThresholdPercent);
+    const threshold = Number.parseFloat(usageWorkerForm.exhaustedThresholdPercent);
     if (!Number.isFinite(threshold) || threshold < 0 || threshold > 100) {
-      setQuotaStatus({ type: "error", message: "Quota exhausted threshold must be between 0 and 100" });
+      setUsageWorkerStatus({ type: "error", message: "Quota exhausted threshold must be between 0 and 100" });
       return;
     }
-    await updateQuotaScheduler(
+    await updateUsageWorker(
       {
-        quotaScheduler: { cadenceMs: minutes * 60 * 1000 },
+        usageWorker: { intervalMinutes: minutes },
         quotaExhaustedThresholdPercent: threshold,
       },
-      "Quota scheduler settings updated"
+      "Usage worker settings updated"
     );
   };
 
@@ -492,6 +540,52 @@ export default function ProfileSettingsContent() {
     }
   };
 
+  const updateAutoCompactEnabled = async (enabled) => {
+    if (enabled && !hasUsableMorphApiKey(settings)) {
+      setAutoCompactForm((prev) => ({ ...prev, enabled: false }));
+      setAutoCompactStatus({ type: "error", message: "Add an active Morph API key before enabling auto compact" });
+      return;
+    }
+    const nextForm = { ...autoCompactForm, enabled };
+    setAutoCompactForm(nextForm);
+    await saveAutoCompactSettings(null, nextForm, enabled ? "Auto compact enabled" : "Auto compact disabled");
+  };
+
+  const saveAutoCompactSettings = async (event, overrideForm = null, successMessage = "Auto compact settings saved") => {
+    event?.preventDefault?.();
+    const payload = buildAutoCompactPayload(overrideForm || autoCompactForm);
+    if (!Number.isFinite(payload.minMessages) || payload.minMessages < 1) {
+      setAutoCompactStatus({ type: "error", message: "Minimum messages must be greater than 0" });
+      return;
+    }
+    if (!Number.isFinite(payload.compressionRatio) || payload.compressionRatio < 0.05 || payload.compressionRatio > 1) {
+      setAutoCompactStatus({ type: "error", message: "Compression ratio must be between 0.05 and 1" });
+      return;
+    }
+
+    setAutoCompactLoading(true);
+    setAutoCompactStatus({ type: "", message: "" });
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ autoCompact: payload }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSettings((prev) => ({ ...prev, ...data }));
+        setAutoCompactForm(normalizeAutoCompactForm(data?.autoCompact));
+        setAutoCompactStatus({ type: "success", message: successMessage });
+      } else {
+        setAutoCompactStatus({ type: "error", message: data.error || "Failed to save auto compact settings" });
+      }
+    } catch {
+      setAutoCompactStatus({ type: "error", message: "An error occurred" });
+    } finally {
+      setAutoCompactLoading(false);
+    }
+  };
+
   const updateCloudRoutingSettings = async (updates, successMessage) => {
     setRoutingLoading(true);
     setRoutingStatus({ type: "", message: "" });
@@ -605,6 +699,7 @@ export default function ProfileSettingsContent() {
   };
 
   const observabilityEnabled = settings.enableObservability === true;
+  const morphKeyAvailable = hasUsableMorphApiKey(settings);
 
   return (
     <div className="flex flex-col gap-6">
@@ -861,6 +956,68 @@ export default function ProfileSettingsContent() {
 
       <Card>
         <SectionIntro
+          icon="auto_fix_high"
+          tone="primary"
+          title="Auto Compact"
+          description="Compress long chat history with Morph before forwarding to the selected model."
+          eyebrow="Context"
+        />
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium">Enable auto compact</p>
+              <p className="text-sm text-text-muted">
+                {morphKeyAvailable
+                  ? "Uses configured Morph keys and keeps recent messages intact."
+                  : "Add an active Morph API key first. Auto compact stays off without one."}
+              </p>
+            </div>
+            <Toggle
+              checked={autoCompactForm.enabled && morphKeyAvailable}
+              onChange={(enabled) => updateAutoCompactEnabled(enabled)}
+              disabled={loading || autoCompactLoading || !morphKeyAvailable}
+            />
+          </div>
+          <form onSubmit={saveAutoCompactSettings} className="flex flex-col gap-3 border-t border-border/50 pt-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              <Input
+                type="number"
+                min="1"
+                step="1"
+                label="Minimum messages"
+                value={autoCompactForm.minMessages}
+                onChange={(e) => setAutoCompactForm((prev) => ({ ...prev, minMessages: e.target.value }))}
+                disabled={loading || autoCompactLoading}
+                hint="Only plain-text conversations with at least this many messages are compacted."
+              />
+              <Input
+                type="number"
+                min="0.05"
+                max="1"
+                step="0.05"
+                label="Compression ratio"
+                value={autoCompactForm.compressionRatio}
+                onChange={(e) => setAutoCompactForm((prev) => ({ ...prev, compressionRatio: e.target.value }))}
+                disabled={loading || autoCompactLoading}
+                hint="Fraction to keep. 0.5 is balanced; 0.7 is lighter."
+              />
+            </div>
+            <div>
+              <Button type="submit" variant="primary" loading={autoCompactLoading}>
+                Save auto compact
+              </Button>
+            </div>
+            {autoCompactStatus.message ? (
+              <p className={`text-sm ${autoCompactStatus.type === "error" ? "text-[var(--color-danger)]" : "text-[var(--color-success)]"}`}>
+                {autoCompactStatus.message}
+              </p>
+            ) : null}
+          </form>
+        </div>
+      </Card>
+
+      <Card>
+        <SectionIntro
           icon="wifi"
           tone="purple"
           title="Network"
@@ -955,22 +1112,22 @@ export default function ProfileSettingsContent() {
             <Input
               type="number"
               min="1"
-              step="1000"
-              label="Upstream timeout (ms)"
-              value={chatRuntimeForm.upstreamTimeoutMs}
-              onChange={(e) => setChatRuntimeForm((prev) => ({ ...prev, upstreamTimeoutMs: e.target.value }))}
+              step="1"
+              label="Upstream timeout (seconds)"
+              value={chatRuntimeForm.upstreamTimeoutSeconds}
+              onChange={(e) => setChatRuntimeForm((prev) => ({ ...prev, upstreamTimeoutSeconds: e.target.value }))}
               disabled={loading || chatRuntimeLoading}
-              hint="Default 45000. Caps non-streaming provider waits."
+              hint="Default 45. Saved to backend in milliseconds."
             />
             <Input
               type="number"
               min="1"
-              step="1000"
-              label="Stream idle timeout (ms)"
-              value={chatRuntimeForm.streamIdleTimeoutMs}
-              onChange={(e) => setChatRuntimeForm((prev) => ({ ...prev, streamIdleTimeoutMs: e.target.value }))}
+              step="1"
+              label="Stream idle timeout (seconds)"
+              value={chatRuntimeForm.streamIdleTimeoutSeconds}
+              onChange={(e) => setChatRuntimeForm((prev) => ({ ...prev, streamIdleTimeoutSeconds: e.target.value }))}
               disabled={loading || chatRuntimeLoading}
-              hint="Default 120000. Caps silent streaming reads."
+              hint="Default 120. Saved to backend in milliseconds."
             />
             <Input
               type="number"
@@ -1064,19 +1221,19 @@ export default function ProfileSettingsContent() {
         <SectionIntro
           icon="schedule"
           tone="success"
-          title="Quota Scheduler"
-          description="Control automatic quota refresh checks for supported accounts."
+          title="Usage Worker"
+          description="Control automatic background usage refresh checks for supported accounts."
           eyebrow="Automation"
         />
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <div>
               <p className="font-medium">Enable scheduler</p>
-              <p className="text-sm text-text-muted">Automatically refresh quota status in the background.</p>
+              <p className="text-sm text-text-muted">Automatically refresh usage status in the background.</p>
             </div>
-            <Toggle checked={quotaForm.enabled} onChange={updateQuotaSchedulerEnabled} disabled={loading || quotaLoading} />
+            <Toggle checked={usageWorkerForm.enabled} onChange={updateUsageWorkerEnabled} disabled={loading || usageWorkerLoading} />
           </div>
-          <form onSubmit={applyQuotaSettings} className="flex flex-col gap-3 border-t border-border/50 pt-4">
+          <form onSubmit={applyUsageWorkerSettings} className="flex flex-col gap-3 border-t border-border/50 pt-4">
             <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
               <div className="grid flex-1 gap-3 md:grid-cols-2 md:items-end">
                 <Input
@@ -1084,12 +1241,12 @@ export default function ProfileSettingsContent() {
                   min="15"
                   step="1"
                   label="Scheduler interval (minutes)"
-                  value={quotaForm.cadenceMinutes}
+                  value={usageWorkerForm.cadenceMinutes}
                   onChange={(e) => {
-                    setQuotaForm((prev) => ({ ...prev, cadenceMinutes: e.target.value }));
-                    if (quotaStatus.message) setQuotaStatus({ type: "", message: "" });
+                    setUsageWorkerForm((prev) => ({ ...prev, cadenceMinutes: e.target.value }));
+                    if (usageWorkerStatus.message) setUsageWorkerStatus({ type: "", message: "" });
                   }}
-                  disabled={loading || quotaLoading}
+                  disabled={loading || usageWorkerLoading}
                   hint="Minimum 15 minutes. Changes are saved via the settings API."
                   className="w-full"
                 />
@@ -1099,27 +1256,27 @@ export default function ProfileSettingsContent() {
                   max="100"
                   step="0.1"
                   label="Exhausted threshold (%)"
-                  value={quotaForm.exhaustedThresholdPercent}
+                  value={usageWorkerForm.exhaustedThresholdPercent}
                   onChange={(e) => {
-                    setQuotaForm((prev) => ({ ...prev, exhaustedThresholdPercent: e.target.value }));
-                    if (quotaStatus.message) setQuotaStatus({ type: "", message: "" });
+                    setUsageWorkerForm((prev) => ({ ...prev, exhaustedThresholdPercent: e.target.value }));
+                    if (usageWorkerStatus.message) setUsageWorkerStatus({ type: "", message: "" });
                   }}
-                  disabled={loading || quotaLoading}
+                  disabled={loading || usageWorkerLoading}
                   hint="Global threshold to treat an account as exhausted."
                   className="w-full"
                 />
               </div>
-              <Button type="submit" variant="primary" loading={quotaLoading}>
-                Save quota settings
+              <Button type="submit" variant="primary" loading={usageWorkerLoading}>
+                Save usage worker settings
               </Button>
             </div>
             <div className="rounded border border-border/60 bg-[var(--color-bg)] px-3 py-2 text-sm text-text-muted">
-              Current cadence: every {Math.max(15, Math.round((settings?.quotaScheduler?.cadenceMs || 900000) / 60000))} minutes
+              Current cadence: every {Math.max(15, Math.round((settings?.usageWorker?.cadenceMs || 900000) / 60000))} minutes
             </div>
           </form>
-          {quotaStatus.message ? (
-            <p className={`border-t border-border/50 pt-2 text-sm ${quotaStatus.type === "error" ? "text-[var(--color-danger)]" : "text-[var(--color-success)]"}`}>
-              {quotaStatus.message}
+          {usageWorkerStatus.message ? (
+            <p className={`border-t border-border/50 pt-2 text-sm ${usageWorkerStatus.type === "error" ? "text-[var(--color-danger)]" : "text-[var(--color-success)]"}`}>
+              {usageWorkerStatus.message}
             </p>
           ) : null}
         </div>

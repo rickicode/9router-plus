@@ -108,6 +108,7 @@ describe("publishRuntimeArtifacts", () => {
         artifactUrls: {
           backupUrl: "https://storage.example.com/backup.json",
           runtimeUrl: "https://storage.example.com/runtime.json",
+          eligibleUrl: "https://storage.example.com/eligible.json",
           sqliteUrl: "https://storage.example.com/sqlite/latest.db",
         },
         dbSnapshot: {
@@ -127,12 +128,14 @@ describe("publishRuntimeArtifacts", () => {
     ).resolves.toMatchObject({
       backup: { uploaded: true, attempts: 1 },
       runtime: { uploaded: true, attempts: 1 },
+      eligible: { uploaded: true, attempts: 1 },
       sqlite: { skipped: true, uploaded: false },
     });
 
     expect(uploaded).toEqual([
       "https://storage.example.com/backup.json",
       "https://storage.example.com/runtime.json",
+      "https://storage.example.com/eligible.json",
     ]);
   });
 
@@ -145,6 +148,7 @@ describe("publishRuntimeArtifacts", () => {
       artifactUrls: {
         backupUrl: "https://storage.example.com/backup.json",
         runtimeUrl: "https://storage.example.com/runtime.json",
+        eligibleUrl: "https://storage.example.com/eligible.json",
         sqliteUrl: "https://storage.example.com/sqlite/latest.db",
       },
       dbSnapshot: {
@@ -161,9 +165,9 @@ describe("publishRuntimeArtifacts", () => {
       putObject,
     });
 
-    expect(putObject).toHaveBeenCalledTimes(3);
+    expect(putObject).toHaveBeenCalledTimes(4);
     expect(putObject).toHaveBeenNthCalledWith(
-      3,
+      4,
       expect.objectContaining({
         objectUrl: "https://storage.example.com/sqlite/latest.db",
         body: Buffer.from("sqlite-bytes"),
@@ -178,6 +182,7 @@ describe("publishRuntimeArtifacts", () => {
       .fn()
       .mockResolvedValueOnce({ ok: true, attempts: 1 })
       .mockResolvedValueOnce({ ok: true, attempts: 1 })
+      .mockResolvedValueOnce({ ok: true, attempts: 1 })
       .mockRejectedValueOnce(new Error("sqlite upload failed"));
 
     const { publishRuntimeArtifacts } = await import("@/lib/r2BackupClient.js");
@@ -186,6 +191,7 @@ describe("publishRuntimeArtifacts", () => {
       artifactUrls: {
         backupUrl: "https://storage.example.com/backup.json",
         runtimeUrl: "https://storage.example.com/runtime.json",
+        eligibleUrl: "https://storage.example.com/eligible.json",
         sqliteUrl: "https://storage.example.com/sqlite/latest.db",
       },
       dbSnapshot: {
@@ -204,11 +210,57 @@ describe("publishRuntimeArtifacts", () => {
 
     expect(result.backup).toMatchObject({ uploaded: true, ok: true });
     expect(result.runtime).toMatchObject({ uploaded: true, ok: true });
+    expect(result.eligible).toMatchObject({ uploaded: true, ok: true });
     expect(result.sqlite).toMatchObject({ uploaded: false, skipped: false, error: "sqlite upload failed" });
   });
 
   it("uses the injected retry helper dependency for all uploads", async () => {
     const putObject = vi.fn().mockResolvedValue({ ok: true, attempts: 3 });
+
+    const { publishRuntimeArtifacts } = await import("@/lib/r2BackupClient.js");
+
+    await publishRuntimeArtifacts({
+      artifactUrls: {
+        backupUrl: "https://storage.example.com/backup.json",
+        runtimeUrl: "https://storage.example.com/runtime.json",
+        eligibleUrl: "https://storage.example.com/eligible.json",
+        sqliteUrl: "https://storage.example.com/sqlite/latest.db",
+      },
+      dbSnapshot: {
+        format: "9router-db-v1",
+        schemaVersion: 1,
+        providerConnections: [],
+        modelAliases: {},
+        combos: [],
+        apiKeys: [],
+        settings: {},
+      },
+      sqliteChanged: true,
+      sqliteData: Buffer.from("sqlite-bytes"),
+      putObject,
+    });
+
+    expect(putObject).toHaveBeenCalledTimes(4);
+    expect(putObject).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ objectUrl: "https://storage.example.com/backup.json" })
+    );
+    expect(putObject).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ objectUrl: "https://storage.example.com/runtime.json" })
+    );
+    expect(putObject).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ objectUrl: "https://storage.example.com/eligible.json" })
+    );
+    expect(putObject).toHaveBeenNthCalledWith(
+      4,
+      expect.objectContaining({ objectUrl: "https://storage.example.com/sqlite/latest.db" })
+    );
+  });
+
+  it("derives eligible.json when only runtimeUrl is provided", async () => {
+    const putObject = vi.fn().mockResolvedValue({ ok: true, attempts: 1 });
 
     const { publishRuntimeArtifacts } = await import("@/lib/r2BackupClient.js");
 
@@ -227,23 +279,13 @@ describe("publishRuntimeArtifacts", () => {
         apiKeys: [],
         settings: {},
       },
-      sqliteChanged: true,
-      sqliteData: Buffer.from("sqlite-bytes"),
+      sqliteChanged: false,
       putObject,
     });
 
-    expect(putObject).toHaveBeenCalledTimes(3);
-    expect(putObject).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ objectUrl: "https://storage.example.com/backup.json" })
-    );
-    expect(putObject).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ objectUrl: "https://storage.example.com/runtime.json" })
-    );
     expect(putObject).toHaveBeenNthCalledWith(
       3,
-      expect.objectContaining({ objectUrl: "https://storage.example.com/sqlite/latest.db" })
+      expect.objectContaining({ objectUrl: "https://storage.example.com/eligible.json" })
     );
   });
 });
@@ -287,7 +329,7 @@ describe("publishRuntimeArtifactsFromSettings", () => {
       }),
     });
 
-    expect(putObject).toHaveBeenCalledTimes(2);
+    expect(putObject).toHaveBeenCalledTimes(3);
     expect(result.sqlite).toMatchObject({ ok: true, uploaded: false, skipped: true });
     expect(settingsUpdater).toHaveBeenCalledTimes(1);
     expect(settingsUpdater).toHaveBeenCalledWith({
@@ -478,9 +520,9 @@ describe("publishRuntimeArtifactsFromSettings", () => {
     expect(backupBody).not.toContain("r2-secret");
     expect(backupBody).not.toContain("worker-secret");
 
-    const sqliteBody = Buffer.isBuffer(putObject.mock.calls[2][0].body)
-      ? putObject.mock.calls[2][0].body.toString("utf8")
-      : String(putObject.mock.calls[2][0].body);
+    const sqliteBody = Buffer.isBuffer(putObject.mock.calls[3][0].body)
+      ? putObject.mock.calls[3][0].body.toString("utf8")
+      : String(putObject.mock.calls[3][0].body);
     const sqliteEnvelope = JSON.parse(sqliteBody);
     expect(sqliteEnvelope).toMatchObject({
       format: "9router-r2-encrypted-sqlite-v1",
@@ -507,7 +549,7 @@ describe("publishRuntimeArtifactsFromSettings", () => {
           endpoint: "https://acct.r2.cloudflarestorage.com",
           bucket: "media",
           accessKeyId: "key",
-          secretAccessKey: "old-r2-secret",
+          secretAccessKey: "*****************",
           region: "auto",
         },
       }),
@@ -521,7 +563,7 @@ describe("publishRuntimeArtifactsFromSettings", () => {
     });
 
     const backupArtifact = JSON.parse(String(putObject.mock.calls[0][0].body));
-    const sqliteEnvelope = JSON.parse(Buffer.from(putObject.mock.calls[2][0].body).toString("utf8"));
+    const sqliteEnvelope = JSON.parse(Buffer.from(putObject.mock.calls[3][0].body).toString("utf8"));
     expect(backupArtifact.payload.keyId).toBe("local-r2-backup-key-v1");
     expect(sqliteEnvelope.payload.keyId).toBe("local-r2-backup-key-v1");
     expect(JSON.stringify(backupArtifact)).not.toContain("old-r2-secret");
@@ -710,7 +752,7 @@ describe("publishRuntimeArtifactsFromSettings", () => {
       }),
     });
 
-    expect(putObject).toHaveBeenCalledTimes(2);
+    expect(putObject).toHaveBeenCalledTimes(3);
     expect(result.backup).toMatchObject({ ok: true, uploaded: true });
     expect(result.runtime).toMatchObject({ ok: true, uploaded: true });
     expect(result.sqlite).toEqual({

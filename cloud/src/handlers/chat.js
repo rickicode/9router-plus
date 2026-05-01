@@ -8,11 +8,190 @@ import * as log from "../utils/logger.js";
 import { refreshTokenByProvider } from "../services/tokenRefresh.js";
 import { parseApiKey, extractBearerToken } from "../utils/apiKey.js";
 import { selectCredential } from "../services/routing.js";
-import { recordUsage } from "../services/usage.js";
-import { getMachineData, saveMachineData, getRuntimeConfig } from "../services/storage.js";
+import { recordUsage, recordUsageEvent } from "../services/usage.js";
+import { getRuntimeConfig, updateRuntimeProviderState } from "../services/storage.js";
+import { applyCompactedMessages, buildAutoCompactPlan } from "open-sse/utils/autoCompactCore.js";
 
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 const refreshLocks = new Map();
+const morphCompactRotationCursors = new Map();
+const morphCompactKeyCooldowns = new Map();
+
+function getMorphCompactKeyId(entry) {
+  return typeof entry?.email === "string" && entry.email.trim() ? entry.email.trim() : null;
+}
+
+function getMorphCompactCooldownKey(machineId, entry) {
+  const keyId = getMorphCompactKeyId(entry);
+  return keyId ? `${machineId}:${keyId}` : null;
+}
+
+function isMorphCompactKeyCooledDown(machineId, entry) {
+  const cooldownKey = getMorphCompactCooldownKey(machineId, entry);
+  if (!cooldownKey) return false;
+  const expiresAt = morphCompactKeyCooldowns.get(cooldownKey);
+  if (!expiresAt) return false;
+  if (expiresAt <= Date.now()) {
+    morphCompactKeyCooldowns.delete(cooldownKey);
+    return false;
+  }
+  return true;
+}
+
+function setMorphCompactKeyCooldown(machineId, entry, status) {
+  const cooldownKey = getMorphCompactCooldownKey(machineId, entry);
+  if (!cooldownKey) return;
+  const durationMs = status === 401 ? 30 * 60 * 1000 : status === 429 ? 60 * 1000 : 0;
+  if (durationMs > 0) {
+    morphCompactKeyCooldowns.set(cooldownKey, Date.now() + durationMs);
+  }
+}
+
+function clearMorphCompactKeyCooldown(machineId, entry) {
+  const cooldownKey = getMorphCompactCooldownKey(machineId, entry);
+  if (cooldownKey) morphCompactKeyCooldowns.delete(cooldownKey);
+}
+
+function getMorphCompactKeyOrder(machineId, morphSettings) {
+  const apiKeys = Array.isArray(morphSettings?.apiKeys)
+    ? morphSettings.apiKeys.filter((entry) => entry?.key && entry.status !== "inactive" && entry.isExhausted !== true && entry.isActive !== false)
+    : [];
+  const availableKeys = apiKeys.filter((entry) => !isMorphCompactKeyCooledDown(machineId, entry));
+  const eligibleKeys = availableKeys.length > 0 ? availableKeys : apiKeys;
+  if (eligibleKeys.length <= 1 || morphSettings?.roundRobinEnabled !== true) return eligibleKeys;
+
+  const currentIndex = morphCompactRotationCursors.get(machineId) || 0;
+  const selectedIndex = currentIndex % eligibleKeys.length;
+  morphCompactRotationCursors.set(machineId, (selectedIndex + 1) % eligibleKeys.length);
+  return eligibleKeys.map((_, offset) => eligibleKeys[(selectedIndex + offset) % eligibleKeys.length]);
+}
+
+function isMorphCompactRetryableStatus(status) {
+  return status === 401 || status === 429 || status >= 500;
+}
+
+function getCompactUsageTokens(usage = {}) {
+  return {
+    input: Number(usage.prompt_tokens ?? usage.input_tokens ?? 0) || 0,
+    output: Number(usage.completion_tokens ?? usage.output_tokens ?? 0) || 0,
+  };
+}
+
+function recordCompactUsage({ status, startedAt, responsePayload = null, error = null }) {
+  const tokens = getCompactUsageTokens(responsePayload?.usage || {});
+  recordUsageEvent({
+    type: "morph",
+    endpoint: "/v1/chat/auto-compact",
+    provider: "morph",
+    model: responsePayload?.model || "morph-compactor",
+    connectionId: null,
+    status,
+    tokensInput: tokens.input,
+    tokensOutput: tokens.output,
+    error,
+    latencyMs: Date.now() - startedAt,
+  });
+}
+
+async function maybeAutoCompactBody(body, data, machineId) {
+  const startedAt = Date.now();
+  const plan = buildAutoCompactPlan(body, data?.settings?.autoCompact);
+  if (!plan.ok) {
+    if (plan.reason !== "disabled" && plan.reason !== "below minimum messages") {
+      log.warn("COMPACT", `Auto compact skipped: ${plan.reason}`);
+    }
+    return body;
+  }
+
+  const morph = data?.settings?.morph;
+  const apiKeys = getMorphCompactKeyOrder(machineId, morph);
+  if (!morph?.baseUrl || apiKeys.length === 0) {
+    log.warn("COMPACT", "Auto compact skipped: Morph is not configured");
+    return body;
+  }
+
+  const upstreamUrl = new URL("/v1/compact", `${String(morph.baseUrl).replace(/\/+$/, "")}/`).toString();
+  const requestBody = JSON.stringify(plan.payload);
+  let lastStatus = null;
+  let lastError = null;
+
+  for (const [index, entry] of apiKeys.entries()) {
+    try {
+      const response = await fetch(upstreamUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${entry.key}`,
+          "Content-Type": "application/json",
+        },
+        body: requestBody,
+        signal: AbortSignal.timeout(25_000),
+      });
+
+      if (!response.ok) {
+        lastStatus = response.status;
+        setMorphCompactKeyCooldown(machineId, entry, response.status);
+        if (index < apiKeys.length - 1 && isMorphCompactRetryableStatus(response.status)) {
+          continue;
+        }
+        recordCompactUsage({
+          status: response.status,
+          startedAt,
+          error: `Morph returned ${response.status}`,
+        });
+        log.warn("COMPACT", `Auto compact skipped: Morph returned ${response.status}`);
+        return body;
+      }
+
+      const result = await response.json();
+      if (!Array.isArray(result?.messages) || result.messages.length === 0) {
+        recordCompactUsage({
+          status: response.status,
+          startedAt,
+          responsePayload: result,
+          error: "Morph returned no messages",
+        });
+        log.warn("COMPACT", "Auto compact skipped: Morph returned no messages");
+        return body;
+      }
+
+      const compactedBody = applyCompactedMessages(body, plan.key, plan.entries, result.messages);
+      if (!compactedBody) {
+        recordCompactUsage({
+          status: response.status,
+          startedAt,
+          responsePayload: result,
+          error: "Morph returned incompatible message shape",
+        });
+        log.warn("COMPACT", "Auto compact skipped: Morph returned incompatible message shape");
+        return body;
+      }
+
+      clearMorphCompactKeyCooldown(machineId, entry);
+      recordCompactUsage({
+        status: response.status,
+        startedAt,
+        responsePayload: result,
+      });
+      log.info("COMPACT", `Auto compacted ${plan.messages.length} messages`);
+      return compactedBody;
+    } catch (error) {
+      lastError = error;
+      if (index < apiKeys.length - 1) {
+        continue;
+      }
+      recordCompactUsage({
+        status: 0,
+        startedAt,
+        error: error?.message || String(error),
+      });
+      log.warn("COMPACT", `Auto compact skipped: ${error?.message || error}`);
+      return body;
+    }
+  }
+
+  log.warn("COMPACT", `Auto compact skipped: ${lastStatus ? `Morph returned ${lastStatus}` : lastError?.message || "no Morph key succeeded"}`);
+  return body;
+}
 
 async function getModelInfo(modelStr, machineId, env) {
   const data = await getRuntimeConfig(machineId, env);
@@ -79,6 +258,7 @@ export async function handleChat(request, env, ctx, machineIdOverride = null) {
   if (!data) {
     return errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "Runtime config unavailable");
   }
+  body = await maybeAutoCompactBody(body, data, machineId);
   const comboModels = getComboModelsFromData(modelStr, data?.combos || []);
   
   if (comboModels) {
@@ -99,6 +279,7 @@ export async function handleChat(request, env, ctx, machineIdOverride = null) {
  * Handle single model chat request
  */
 async function handleSingleModelChat(body, modelStr, machineId, env, request) {
+  const requestStartedAt = Date.now();
   const modelInfo = await getModelInfo(modelStr, machineId, env);
   if (!modelInfo.provider) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid model format");
 
@@ -194,6 +375,17 @@ async function handleSingleModelChat(body, modelStr, machineId, env, request) {
       } else {
         log.warn("CHAT", "Cannot record usage: connection.id is undefined");
       }
+      recordUsageEvent({
+        type: "chat",
+        endpoint: new URL(request.url).pathname,
+        provider,
+        model,
+        connectionId: connection?.id || credentials?.id || null,
+        status: result.response?.status || 200,
+        tokensInput: Math.floor(inputTokens / 4),
+        tokensOutput: 0,
+        latencyMs: Date.now() - requestStartedAt,
+      });
       return result.response;
     }
 
@@ -204,6 +396,18 @@ async function handleSingleModelChat(body, modelStr, machineId, env, request) {
       if (connection?.id) {
         recordUsage(connection.id, 0, 0, result.error);
       }
+      recordUsageEvent({
+        type: "chat",
+        endpoint: new URL(request.url).pathname,
+        provider,
+        model,
+        connectionId: connection?.id || credentials?.id || null,
+        status: result.status,
+        tokensInput: 0,
+        tokensOutput: 0,
+        error: result.error,
+        latencyMs: Date.now() - requestStartedAt,
+      });
       log.warn("FALLBACK", `${provider.toUpperCase()} | ${credentials.id} | ${result.status}`);
       await markAccountUnavailable(machineId, credentials.id, result.status, result.error, env);
       excludedConnectionIds.add(credentials.id);
@@ -233,7 +437,7 @@ async function checkAndRefreshToken(machineId, provider, credentials, env) {
 
   if (refreshLocks.has(lockKey)) {
     await refreshLocks.get(lockKey);
-    const data = await getMachineData(machineId, env);
+    const data = await getRuntimeConfig(machineId, env);
     return data?.providers?.[credentials.id] || credentials;
   }
 
@@ -339,32 +543,30 @@ async function getProviderCredentials(machineId, provider, env, excludedConnecti
 }
 
 async function markAccountUnavailable(machineId, connectionId, status, errorText, env) {
-  const data = await getMachineData(machineId, env);
-  if (!data?.providers?.[connectionId]) return;
+  const updated = await updateRuntimeProviderState(machineId, connectionId, (conn) => {
+    const backoffLevel = conn.backoffLevel || 0;
+    const { cooldownMs, newBackoffLevel } = checkFallbackError(status, errorText, backoffLevel);
+    const rateLimitedUntil = getUnavailableUntil(cooldownMs);
+    const reason = typeof errorText === "string" ? errorText.slice(0, 100) : "Provider error";
 
-  const conn = data.providers[connectionId];
-  const backoffLevel = conn.backoffLevel || 0;
-  const { cooldownMs, newBackoffLevel } = checkFallbackError(status, errorText, backoffLevel);
-  const rateLimitedUntil = getUnavailableUntil(cooldownMs);
-  const reason = typeof errorText === "string" ? errorText.slice(0, 100) : "Provider error";
+    const nowIso = new Date().toISOString();
+    conn.backoffLevel = newBackoffLevel ?? backoffLevel;
+    conn.routingStatus = "blocked";
+    conn.healthStatus = status >= 500 ? "unhealthy" : "degraded";
+    conn.quotaState = status === 429 ? "exhausted" : "ok";
+    conn.authState = (status === 401 || status === 403) ? "invalid" : "ok";
+    conn.reasonCode = status === 429
+      ? "quota_exhausted"
+      : ((status === 401 || status === 403) ? "auth_invalid" : "usage_request_failed");
+    conn.reasonDetail = reason;
+    conn.nextRetryAt = rateLimitedUntil;
+    conn.resetAt = rateLimitedUntil;
+    conn.lastCheckedAt = nowIso;
+  }, env);
+  const conn = updated?.providers?.[connectionId];
+  if (!conn) return;
 
-  const nowIso = new Date().toISOString();
-  data.providers[connectionId].backoffLevel = newBackoffLevel ?? backoffLevel;
-  data.providers[connectionId].routingStatus = "blocked";
-  data.providers[connectionId].healthStatus = status >= 500 ? "unhealthy" : "degraded";
-  data.providers[connectionId].quotaState = status === 429 ? "exhausted" : "ok";
-  data.providers[connectionId].authState = (status === 401 || status === 403) ? "invalid" : "ok";
-  data.providers[connectionId].reasonCode = status === 429
-    ? "quota_exhausted"
-    : ((status === 401 || status === 403) ? "auth_invalid" : "usage_request_failed");
-  data.providers[connectionId].reasonDetail = reason;
-  data.providers[connectionId].nextRetryAt = rateLimitedUntil;
-  data.providers[connectionId].resetAt = rateLimitedUntil;
-  data.providers[connectionId].lastCheckedAt = nowIso;
-  data.providers[connectionId].updatedAt = nowIso;
-
-  await saveMachineData(machineId, data, env);
-  log.warn("ACCOUNT", `${connectionId} | unavailable until ${rateLimitedUntil} (backoff=${newBackoffLevel ?? backoffLevel})`);
+  log.warn("ACCOUNT", `${connectionId} | unavailable until ${conn.nextRetryAt} (backoff=${conn.backoffLevel || 0})`);
 }
 
 async function clearAccountError(machineId, connectionId, currentCredentials, env) {
@@ -379,39 +581,35 @@ async function clearAccountError(machineId, connectionId, currentCredentials, en
     currentCredentials.nextRetryAt ||
     currentCredentials.resetAt;
 
-  if (!hasError) return; // Skip if already clean
+  if (!hasError) return;
 
-  const data = await getMachineData(machineId, env);
-  if (!data?.providers?.[connectionId]) return;
+  const updated = await updateRuntimeProviderState(machineId, connectionId, (conn) => {
+    conn.backoffLevel = 0;
+    conn.routingStatus = "eligible";
+    conn.authState = "ok";
+    conn.healthStatus = "healthy";
+    conn.quotaState = "ok";
+    conn.reasonCode = "unknown";
+    conn.reasonDetail = null;
+    conn.nextRetryAt = null;
+    conn.resetAt = null;
+    conn.lastCheckedAt = new Date().toISOString();
+  }, env);
+  if (!updated?.providers?.[connectionId]) return;
 
-  data.providers[connectionId].backoffLevel = 0;
-  data.providers[connectionId].routingStatus = "eligible";
-  data.providers[connectionId].authState = "ok";
-  data.providers[connectionId].healthStatus = "healthy";
-  data.providers[connectionId].quotaState = "ok";
-  data.providers[connectionId].reasonCode = "unknown";
-  data.providers[connectionId].reasonDetail = null;
-  data.providers[connectionId].nextRetryAt = null;
-  data.providers[connectionId].resetAt = null;
-  data.providers[connectionId].lastCheckedAt = new Date().toISOString();
-  data.providers[connectionId].updatedAt = new Date().toISOString();
-
-  await saveMachineData(machineId, data, env);
   log.info("ACCOUNT", `${connectionId} | error cleared`);
 }
 
 async function updateCredentials(machineId, connectionId, newCredentials, env) {
-  const data = await getMachineData(machineId, env);
-  if (!data?.providers?.[connectionId]) return;
+  const updated = await updateRuntimeProviderState(machineId, connectionId, (conn) => {
+    conn.accessToken = newCredentials.accessToken;
+    if (newCredentials.refreshToken) conn.refreshToken = newCredentials.refreshToken;
+    if (newCredentials.expiresIn) {
+      conn.expiresAt = new Date(Date.now() + newCredentials.expiresIn * 1000).toISOString();
+      conn.expiresIn = newCredentials.expiresIn;
+    }
+  }, env);
+  if (!updated?.providers?.[connectionId]) return;
 
-  data.providers[connectionId].accessToken = newCredentials.accessToken;
-  if (newCredentials.refreshToken) data.providers[connectionId].refreshToken = newCredentials.refreshToken;
-  if (newCredentials.expiresIn) {
-    data.providers[connectionId].expiresAt = new Date(Date.now() + newCredentials.expiresIn * 1000).toISOString();
-    data.providers[connectionId].expiresIn = newCredentials.expiresIn;
-  }
-  data.providers[connectionId].updatedAt = new Date().toISOString();
-
-  await saveMachineData(machineId, data, env);
-  log.debug("TOKEN", `credentials updated | ${connectionId}`);
+  log.debug("TOKEN", `credentials updated in runtime cache | ${connectionId}`);
 }

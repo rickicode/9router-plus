@@ -1,4 +1,6 @@
-import { machineIdSync } from 'node-machine-id';
+import machineIdModule from 'node-machine-id';
+
+const { machineIdSync } = machineIdModule;
 
 /**
  * Get consistent machine ID using node-machine-id with salt

@@ -5,7 +5,10 @@ import {
   generateCloudSecret,
   registerWithWorker,
   probeCloudHealth,
+  unregisterWorker,
 } from "@/lib/cloudWorkerClient";
+import { hasValidCloudRouteOrigin } from "@/lib/cloudRequestAuth";
+import { getConsistentMachineId } from "@/shared/utils/machineId";
 
 const VALID_STATUSES = new Set([
   "unknown",
@@ -69,28 +72,6 @@ function validateUrl(urlString) {
   }
 }
 
-function hasValidOrigin(request) {
-  const origin = request.headers.get("origin");
-  const host = request.headers.get("host");
-
-  if (!host) {
-    return false;
-  }
-
-  if (process.env.NODE_ENV === "production" && !origin) {
-    return false;
-  }
-
-  if (!origin) return true;
-
-  try {
-    const originHost = new URL(origin).host;
-    return originHost === host;
-  } catch {
-    return false;
-  }
-}
-
 async function readCloudUrls() {
   const settings = await getSettings();
   return Array.isArray(settings.cloudUrls) ? settings.cloudUrls : [];
@@ -137,7 +118,7 @@ export async function GET() {
 
 export async function POST(request) {
   try {
-    if (!hasValidOrigin(request)) {
+    if (!hasValidCloudRouteOrigin(request)) {
       return NextResponse.json({ error: "CSRF validation failed" }, { status: 403 });
     }
 
@@ -216,7 +197,7 @@ export async function POST(request) {
 
 export async function PATCH(request) {
   try {
-    if (!hasValidOrigin(request)) {
+    if (!hasValidCloudRouteOrigin(request)) {
       return NextResponse.json({ error: "CSRF validation failed" }, { status: 403 });
     }
 
@@ -263,7 +244,7 @@ export async function PATCH(request) {
 
 export async function DELETE(request) {
   try {
-    if (!hasValidOrigin(request)) {
+    if (!hasValidCloudRouteOrigin(request)) {
       return NextResponse.json({ error: "CSRF validation failed" }, { status: 403 });
     }
 
@@ -272,6 +253,39 @@ export async function DELETE(request) {
 
     if (!id) {
       return NextResponse.json({ error: "Valid cloud URL id is required" }, { status: 400 });
+    }
+
+    const settings = await getSettings();
+    const entry = Array.isArray(settings.cloudUrls)
+      ? settings.cloudUrls.find((cloudUrl) => cloudUrl.id === id)
+      : null;
+
+    if (!entry) {
+      return NextResponse.json({ error: "Cloud URL not found" }, { status: 404 });
+    }
+
+    let remoteUnregistered = false;
+
+    if (entry.url && entry.secret) {
+      const machineId = await getConsistentMachineId();
+      try {
+        await unregisterWorker(entry.url, entry.secret, machineId);
+        remoteUnregistered = true;
+      } catch (error) {
+        const remoteMissing = error?.status === 404;
+        if (error?.status === 401) {
+          return NextResponse.json(
+            { error: "Worker unregister failed: secret rejected by worker. Remote record was not removed." },
+            { status: 409 }
+          );
+        }
+        if (!remoteMissing) {
+          return NextResponse.json(
+            { error: `Worker unregister failed: ${error.message || "unknown error"}` },
+            { status: 502 }
+          );
+        }
+      }
     }
 
     const updated = await writeCloudUrls((cloudUrls) => {
@@ -284,7 +298,7 @@ export async function DELETE(request) {
       return cloudUrls.filter((entry) => entry.id !== id);
     });
 
-    return NextResponse.json({ cloudUrls: sanitizeListForResponse(updated) });
+    return NextResponse.json({ cloudUrls: sanitizeListForResponse(updated), remoteUnregistered });
   } catch (error) {
     const statusMap = {
       "Valid cloud URL id is required": 400,

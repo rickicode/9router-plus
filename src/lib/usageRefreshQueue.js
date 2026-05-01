@@ -7,22 +7,20 @@
  * an entire class of operational failures.
  */
 
-const DEFAULT_CONCURRENCY = 3;
+const DEFAULT_CONCURRENCY = 1;
 const DEFAULT_WAIT_TIMEOUT_MS = 120000;
 const DEFAULT_MAX_QUEUED = 100;
 
 const MEMORY_STATE = {
   queue: [],
-  // Total in-flight jobs (across all connectionIds). The route layer
-  // (api/usage/[connectionId]) already deduplicates concurrent refreshes
-  // for the same connection via its own usageRequestCache, so we only need
-  // to bound *total* concurrency here.
   activeCount: 0,
   pumping: false,
 };
 
+const IN_FLIGHT_BY_CONNECTION = new Map();
+
 export function getUsageQueueConcurrency() {
-  const parsed = Number.parseInt(process.env.USAGE_QUEUE_CONCURRENCY || "3", 10);
+  const parsed = Number.parseInt(process.env.USAGE_QUEUE_CONCURRENCY || "1", 10);
   if (!Number.isFinite(parsed) || parsed < 1) return DEFAULT_CONCURRENCY;
   return parsed;
 }
@@ -80,9 +78,6 @@ function withMemoryQueue(connectionId, handler) {
 }
 
 function pumpMemoryQueue() {
-  // Re-entrancy guard: only one synchronous "drain" of the queue at a time.
-  // The flag is cleared in finally so that .finally() callbacks from
-  // resolved jobs can safely call back into pumpMemoryQueue().
   if (MEMORY_STATE.pumping) return;
   MEMORY_STATE.pumping = true;
 
@@ -99,9 +94,6 @@ function pumpMemoryQueue() {
         .then(job.resolve, job.reject)
         .finally(() => {
           MEMORY_STATE.activeCount = Math.max(0, MEMORY_STATE.activeCount - 1);
-          // Don't touch MEMORY_STATE.pumping here — it's owned by the
-          // synchronous pump driver above. We just trigger another pump
-          // pass so newly-eligible queued jobs can start.
           pumpMemoryQueue();
         });
     }
@@ -116,4 +108,26 @@ export async function runUsageRefreshJob(connectionId, handler) {
   }
 
   return withMemoryQueue(connectionId, handler);
+}
+
+export async function runDedupedUsageRefreshJob(connectionId, handler) {
+  if (!connectionId || typeof handler !== "function") {
+    throw new Error("runDedupedUsageRefreshJob requires a connectionId and handler");
+  }
+
+  const cached = IN_FLIGHT_BY_CONNECTION.get(connectionId);
+  if (cached) {
+    return cached;
+  }
+
+  const promise = runUsageRefreshJob(connectionId, handler);
+  IN_FLIGHT_BY_CONNECTION.set(connectionId, promise);
+
+  promise.finally(() => {
+    if (IN_FLIGHT_BY_CONNECTION.get(connectionId) === promise) {
+      IN_FLIGHT_BY_CONNECTION.delete(connectionId);
+    }
+  }).catch(() => {});
+
+  return promise;
 }

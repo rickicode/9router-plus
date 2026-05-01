@@ -59,8 +59,8 @@ function StatusPill({ status, latencyMs }) {
 function getLastSyncLabel(entry, workerStatus) {
   const lastSyncAt = entry.lastSyncAt || workerStatus?.lastSyncAt;
   if (lastSyncAt) return formatRelative(lastSyncAt);
-  if (entry.lastSyncOk === false) return "initial sync failed";
-  if (entry.registeredAt) return "initial sync pending";
+  if (entry.lastSyncOk === false) return "runtime refresh failed";
+  if (entry.registeredAt) return "runtime refresh pending";
   return "never";
 }
 
@@ -76,10 +76,10 @@ function getWorkerMessage(entry, workerError, workerStatus) {
   if (entry.lastSyncError) return entry.lastSyncError;
   if (workerError) return workerError;
   if (!(entry.lastSyncAt || workerStatus?.lastSyncAt) && entry.lastSyncOk === false) {
-    return "Retry sync to push your latest providers and config.";
+    return "Retry refresh so the worker reloads the latest runtime artifacts.";
   }
   if (!(entry.lastSyncAt || workerStatus?.lastSyncAt) && entry.registeredAt) {
-    return "Worker is registered. Initial sync is pending.";
+    return "Worker is registered. Runtime refresh is pending.";
   }
   return "";
 }
@@ -164,8 +164,12 @@ export default function CloudTab() {
   }, [cloudUrls]);
 
   useEffect(() => {
-    loadSettings();
+    const timer = setTimeout(() => {
+      void loadSettings();
+    }, 0);
+
     return () => {
+      clearTimeout(timer);
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     };
   }, [loadSettings]);
@@ -173,10 +177,14 @@ export default function CloudTab() {
   const cloudIdsKey = cloudUrls.map((c) => c.id).join(",");
   useEffect(() => {
     if (!cloudIdsKey) return;
-    refreshAllStatuses();
+
+    const timer = setTimeout(() => {
+      void refreshAllStatuses();
+    }, 0);
     if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     pollTimerRef.current = setInterval(refreshAllStatuses, 30_000);
     return () => {
+      clearTimeout(timer);
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     };
   }, [cloudIdsKey, refreshAllStatuses]);
@@ -197,9 +205,9 @@ export default function CloudTab() {
       setNewCloudUrl("");
       setNewCloudName("");
       if (data?.initialSync?.ok) {
-        setInfo("Cloud worker registered and initial sync completed.");
+        setInfo("Cloud worker registered and initial runtime refresh completed.");
       } else if (data?.initialSync?.error) {
-        setInfo(`Cloud worker registered, but initial sync failed: ${data.initialSync.error}`);
+        setInfo(`Cloud worker registered, but initial runtime refresh failed: ${data.initialSync.error}`);
       } else {
         setInfo("Cloud worker registered.");
       }
@@ -220,7 +228,10 @@ export default function CloudTab() {
     try {
       const res = await fetch("/api/cloud-urls", {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+        },
         body: JSON.stringify({ id }),
       });
       const data = await res.json().catch(() => ({}));
@@ -279,7 +290,9 @@ export default function CloudTab() {
       }
 
       setLoadingSecretId(id);
-      const res = await fetch(`/api/cloud-urls/${id}/status?includeSecret=1`);
+      const res = await fetch(`/api/cloud-urls/${id}/status?includeSecret=1`, {
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load worker secret");
       if (!data.secret) throw new Error("Worker secret is unavailable");
@@ -300,7 +313,9 @@ export default function CloudTab() {
 
     try {
       setLoadingSecretId(entryId);
-      const res = await fetch(`/api/cloud-urls/${entryId}/status?includeSecret=1`);
+      const res = await fetch(`/api/cloud-urls/${entryId}/status?includeSecret=1`, {
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load worker secret");
       if (!data.secret) throw new Error("Worker secret is unavailable");
@@ -524,7 +539,7 @@ export default function CloudTab() {
               </Button>
             </div>
             <div className="mt-2 text-[11px] text-[var(--color-text-muted)]">
-              9Router probes <code>/admin/health</code>, generates a per-worker shared secret, registers the worker, then immediately attempts an initial sync.
+              9Router probes <code>/admin/health</code>, generates a per-worker shared secret, registers the worker, then immediately attempts an initial runtime refresh.
             </div>
           </div>
 

@@ -11,6 +11,8 @@ const DEFAULT_R2_CONFIG = {
   lastError: "",
 };
 
+const CLOUDFLARE_R2_HOST_PATTERN = /^(?<accountId>[a-f0-9]{32})(?<jurisdiction>\.(?:eu|fedramp))?\.r2\.cloudflarestorage\.com$/i;
+
 const DEFAULT_R2_SETTINGS_RESPONSE = {
   r2Config: DEFAULT_R2_CONFIG,
   r2BackupEnabled: false,
@@ -100,6 +102,37 @@ export function buildR2SettingsPayload(state = {}, persistedState = {}) {
   return payload;
 }
 
+export function parseCloudflareR2Url(value) {
+  if (typeof value !== "string") return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  let parsed;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return null;
+  }
+
+  const hostMatch = parsed.hostname.match(CLOUDFLARE_R2_HOST_PATTERN);
+  if (!hostMatch?.groups?.accountId) {
+    return null;
+  }
+
+  const bucket = parsed.pathname
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter(Boolean)[0] || "";
+
+  return {
+    accountId: hostMatch.groups.accountId,
+    endpoint: `${parsed.protocol}//${parsed.host}`,
+    bucket,
+    region: hostMatch.groups.jurisdiction ? hostMatch.groups.jurisdiction.slice(1) : "auto",
+  };
+}
+
 export function getDirtyR2Config(config = {}, value, field) {
   return {
     ...normalizeR2SettingsResponse({ r2Config: config }).r2Config,
@@ -107,6 +140,27 @@ export function getDirtyR2Config(config = {}, value, field) {
     connected: false,
     lastCheckedAt: null,
     lastError: "",
+  };
+}
+
+export function getNextR2Config(config = {}, value, field) {
+  const next = getDirtyR2Config(config, value, field);
+
+  if (field !== "endpoint" && field !== "publicUrl") {
+    return next;
+  }
+
+  const parsed = parseCloudflareR2Url(value);
+  if (!parsed) {
+    return next;
+  }
+
+  return {
+    ...next,
+    accountId: parsed.accountId || next.accountId,
+    endpoint: parsed.endpoint || next.endpoint,
+    bucket: parsed.bucket || next.bucket,
+    region: parsed.region || next.region,
   };
 }
 

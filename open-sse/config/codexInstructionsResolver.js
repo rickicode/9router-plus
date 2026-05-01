@@ -11,16 +11,40 @@
 // State 3 matches CLIProxyAPI's `instructions: ""` behavior. State 1 is the
 // historical 9router-plus behavior and remains the default for back-compat.
 
-import fs from "fs";
-import path from "path";
-import { DATA_DIR } from "@/lib/dataDir.js";
-import { getSettings } from "@/lib/localDb.js";
 import { CODEX_DEFAULT_INSTRUCTIONS } from "./codexInstructions.js";
 
 export const CODEX_INSTRUCTIONS_FILENAME = "codex-instructions.md";
-export const CODEX_INSTRUCTIONS_FILE_PATH = path.join(DATA_DIR, CODEX_INSTRUCTIONS_FILENAME);
+export const CODEX_INSTRUCTIONS_FILE_PATH = null;
 
 const DEFAULT_SETTINGS = Object.freeze({ enabled: true, mode: "default" });
+
+async function loadNodeHelpers() {
+  try {
+    const [{ default: fs }, { default: path }, { DATA_DIR }] = await Promise.all([
+      import("fs"),
+      import("path"),
+      import("@/lib/dataDir.js")
+    ]);
+
+    return {
+      fs,
+      dataDir: DATA_DIR,
+      filePath: path.join(DATA_DIR, CODEX_INSTRUCTIONS_FILENAME)
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function loadCodexInstructionsSettings() {
+  try {
+    const { getSettings } = await import("@/lib/localDb.js");
+    const settings = await getSettings();
+    return settings?.codexInstructions || null;
+  } catch {
+    return null;
+  }
+}
 
 // Normalize a settings.codexInstructions object into a known shape.
 export function normalizeCodexInstructionsSettings(raw) {
@@ -31,10 +55,11 @@ export function normalizeCodexInstructionsSettings(raw) {
 }
 
 // Read the user's custom instructions .md file, or null if absent / unreadable.
-export function readCustomCodexInstructionsFile() {
+export async function readCustomCodexInstructionsFile() {
   try {
-    if (!fs.existsSync(CODEX_INSTRUCTIONS_FILE_PATH)) return null;
-    const content = fs.readFileSync(CODEX_INSTRUCTIONS_FILE_PATH, "utf-8");
+    const helpers = await loadNodeHelpers();
+    if (!helpers || !helpers.fs.existsSync(helpers.filePath)) return null;
+    const content = helpers.fs.readFileSync(helpers.filePath, "utf-8");
     return typeof content === "string" ? content : null;
   } catch {
     return null;
@@ -42,19 +67,22 @@ export function readCustomCodexInstructionsFile() {
 }
 
 // Write the user's custom instructions .md file. Creates parent dir as needed.
-export function writeCustomCodexInstructionsFile(content) {
+export async function writeCustomCodexInstructionsFile(content) {
   const text = typeof content === "string" ? content : "";
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+  const helpers = await loadNodeHelpers();
+  if (!helpers) return;
+  if (!helpers.fs.existsSync(helpers.dataDir)) {
+    helpers.fs.mkdirSync(helpers.dataDir, { recursive: true });
   }
-  fs.writeFileSync(CODEX_INSTRUCTIONS_FILE_PATH, text, "utf-8");
+  helpers.fs.writeFileSync(helpers.filePath, text, "utf-8");
 }
 
 // Delete the user's custom instructions .md file. No-op if absent.
-export function deleteCustomCodexInstructionsFile() {
+export async function deleteCustomCodexInstructionsFile() {
   try {
-    if (fs.existsSync(CODEX_INSTRUCTIONS_FILE_PATH)) {
-      fs.unlinkSync(CODEX_INSTRUCTIONS_FILE_PATH);
+    const helpers = await loadNodeHelpers();
+    if (helpers?.fs.existsSync(helpers.filePath)) {
+      helpers.fs.unlinkSync(helpers.filePath);
     }
   } catch {
     // Best-effort.
@@ -80,17 +108,11 @@ export function resolveCodexInstructionsFromConfig(rawSettings, customContent) {
 // Async helper used by the executor: read settings (cached) + custom file and
 // return the resolved instructions string for the next outbound Codex request.
 export async function resolveCodexInstructionsForRequest() {
-  let raw = null;
-  try {
-    const settings = await getSettings();
-    raw = settings?.codexInstructions || null;
-  } catch {
-    // Fall through: use defaults.
-  }
+  const raw = await loadCodexInstructionsSettings();
   const { enabled, mode } = normalizeCodexInstructionsSettings(raw);
   if (!enabled) return "";
   if (mode === "custom") {
-    const custom = readCustomCodexInstructionsFile();
+    const custom = await readCustomCodexInstructionsFile();
     if (typeof custom === "string" && custom.length > 0) return custom;
     return CODEX_DEFAULT_INSTRUCTIONS;
   }

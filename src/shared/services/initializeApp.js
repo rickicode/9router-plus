@@ -1,5 +1,5 @@
 import { cleanupProviderConnections, getSettings, updateSettings, getApiKeys, isCloudEnabled } from "@/lib/localDb";
-import { getQuotaRefreshScheduler } from "@/lib/quotaRefreshScheduler";
+import { getUsageWorkerClient } from "@/lib/usageWorker/client";
 import { closeSqliteDb } from "@/lib/sqliteHelpers";
 import { enableTunnel, isTunnelManuallyDisabled, isTunnelReconnecting } from "@/lib/tunnel/tunnelManager";
 import { killCloudflared, isCloudflaredRunning, ensureCloudflared } from "@/lib/tunnel/cloudflared";
@@ -104,8 +104,10 @@ export async function initializeApp() {
     // Network monitor: detect sleep/wake + network changes → restart tunnel
     startNetworkMonitor();
 
-    // Start quota scheduler scaffold once per process/hot reload lifecycle
-    await getQuotaRefreshScheduler().start();
+    // Start usage worker in a standalone process so background usage checks do not contend with request handling.
+    getUsageWorkerClient().start().catch((error) => {
+      console.error("[InitApp] Failed to start usage worker:", error);
+    });
 
     // Start cloud usage poller if enabled
     if (await isCloudEnabled()) {

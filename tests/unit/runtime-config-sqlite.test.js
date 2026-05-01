@@ -54,16 +54,9 @@ describe("runtimeConfig SQLite storage", () => {
 
     const written = await runtimeConfig.writeRuntimeConfig({
       version: 1,
-      redis: {
-        enabled: true,
-        activeServerId: "redis-1",
-        lastStatus: {
-          ready: true,
-          checkedAt: "2026-04-25T00:00:00.000Z",
-          url: "redis://localhost:6379",
-          error: null,
-        },
-        servers: [{ id: "redis-1", name: "Local", url: "redis://localhost:6379" }],
+      settings: {
+        featureFlag: true,
+        mode: "production",
       },
     });
 

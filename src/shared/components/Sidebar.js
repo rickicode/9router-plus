@@ -6,6 +6,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/shared/utils/cn";
 import { APP_CONFIG, UPDATER_CONFIG } from "@/shared/constants/config";
+import {
+  DASHBOARD_DEBUG_NAV_ITEMS,
+  DASHBOARD_MEDIA_PROVIDERS_NAV_ITEM,
+  DASHBOARD_PRIMARY_NAV_ITEMS,
+  DASHBOARD_SETTINGS_NAV_ITEM,
+  DASHBOARD_SYSTEM_NAV_ITEMS,
+  isDashboardMediaKindActive,
+  isDashboardNavItemActive,
+} from "@/shared/constants/dashboardNavigation";
 import { MEDIA_PROVIDER_KINDS } from "@/shared/constants/providers";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import Button from "./Button";
@@ -14,31 +23,11 @@ import { ConfirmModal } from "./Modal";
 // const VISIBLE_MEDIA_KINDS = ["embedding", "image", "imageToText", "tts", "stt", "webSearch", "webFetch", "video", "music"];
 const VISIBLE_MEDIA_KINDS = ["embedding", "image", "tts"];
 
-const navItems = [
-  { href: "/dashboard/endpoint", label: "Endpoint", icon: "api" },
-  { href: "/dashboard/providers", label: "Providers", icon: "dns" },
-  // { href: "/dashboard/basic-chat", label: "Basic Chat", icon: "chat" }, // Hidden
-  { href: "/dashboard/combos", label: "Combos", icon: "layers" },
-  { href: "/dashboard/usage", label: "Usage", icon: "bar_chart" },
-  { href: "/dashboard/quota", label: "Quota Tracker", icon: "data_usage" },
-  { href: "/dashboard/mitm", label: "MITM", icon: "security" },
-  { href: "/dashboard/cli-tools", label: "CLI Tools", icon: "terminal" },
-  { href: "/dashboard/opencode", label: "OpenCode", icon: "extension" },
-  { href: "/dashboard/morph", label: "Morph", icon: "route" },
-];
-
-const debugItems = [
-  { href: "/dashboard/console-log", label: "Console Log", icon: "terminal" },
-  { href: "/dashboard/translator", label: "Translator", icon: "translate" },
-];
-
-const systemItems = [
-  { href: "/dashboard/proxy-pools", label: "Proxy Pools", icon: "lan" },
-];
+const ROUTING_PROBE_INTERVAL_MS = 15000;
+const ROUTING_PROBE_TIMEOUT_MS = 4000;
 
 export default function Sidebar({ onClose }) {
   const pathname = usePathname();
-  const [mounted, setMounted] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
   const [showShutdownModal, setShowShutdownModal] = useState(false);
   const [isShuttingDown, setIsShuttingDown] = useState(false);
@@ -49,10 +38,6 @@ export default function Sidebar({ onClose }) {
   const [enableTranslator, setEnableTranslator] = useState(false);
   const [routingLatency, setRoutingLatency] = useState(null);
   const { copied, copy } = useCopyToClipboard(2000);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   const INSTALL_CMD = UPDATER_CONFIG.installCmd;
 
@@ -71,31 +56,56 @@ export default function Sidebar({ onClose }) {
 
   useEffect(() => {
     let cancelled = false;
-    const fetchLatency = async () => {
+
+    const probeLatency = async () => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), ROUTING_PROBE_TIMEOUT_MS);
+      const startedAt = performance.now();
+
       try {
-        const res = await fetch("/api/routing/latency", { cache: "no-store" });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled) setRoutingLatency(data);
+        const response = await fetch("/api/health", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+
+        const elapsedMs = performance.now() - startedAt;
+
+        if (cancelled) return;
+
+        setRoutingLatency({
+          count: 1,
+          p50: elapsedMs,
+          p95: elapsedMs,
+          lastMs: elapsedMs,
+          errorCount: response.ok ? 0 : 1,
+          status: response.ok ? "ok" : "error",
+        });
       } catch {
-        // network errors are expected during shutdown / hot-reload
+        if (cancelled) return;
+
+        setRoutingLatency({
+          count: 1,
+          p50: null,
+          p95: null,
+          lastMs: null,
+          errorCount: 1,
+          status: "error",
+        });
+      } finally {
+        clearTimeout(timeoutId);
       }
     };
-    fetchLatency();
-    const interval = setInterval(fetchLatency, 5000);
+
+    probeLatency();
+    const intervalId = setInterval(probeLatency, ROUTING_PROBE_INTERVAL_MS);
+
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      clearInterval(intervalId);
     };
   }, []);
 
-  const isActive = (href) => {
-    if (!mounted) return false; // Prevent hydration mismatch
-    if (href === "/dashboard/endpoint") {
-      return pathname === "/dashboard" || pathname.startsWith("/dashboard/endpoint");
-    }
-    return pathname.startsWith(href);
-  };
+  const isActive = (href) => isDashboardNavItemActive(pathname, href);
 
   const routingStatus = (() => {
     if (!routingLatency) {
@@ -113,34 +123,56 @@ export default function Sidebar({ onClose }) {
       return `${Math.round(value)} ms`;
     };
 
-    const { count, p50, p95, lastMs, errorCount } = routingLatency;
+    const { count, p50, p95, lastMs, errorCount, status } = routingLatency;
     const sampleCount = typeof count === "number" ? count : 0;
 
-    if (!sampleCount) {
+    if (status === "error") {
       return {
         label: "API Routing",
-        detail: "Idle (no traffic)",
+        detail: "Health check failed",
+        className: "border-[var(--color-danger)]/30 text-[var(--color-danger)]",
+        dotClassName: "bg-[var(--color-danger)]",
+      };
+    }
+
+    if (!sampleCount) {
+      if (typeof lastMs === "number" && Number.isFinite(lastMs)) {
+        return {
+          label: `API ${formatMs(lastMs)}`,
+          detail: "Last response",
+          className: "border-[var(--color-text-muted)]/30 text-[var(--color-text-muted)]",
+          dotClassName: "bg-[var(--color-text-muted)]",
+        };
+      }
+
+      return {
+        label: "API Routing",
+        detail: "Awaiting response",
         className: "border-[var(--color-text-muted)]/30 text-[var(--color-text-muted)]",
         dotClassName: "bg-[var(--color-text-muted)]",
       };
     }
 
     const headline = formatMs(p50 ?? lastMs);
-    const detail = `${sampleCount} req · p95 ${formatMs(p95)}`;
+    const detail = formatMs(p50 ?? lastMs);
 
     let cls = "border-[var(--color-success)]/30 text-[var(--color-success)]";
     let dot = "bg-[var(--color-success)]";
+    let statusLabel = "Healthy";
+
     if ((p95 ?? p50 ?? 0) > 500) {
       cls = "border-[var(--color-warning)]/30 text-[var(--color-warning)]";
       dot = "bg-[var(--color-warning)]";
+      statusLabel = "Slow";
     }
     if ((p95 ?? p50 ?? 0) > 2000 || (errorCount && errorCount > sampleCount * 0.1)) {
       cls = "border-[var(--color-danger)]/30 text-[var(--color-danger)]";
       dot = "bg-[var(--color-danger)]";
+      statusLabel = "Degraded";
     }
 
     return {
-      label: `API ${headline}`,
+      label: statusLabel,
       detail,
       className: cls,
       dotClassName: dot,
@@ -222,7 +254,7 @@ export default function Sidebar({ onClose }) {
 
         {/* Navigation */}
         <nav className="flex-1 px-4 py-2 space-y-1 overflow-y-auto custom-scrollbar">
-          {navItems.map((item) => (
+          {DASHBOARD_PRIMARY_NAV_ITEMS.map((item) => (
             <Link
               key={item.href}
               href={item.href}
@@ -257,13 +289,13 @@ export default function Sidebar({ onClose }) {
               onClick={() => setMediaOpen((v) => !v)}
               className={cn(
                 "group flex w-full items-center gap-3 rounded px-4 py-2 transition-all",
-                mounted && pathname.startsWith("/dashboard/media-providers")
+                isActive(DASHBOARD_MEDIA_PROVIDERS_NAV_ITEM.href)
                   ? "bg-[var(--color-primary)]/10 text-[var(--color-accent)]"
                   : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-text-main)]"
               )}
             >
-              <span className="material-symbols-outlined text-[18px]">perm_media</span>
-              <span className="text-sm font-medium flex-1 text-left">Media Providers</span>
+              <span className="material-symbols-outlined text-[18px]">{DASHBOARD_MEDIA_PROVIDERS_NAV_ITEM.icon}</span>
+              <span className="text-sm font-medium flex-1 text-left">{DASHBOARD_MEDIA_PROVIDERS_NAV_ITEM.label}</span>
               <span className="material-symbols-outlined text-[14px] transition-transform" style={{ transform: mediaOpen ? "rotate(180deg)" : "rotate(0deg)" }}>
                 expand_more
               </span>
@@ -277,7 +309,7 @@ export default function Sidebar({ onClose }) {
                     onClick={onClose}
                     className={cn(
                       "group flex items-center gap-3 rounded px-4 py-1.5 transition-all",
-                      mounted && pathname.startsWith(`/dashboard/media-providers/${kind.id}`)
+                      isDashboardMediaKindActive(pathname, kind.id)
                         ? "bg-[var(--color-primary)]/10 text-[var(--color-accent)]"
                         : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-text-main)]"
                     )}
@@ -289,7 +321,7 @@ export default function Sidebar({ onClose }) {
               </div>
             )}
 
-            {systemItems.map((item) => (
+            {DASHBOARD_SYSTEM_NAV_ITEMS.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
@@ -314,7 +346,7 @@ export default function Sidebar({ onClose }) {
             ))}
 
             {/* Debug items (inside System section, before Settings) */}
-            {debugItems.map((item) => {
+            {DASHBOARD_DEBUG_NAV_ITEMS.map((item) => {
               const show = item.href !== "/dashboard/translator" || enableTranslator;
               return show ? (
                 <Link
@@ -343,11 +375,11 @@ export default function Sidebar({ onClose }) {
 
             {/* Settings */}
             <Link
-              href="/dashboard/settings"
+              href={DASHBOARD_SETTINGS_NAV_ITEM.href}
               onClick={onClose}
               className={cn(
                 "group flex items-center gap-3 rounded px-4 py-2 transition-all",
-                isActive("/dashboard/settings") || isActive("/dashboard/profile")
+                isActive(DASHBOARD_SETTINGS_NAV_ITEM.href)
                   ? "bg-[var(--color-primary)]/10 text-[var(--color-accent)]"
                   : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-text-main)]"
               )}
@@ -355,12 +387,12 @@ export default function Sidebar({ onClose }) {
               <span
                 className={cn(
                   "material-symbols-outlined text-[18px]",
-                  isActive("/dashboard/settings") || isActive("/dashboard/profile") ? "fill-1" : "transition-colors group-hover:text-[var(--color-accent)]"
+                  isActive(DASHBOARD_SETTINGS_NAV_ITEM.href) ? "fill-1" : "transition-colors group-hover:text-[var(--color-accent)]"
                 )}
               >
-                settings
+                {DASHBOARD_SETTINGS_NAV_ITEM.icon}
               </span>
-              <span className="text-sm font-medium">Settings</span>
+              <span className="text-sm font-medium">{DASHBOARD_SETTINGS_NAV_ITEM.label}</span>
             </Link>
           </div>
         </nav>

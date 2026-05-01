@@ -19,10 +19,12 @@ describe("cloud Morph worker routes", () => {
     expect(workerSource).toContain('path === "/morphllm/models"');
   });
 
-  it("uses runtime morph settings and per-machine Morph key selection", () => {
+  it("uses runtime morph settings and per-machine Morph key failover", () => {
     expect(workerSource).toContain('const morph = runtimeConfig?.settings?.morph;');
     expect(workerSource).toContain('function selectMorphApiKey(machineId, morphSettings)');
+    expect(workerSource).toContain('function getMorphKeyOrder(machineId, morphSettings)');
     expect(workerSource).toContain('morphRotationCursors');
-    expect(workerSource).toContain('const primaryKey = selectMorphApiKey(machineId, morph);');
+    expect(workerSource).toContain('const apiKeys = getMorphKeyOrder(machineId, morph);');
+    expect(workerSource).toContain('AbortSignal.timeout(timeoutMs)');
   });
 });

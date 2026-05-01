@@ -1,7 +1,7 @@
 import { getProviderConnectionById, updateProviderConnection } from "@/lib/localDb";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { testProxyUrl } from "@/lib/network/proxyTest";
-import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
+import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, USAGE_SUPPORTED_PROVIDERS } from "@/shared/constants/providers";
 import { getDefaultModel } from "open-sse/config/providerModels.js";
 import { resolveOllamaLocalHost } from "open-sse/config/providers.js";
 import {
@@ -15,7 +15,7 @@ import {
   KILOCODE_CONFIG,
 } from "@/lib/oauth/constants/oauth";
 import { buildClineHeaders } from "@/shared/utils/clineAuth";
-import { getConnectionAuthBlockedPatch, getConnectionRecoveryPatch } from "../../../../../lib/usageStatus.js";
+import { getConnectionAuthBlockedPatch, getLiveRequestRecoveryPatch } from "../../../../../lib/usageStatus.js";
 
 // OAuth provider test endpoints
 const OAUTH_TEST_CONFIG = {
@@ -79,6 +79,50 @@ const OAUTH_TEST_CONFIG = {
   },
   codebuddy: { tokenExists: true },
 };
+
+function getConnectionTestUsageSnapshot(connection, lastCheckedAt) {
+  if (connection?.usageSnapshot) return connection.usageSnapshot;
+
+  return JSON.stringify({
+    provider: connection?.provider || null,
+    checkedAt: lastCheckedAt,
+    message: "Connection test passed. Detailed quota snapshot is pending usage refresh.",
+    quotas: {},
+  });
+}
+
+function isUsageQuotaExhausted(connection = {}) {
+  return connection.authType === "oauth"
+    && USAGE_SUPPORTED_PROVIDERS.includes(connection.provider)
+    && (connection.routingStatus === "exhausted" || connection.quotaState === "exhausted");
+}
+
+function getSuccessfulConnectionTestPatch(connection, lastCheckedAt) {
+  const usageSnapshot = getConnectionTestUsageSnapshot(connection, lastCheckedAt);
+
+  if (isUsageQuotaExhausted(connection)) {
+    const quotaReasonCode = connection.reasonCode === "auth_invalid" || connection.reasonCode === "reauthorization_required"
+      ? "quota_exhausted"
+      : connection.reasonCode || "quota_exhausted";
+
+    return {
+      routingStatus: connection.routingStatus || "exhausted",
+      healthStatus: "healthy",
+      quotaState: connection.quotaState || "exhausted",
+      authState: "ok",
+      reasonCode: quotaReasonCode,
+      reasonDetail: connection.reasonDetail || null,
+      nextRetryAt: connection.nextRetryAt ?? connection.resetAt ?? null,
+      resetAt: connection.resetAt ?? null,
+      backoffLevel: 0,
+      lastCheckedAt,
+      usageSnapshot,
+      allowAuthRecovery: true,
+    };
+  }
+
+  return getLiveRequestRecoveryPatch({ lastCheckedAt, usageSnapshot });
+}
 
 async function probeClineAccessToken(accessToken) {
   const res = await fetch("https://api.cline.bot/api/v1/users/me", {
@@ -582,6 +626,32 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
   }
 }
 
+export async function validateConnectionCredentials(connection) {
+  if (!connection) {
+    return { valid: false, error: "Connection not found", refreshed: false, newTokens: null };
+  }
+
+  const effectiveProxy = await resolveConnectionProxyConfig(connection.providerSpecificData || {});
+
+  if (effectiveProxy.connectionProxyEnabled && effectiveProxy.connectionProxyUrl && !effectiveProxy.vercelRelayUrl) {
+    const proxyResult = await testProxyUrl({ proxyUrl: effectiveProxy.connectionProxyUrl });
+    if (!proxyResult.ok) {
+      return {
+        valid: false,
+        error: proxyResult.error || `Proxy test failed with status ${proxyResult.status}`,
+        refreshed: false,
+        newTokens: null,
+      };
+    }
+  }
+
+  if (connection.authType === "apikey" || connection.authType === "cookie") {
+    return testApiKeyConnection(connection, effectiveProxy);
+  }
+
+  return testOAuthConnection(connection, effectiveProxy);
+}
+
 /**
  * Test a single connection by ID, update DB, and return result.
  */
@@ -625,20 +695,25 @@ export async function testSingleConnection(id) {
     ? getConnectionAuthBlockedPatch(result.error, { lastCheckedAt })
     : null;
 
+  const preserveAuthInvalidBlock = result.valid
+    && (connection?.reasonCode === "auth_invalid" || connection?.authState === "invalid");
+
   const updateData = {
-    ...(result.valid
-      ? getConnectionRecoveryPatch({ lastCheckedAt })
-      : authBlockedPatch || {
-          routingStatus: "blocked",
-          healthStatus: "error",
-          quotaState: "ok",
-          authState: "ok",
-          reasonCode: "health_error",
-          reasonDetail: result.error,
-          nextRetryAt: null,
-          resetAt: null,
-          lastCheckedAt,
-        }),
+    ...(result.valid && !preserveAuthInvalidBlock
+      ? getSuccessfulConnectionTestPatch(connection, lastCheckedAt)
+      : result.valid
+        ? getSuccessfulConnectionTestPatch(connection, lastCheckedAt)
+        : authBlockedPatch || {
+            routingStatus: "blocked",
+            healthStatus: "error",
+            quotaState: "ok",
+            authState: "ok",
+            reasonCode: "health_error",
+            reasonDetail: result.error,
+            nextRetryAt: null,
+            resetAt: null,
+            lastCheckedAt,
+          }),
   };
 
   if (result.refreshed && result.newTokens) {

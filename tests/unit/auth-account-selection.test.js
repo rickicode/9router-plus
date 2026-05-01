@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockConnections = [];
 const getProviderConnections = vi.fn(async () => mockConnections);
+const getProviderConnectionById = vi.fn(async (id) => mockConnections.find((connection) => connection.id === id) || null);
 const validateApiKey = vi.fn(async () => true);
 const updateProviderConnection = vi.fn(async (id, data) => ({ id, ...data }));
 const getSettings = vi.fn(async () => ({
@@ -32,6 +33,7 @@ const getCodexLiveQuotaSignal = vi.fn(() => null);
 
 vi.mock("@/lib/localDb", () => ({
   getProviderConnections,
+  getProviderConnectionById,
   validateApiKey,
   updateProviderConnection,
   getSettings,
@@ -78,6 +80,7 @@ describe("auth account selection", () => {
     process.env.CHAT_HIGH_THROUGHPUT_SELECTION = "false";
     mockConnections.length = 0;
     getProviderConnections.mockClear();
+    getProviderConnectionById.mockClear();
     validateApiKey.mockClear();
     updateProviderConnection.mockClear();
     getSettings.mockClear();
@@ -828,6 +831,57 @@ describe("auth account selection", () => {
     expect(credentials).toBeNull();
   });
 
+  it("does not sweep generic available Codex accounts when centralized eligibility is unavailable", async () => {
+    mockConnections.push({
+      id: "conn-codex-unknown",
+      provider: "codex",
+      isActive: true,
+      priority: 1,
+      displayName: "Unknown Codex",
+      accessToken: "unknown-token",
+      routingStatus: null,
+      authState: null,
+      healthStatus: null,
+      quotaState: null,
+    });
+    getEligibleConnections.mockResolvedValueOnce(null);
+
+    const { getProviderCredentials } = await import("../../src/sse/services/auth.js");
+    const credentials = await getProviderCredentials("codex", null, "gpt-5.4");
+
+    expect(credentials).toBeNull();
+  });
+
+  it("does not block Kiro accounts for client-side input length errors", async () => {
+    mockConnections.push({
+      id: "conn-kiro-long-input",
+      provider: "kiro",
+      isActive: true,
+      priority: 1,
+      displayName: "Kiro long input",
+      accessToken: "token",
+      routingStatus: "eligible",
+      authState: "ok",
+    });
+
+    const { buildModelLockUpdate, checkFallbackError } = await import("open-sse/services/accountFallback.js");
+    const { markAccountUnavailable } = await import("../../src/sse/services/auth.js");
+
+    const result = await markAccountUnavailable(
+      "conn-kiro-long-input",
+      400,
+      '[400]: {"message":"Input is too long.","reason":"CONTENT_LENGTH_EXCEEDS_THRESHOLD"}',
+      "kiro",
+      "claude-sonnet-4"
+    );
+
+    expect(result).toEqual({ shouldFallback: false, cooldownMs: 0 });
+    expect(checkFallbackError).not.toHaveBeenCalled();
+    expect(buildModelLockUpdate).not.toHaveBeenCalled();
+    expect(writeConnectionHotState).not.toHaveBeenCalled();
+    expect(updateProviderConnection).not.toHaveBeenCalled();
+  });
+
   it("applies immediate canonical exhausted state for Codex live quota failures before persisting model lock state", async () => {
     mockConnections.push({
       id: "conn-live",
@@ -938,15 +992,16 @@ describe("auth account selection", () => {
       connectionId: "conn-auth-blocked",
       provider: "codex",
       patch: expect.objectContaining({
-        routingStatus: "blocked",
+        routingStatus: "disabled",
         authState: "invalid",
+        reasonCode: "reauthorization_required",
       }),
     }));
     expect(updateProviderConnection).toHaveBeenCalledWith("conn-auth-blocked", expect.objectContaining({
       modelLock_gpt4: "2026-04-25T00:00:00.000Z",
-      routingStatus: "blocked",
+      routingStatus: "disabled",
       authState: "invalid",
-      reasonCode: "auth_invalid",
+      reasonCode: "reauthorization_required",
       reasonDetail: "401 Unauthorized: token revoked",
       backoffLevel: 3,
     }));

@@ -181,6 +181,14 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, pr
       return { success: true, response: new Response(JSON.stringify(finalResp), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }) };
     } catch (err) {
       console.error("[ChatCore] Responses API SSE→JSON failed:", err);
+      if (err?.name === "AbortError") {
+        const status = err.code === "UPSTREAM_TIMEOUT" || err.code === "STREAM_IDLE_TIMEOUT"
+          ? HTTP_STATUS.GATEWAY_TIMEOUT
+          : 499;
+        return createErrorResult(status, err.message || (status === HTTP_STATUS.GATEWAY_TIMEOUT
+          ? "Upstream request timed out"
+          : "Request aborted"));
+      }
       return createErrorResult(HTTP_STATUS.BAD_GATEWAY, "Failed to convert streaming response to JSON");
     }
   }
@@ -225,6 +233,14 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, pr
     return { success: true, response: new Response(JSON.stringify(parsed), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }) };
   } catch (err) {
     console.error("[ChatCore] Chat Completions SSE→JSON failed:", err);
+    if (err?.name === "AbortError") {
+      const status = err.code === "UPSTREAM_TIMEOUT" || err.code === "STREAM_IDLE_TIMEOUT"
+        ? HTTP_STATUS.GATEWAY_TIMEOUT
+        : 499;
+      return createErrorResult(status, err.message || (status === HTTP_STATUS.GATEWAY_TIMEOUT
+        ? "Upstream request timed out"
+        : "Request aborted"));
+    }
     return createErrorResult(HTTP_STATUS.BAD_GATEWAY, "Failed to convert streaming response to JSON");
   }
 }

@@ -77,4 +77,39 @@ describe("Codex usage parsing", () => {
       expect.objectContaining({ used: 65, remaining: 35 })
     );
   });
+
+  it("normalizes Codex remaining_percent payloads as remaining quota", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          plan_type: "pro",
+          rate_limit: {
+            secondary_window: {
+              remaining_percent: 1,
+              reset_at: 1761000000,
+            },
+          },
+        }),
+      }))
+    );
+
+    const { getUsageForProvider } = await import("../../open-sse/services/usage.js");
+
+    const result = await getUsageForProvider({
+      provider: "codex",
+      accessToken: "token",
+      providerSpecificData: {},
+    });
+
+    expect(result.quotas.weekly).toEqual(
+      expect.objectContaining({
+        used: 99,
+        total: 100,
+        remaining: 1,
+        remainingPercentage: 1,
+      })
+    );
+  });
 });

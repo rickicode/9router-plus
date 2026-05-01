@@ -55,6 +55,7 @@ vi.mock("../../cloud/src/services/storage.js", () => ({
   getMachineData: vi.fn(),
   getRuntimeConfig: vi.fn(),
   saveMachineData: vi.fn(),
+  updateRuntimeProviderState: vi.fn(),
 }));
 
 // ─── Imports (after mocks) ────────────────────────────────────────────────────
@@ -67,6 +68,7 @@ import {
   getMachineData,
   getRuntimeConfig,
   saveMachineData,
+  updateRuntimeProviderState,
 } from "../../cloud/src/services/storage.js";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -146,6 +148,11 @@ describe("handleEmbeddings — authentication", () => {
     vi.mocked(parseApiKey).mockResolvedValue(null);
     vi.mocked(getMachineData).mockResolvedValue(makeMachineData());
     vi.mocked(getRuntimeConfig).mockResolvedValue(makeMachineData());
+    vi.mocked(updateRuntimeProviderState).mockImplementation(async (_machineId, _connectionId, updater) => {
+      const conn = makeMachineData().providers["conn-001"];
+      updater(conn);
+      return { providers: { "conn-001": conn } };
+    });
     vi.mocked(getModelInfoCore).mockResolvedValue({ provider: "openai", model: "text-embedding-ada-002" });
   });
 
@@ -363,15 +370,22 @@ describe("handleEmbeddings — valid request (happy path)", () => {
     const res = await handleEmbeddings(req, makeEnv(), {});
 
     expect(res.status).toBe(200);
-    expect(saveMachineData).toHaveBeenCalled();
-    const [, saved] = vi.mocked(saveMachineData).mock.calls.at(-1);
-    expect(saved.providers["conn-001"].routingStatus).toBe("eligible");
-    expect(saved.providers["conn-001"].reasonCode).toBe("unknown");
-    expect(saved.providers["conn-001"].nextRetryAt).toBeNull();
+    expect(updateRuntimeProviderState).toHaveBeenCalled();
+    const updatedConnection = vi.mocked(updateRuntimeProviderState).mock.results.at(-1)?.value;
+    await expect(updatedConnection).resolves.toEqual(expect.objectContaining({
+      providers: expect.objectContaining({
+        "conn-001": expect.objectContaining({
+          routingStatus: "eligible",
+          reasonCode: "unknown",
+          nextRetryAt: null,
+        }),
+      }),
+    }));
   });
 
   it("successful request does not write when canonical state is already clean", async () => {
     vi.mocked(saveMachineData).mockClear();
+    vi.mocked(updateRuntimeProviderState).mockClear();
     vi.mocked(handleEmbeddingsCore).mockImplementation(async ({ onRequestSuccess }) => {
       await onRequestSuccess();
       return {
@@ -392,6 +406,7 @@ describe("handleEmbeddings — valid request (happy path)", () => {
 
     expect(res.status).toBe(200);
     expect(saveMachineData).not.toHaveBeenCalled();
+    expect(updateRuntimeProviderState).not.toHaveBeenCalled();
   });
 
   afterEach(() => {

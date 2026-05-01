@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { getDefaultChatRuntimeSettings, getSettings, normalizeChatRuntimeSettings, normalizeMorphSettings, updateSettings } from "@/lib/localDb";
+import { getDefaultChatRuntimeSettings, getSettings, normalizeAutoCompactSettings, normalizeChatRuntimeSettings, normalizeMorphSettings, updateSettings } from "@/lib/localDb";
 import { applyOutboundProxyEnv } from "@/lib/network/outboundProxy";
-import { getQuotaRefreshScheduler } from "@/lib/quotaRefreshScheduler";
-import { readRuntimeConfig } from "@/lib/runtimeConfig";
+import { getUsageWorkerClient } from "@/lib/usageWorker/client";
 import { buildMorphKeyStatusPatch } from "@/app/api/morph/test-key/route.js";
 import bcrypt from "bcryptjs";
 
@@ -111,21 +110,12 @@ export async function GET() {
     const enableRequestLogs = process.env.ENABLE_REQUEST_LOGS === "true";
     const enableTranslator = process.env.ENABLE_TRANSLATOR === "true";
 
-    const runtimeConfig = await readRuntimeConfig();
-    const redis = runtimeConfig.redis || {};
-
     return NextResponse.json({
       ...safeSettings,
       quotaExhaustedThresholdPercent,
       enableRequestLogs,
       enableTranslator,
       hasPassword: !!password,
-      redis: {
-        enabled: redis.enabled === true,
-        activeServerId: redis.activeServerId || null,
-        lastStatus: redis.lastStatus || null,
-        server: (redis.servers || []).find((server) => server.id === redis.activeServerId) || null,
-      },
     });
   } catch (error) {
     console.error("Error getting settings:", error);
@@ -137,7 +127,7 @@ export async function PATCH(request) {
   try {
     const body = await request.json();
     const updates = { ...body };
-    const needsCurrentSettings = body.newPassword || body.morph || body.chatRuntime !== undefined || body.resetChatRuntimeDefaults === true;
+    const needsCurrentSettings = body.newPassword || body.morph || body.chatRuntime !== undefined || body.autoCompact !== undefined || body.resetChatRuntimeDefaults === true;
     const currentSettings = needsCurrentSettings ? await getSettings() : null;
 
     // If updating password, hash it
@@ -259,6 +249,15 @@ export async function PATCH(request) {
       delete updates.resetChatRuntimeDefaults;
     }
 
+    if (body.autoCompact !== undefined) {
+      updates.autoCompact = normalizeAutoCompactSettings({
+        ...(currentSettings?.autoCompact || {}),
+        ...(body.autoCompact && typeof body.autoCompact === "object" && !Array.isArray(body.autoCompact)
+          ? body.autoCompact
+          : {}),
+      });
+    }
+
     const settings = await updateSettings(updates);
 
     // Trigger immediate cloud sync if cloud is enabled
@@ -275,13 +274,17 @@ export async function PATCH(request) {
       }
     }
 
-    const shouldRefreshQuotaScheduler = (
-      Object.prototype.hasOwnProperty.call(body, "quotaScheduler")
+    const shouldRefreshUsageWorker = (
+      Object.prototype.hasOwnProperty.call(body, "usageWorker")
       || Object.prototype.hasOwnProperty.call(body, "quotaExhaustedThresholdPercent")
     );
 
-    if (shouldRefreshQuotaScheduler) {
-      await getQuotaRefreshScheduler().refreshSchedule("settings_update");
+    if (shouldRefreshUsageWorker) {
+      try {
+        await getUsageWorkerClient().getStatus();
+      } catch (error) {
+        console.warn("[Settings] Failed to notify usage worker:", error.message);
+      }
     }
 
     // Apply outbound proxy settings immediately (no restart required)

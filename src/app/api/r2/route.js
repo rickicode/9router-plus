@@ -166,12 +166,6 @@ export async function PATCH(request) {
       }
 
       updates.r2RuntimePublicBaseUrl = body.r2RuntimePublicBaseUrl.trim();
-      if (!updates.r2RuntimePublicBaseUrl && (currentSettings.cloudUrls || []).some((worker) => worker?.url && worker?.secret)) {
-        return NextResponse.json(
-          { error: "Cannot clear runtime URL while cloud workers are registered." },
-          { status: 400 }
-        );
-      }
     }
 
     if (body.r2RuntimeCacheTtlSeconds !== undefined) {

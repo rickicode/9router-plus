@@ -13,13 +13,15 @@ import { handleTestClaude } from "./handlers/testClaude.js";
 import { handleForward } from "./handlers/forward.js";
 import { handleForwardRaw } from "./handlers/forwardRaw.js";
 import { handleEmbeddings } from "./handlers/embeddings.js";
-import { handleUsage } from "./handlers/usage.js";
+import { handleUsage, handleAdminUsageEvents } from "./handlers/usage.js";
 import { handleHealth } from "./handlers/health.js";
 import {
   handleAdminHealth,
   handleAdminRegister,
   handleAdminStatusJson,
-  handleAdminStatusHtml
+  handleAdminStatusHtml,
+  handleAdminRuntimeRefresh,
+  handleAdminUnregister
 } from "./handlers/admin.js";
 import {
   handleSqliteBackupUpload,
@@ -31,14 +33,17 @@ import {
   handleR2Info
 } from "./handlers/r2backup.js";
 import { createLandingPageResponse } from "./services/landingPage.js";
-import { cleanupExpiredSessions, limitUsageMapSize } from "./services/state.js";
+import { cleanupExpiredSessions, limitUsageMapSize, maybeResetUsageEvents } from "./services/state.js";
 import { getRuntimeConfig } from "./services/storage.js";
 import { parseApiKey } from "./utils/apiKey.js";
+import { recordUsageEvent } from "./services/usage.js";
 
 // Translators will be initialized lazily on first use
 
 let lastMemoryCleanupAt = 0;
 const morphRotationCursors = new Map();
+const DEFAULT_MORPH_UPSTREAM_TIMEOUT_MS = 25000;
+const MORPH_RETRYABLE_STATUS_CODES = new Set([401, 408, 409, 423, 425, 429]);
 
 const DEFAULT_MORPH_MODELS = [
   { id: "morph-v3-large", owned_by: "morph" },
@@ -48,6 +53,7 @@ const DEFAULT_MORPH_MODELS = [
 
 function runPeriodicMemoryCleanup() {
   const now = Date.now();
+  maybeResetUsageEvents(now);
   if (now - lastMemoryCleanupAt < 60000) return;
 
   cleanupExpiredSessions();
@@ -90,23 +96,78 @@ async function resolveMorphMachineId(request, env) {
   return parsed.machineId;
 }
 
-function selectMorphApiKey(machineId, morphSettings) {
-  const apiKeys = Array.isArray(morphSettings?.apiKeys)
-    ? morphSettings.apiKeys.filter((entry) => entry?.key)
-    : [];
+function getMorphUpstreamTimeoutMs() {
+  const timeoutMs = Number(envOrProcessValue("MORPH_UPSTREAM_TIMEOUT_MS"));
+  return Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_MORPH_UPSTREAM_TIMEOUT_MS;
+}
 
-  if (apiKeys.length === 0) {
+function envOrProcessValue(key) {
+  try {
+    if (typeof process !== "undefined" && process?.env?.[key]) {
+      return process.env[key];
+    }
+  } catch {
+    // Ignore environments without process access.
+  }
+  return undefined;
+}
+
+function getMorphApiKeys(morphSettings) {
+  return Array.isArray(morphSettings?.apiKeys)
+    ? morphSettings.apiKeys.filter((entry) => entry?.key && entry.isActive !== false)
+    : [];
+}
+
+function isMorphRetryableStatus(status) {
+  return MORPH_RETRYABLE_STATUS_CODES.has(status) || status >= 500;
+}
+
+async function readMorphResponseText(response) {
+  if (!response) return "";
+  try {
+    return await response.clone().text();
+  } catch {
     return "";
+  }
+}
+
+function summarizeMorphFailure(status, responseText, fallbackLabel = "Morph upstream request failed") {
+  const normalizedText = typeof responseText === "string" ? responseText.trim() : "";
+  const compactText = normalizedText.replace(/\s+/g, " ").slice(0, 240);
+  if (compactText) {
+    return `${fallbackLabel} (${status}): ${compactText}`;
+  }
+  return `${fallbackLabel} (${status})`;
+}
+
+function createMorphErrorResponse(status, message, retryAfterSeconds = null) {
+  const headers = { "Content-Type": "application/json" };
+  if (retryAfterSeconds) {
+    headers["Retry-After"] = String(retryAfterSeconds);
+  }
+  return new Response(JSON.stringify({ error: message }), { status, headers });
+}
+
+function getMorphKeyOrder(machineId, morphSettings) {
+  const apiKeys = getMorphApiKeys(morphSettings);
+  if (apiKeys.length === 0) {
+    return [];
   }
 
   if (morphSettings?.roundRobinEnabled !== true || apiKeys.length === 1) {
-    return apiKeys[0].key;
+    return apiKeys;
   }
 
   const currentIndex = morphRotationCursors.get(machineId) || 0;
   const selectedIndex = currentIndex % apiKeys.length;
   morphRotationCursors.set(machineId, (selectedIndex + 1) % apiKeys.length);
-  return apiKeys[selectedIndex].key;
+
+  return apiKeys.map((_, offset) => apiKeys[(selectedIndex + offset) % apiKeys.length]);
+}
+
+function selectMorphApiKey(machineId, morphSettings) {
+  const apiKeys = getMorphKeyOrder(machineId, morphSettings);
+  return apiKeys[0]?.key || "";
 }
 
 async function getMorphSettingsForRequest(request, env) {
@@ -131,14 +192,15 @@ async function getMorphSettingsForRequest(request, env) {
 }
 
 async function handleMorphCapability(request, env, upstreamPath) {
+  const startedAt = Date.now();
   const resolved = await getMorphSettingsForRequest(request, env);
   if (resolved.error) {
     return resolved.error;
   }
 
   const { machineId, morph } = resolved;
-  const primaryKey = selectMorphApiKey(machineId, morph);
-  if (!primaryKey) {
+  const apiKeys = getMorphKeyOrder(machineId, morph);
+  if (apiKeys.length === 0) {
     return new Response(JSON.stringify({ error: "Morph is not configured" }), {
       status: 503,
       headers: { "Content-Type": "application/json" },
@@ -149,21 +211,105 @@ async function handleMorphCapability(request, env, upstreamPath) {
   const requestBody = request.method === "GET" || request.method === "HEAD"
     ? undefined
     : await request.text();
+  const timeoutMs = getMorphUpstreamTimeoutMs();
 
-  const upstreamResponse = await fetch(upstreamUrl, {
-    method: request.method,
-    headers: {
-      Authorization: `Bearer ${primaryKey}`,
-      "Content-Type": request.headers.get("Content-Type") || "application/json",
-    },
-    body: requestBody,
-  });
+  let lastFailureResponse = null;
+  let lastFailureMessage = null;
 
-  return new Response(upstreamResponse.body, {
-    status: upstreamResponse.status,
-    statusText: upstreamResponse.statusText,
-    headers: upstreamResponse.headers,
+  for (let index = 0; index < apiKeys.length; index += 1) {
+    const currentKey = apiKeys[index]?.key;
+    if (!currentKey) {
+      continue;
+    }
+
+    try {
+      const upstreamResponse = await fetch(upstreamUrl, {
+        method: request.method,
+        headers: {
+          Authorization: `Bearer ${currentKey}`,
+          "Content-Type": request.headers.get("Content-Type") || "application/json",
+        },
+        body: requestBody,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+
+      if (upstreamResponse.ok || index === apiKeys.length - 1 || !isMorphRetryableStatus(upstreamResponse.status)) {
+        const responseText = upstreamResponse.ok ? "" : await readMorphResponseText(upstreamResponse);
+        recordUsageEvent({
+          type: "morph",
+          endpoint: new URL(request.url).pathname,
+          provider: "morph",
+          model: null,
+          connectionId: null,
+          status: upstreamResponse.status,
+          tokensInput: 0,
+          tokensOutput: 0,
+          error: upstreamResponse.ok ? null : summarizeMorphFailure(upstreamResponse.status, responseText, "Morph upstream rejected request"),
+          latencyMs: Date.now() - startedAt,
+        });
+
+        if (!upstreamResponse.ok && responseText) {
+          return createMorphErrorResponse(
+            upstreamResponse.status,
+            summarizeMorphFailure(upstreamResponse.status, responseText, "Morph upstream rejected request"),
+            upstreamResponse.status === 429 ? 1 : null,
+          );
+        }
+
+        return new Response(upstreamResponse.body, {
+          status: upstreamResponse.status,
+          statusText: upstreamResponse.statusText,
+          headers: upstreamResponse.headers,
+        });
+      }
+
+      lastFailureResponse = upstreamResponse;
+      lastFailureMessage = summarizeMorphFailure(
+        upstreamResponse.status,
+        await readMorphResponseText(upstreamResponse),
+        "Morph upstream rejected key"
+      );
+    } catch (error) {
+      const isTimeout = error?.name === "AbortError" || error?.name === "TimeoutError" || error?.code === 23;
+      lastFailureMessage = isTimeout
+        ? `Morph upstream request timed out after ${timeoutMs}ms`
+        : `Morph upstream request failed: ${error?.message || "unknown error"}`;
+
+      if (index === apiKeys.length - 1) {
+        recordUsageEvent({
+          type: "morph",
+          endpoint: new URL(request.url).pathname,
+          provider: "morph",
+          model: null,
+          connectionId: null,
+          status: 504,
+          tokensInput: 0,
+          tokensOutput: 0,
+          error: lastFailureMessage,
+          latencyMs: Date.now() - startedAt,
+        });
+        return createMorphErrorResponse(isTimeout ? 504 : 502, lastFailureMessage, isTimeout ? 1 : null);
+      }
+
+      continue;
+    }
+  }
+
+  const fallbackStatus = lastFailureResponse?.status || 503;
+  const fallbackMessage = lastFailureMessage || "Morph upstream request failed";
+  recordUsageEvent({
+    type: "morph",
+    endpoint: new URL(request.url).pathname,
+    provider: "morph",
+    model: null,
+    connectionId: null,
+    status: fallbackStatus,
+    tokensInput: 0,
+    tokensOutput: 0,
+    error: fallbackMessage,
+    latencyMs: Date.now() - startedAt,
   });
+  return createMorphErrorResponse(fallbackStatus, fallbackMessage, fallbackStatus === 429 ? 1 : null);
 }
 
 // Helper to add CORS headers to response
@@ -252,6 +398,24 @@ const worker = {
         const response = await handleAdminStatusHtml(request, env);
         log.response(response.status, Date.now() - startTime);
         return response;
+      }
+
+      if (path === "/admin/runtime/refresh" && request.method === "POST") {
+        const response = await handleAdminRuntimeRefresh(request, env);
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
+      }
+
+      if (path === "/admin/unregister" && request.method === "POST") {
+        const response = await handleAdminUnregister(request, env);
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
+      }
+
+      if (path === "/admin/usage/events" && request.method === "GET") {
+        const response = await handleAdminUsageEvents(request, env);
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
       }
 
       // Ollama compatible - list models

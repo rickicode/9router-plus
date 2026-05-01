@@ -41,7 +41,7 @@ describe("r2RuntimeArtifacts", () => {
           name: "Primary",
           apiKey: "sk-live",
           isActive: true,
-          routingStatus: "eligible",
+          routingStatus: "blocked",
           createdAt: "2026-04-26T00:00:00.000Z",
           updatedAt: "2026-04-26T00:00:00.000Z",
         },
@@ -101,7 +101,19 @@ describe("r2RuntimeArtifacts", () => {
 
     exportDb.mockResolvedValue(structuredClone(exportedSnapshot));
     getProviderConnections.mockResolvedValue([
-      { id: "getter-only", provider: "other", isActive: true, routingStatus: "eligible" },
+      {
+        id: "conn-eligible",
+        provider: "openai",
+        authType: "apikey",
+        name: "Primary",
+        apiKey: "sk-live",
+        isActive: true,
+        routingStatus: "eligible",
+        createdAt: "2026-04-26T00:00:00.000Z",
+        updatedAt: "2026-04-26T00:00:00.000Z",
+      },
+      { id: "conn-ineligible", provider: "anthropic", isActive: true, routingStatus: "blocked" },
+      { id: "conn-inactive", provider: "gemini", isActive: false, routingStatus: "eligible" },
     ]);
     getModelAliases.mockResolvedValue({ getter: "should/not/use" });
     getCombos.mockResolvedValue([{ id: "getter-combo", name: "Getter", models: ["getter"] }]);
@@ -111,7 +123,9 @@ describe("r2RuntimeArtifacts", () => {
     const {
       buildBackupArtifact,
       buildRuntimeArtifact,
+      buildEligibleRuntimeArtifact,
       buildR2ArtifactsFromState,
+      buildFullCredentialsArtifact,
     } = await import("@/lib/r2RuntimeArtifacts.js");
 
     const backup = await buildBackupArtifact();
@@ -155,8 +169,29 @@ describe("r2RuntimeArtifacts", () => {
     expect(runtime.providers["conn-ineligible"]).toBeUndefined();
     expect(runtime.providers["conn-inactive"]).toBeUndefined();
 
+    const eligible = await buildEligibleRuntimeArtifact();
+    expect(eligible).toEqual({
+      generatedAt: expect.any(String),
+      providers: {
+        "conn-eligible": expect.objectContaining({
+          id: "conn-eligible",
+          provider: "openai",
+          routingStatus: "eligible",
+          isActive: true,
+        }),
+      },
+    });
+
+    const fullCredentials = await buildFullCredentialsArtifact();
+    expect(fullCredentials.providers).toEqual({
+      "conn-eligible": expect.objectContaining({
+        id: "conn-eligible",
+        provider: "openai",
+        routingStatus: "eligible",
+      }),
+    });
+
     const artifacts = await buildR2ArtifactsFromState();
-    expect(exportDb).toHaveBeenCalledTimes(3);
     expect(artifacts.backup).toEqual(exportedSnapshot);
     expect(artifacts.runtime).toMatchObject({
       providers: {
@@ -182,6 +217,24 @@ describe("r2RuntimeArtifacts", () => {
         },
       },
     });
+    expect(artifacts.credentials.providers).toEqual({
+      "conn-eligible": expect.objectContaining({
+        id: "conn-eligible",
+        provider: "openai",
+        routingStatus: "eligible",
+      }),
+    });
+    expect(artifacts.eligible).toEqual({
+      generatedAt: expect.any(String),
+      providers: {
+        "conn-eligible": expect.objectContaining({
+          id: "conn-eligible",
+          provider: "openai",
+          routingStatus: "eligible",
+          isActive: true,
+        }),
+      },
+    });
     expect(artifacts.runtime.settings.r2Config).toBeUndefined();
     expect(artifacts.runtime.settings.cloudUrls).toBeUndefined();
     expect(artifacts.runtime.settings.r2RuntimePublicBaseUrl).toBeUndefined();
@@ -190,12 +243,12 @@ describe("r2RuntimeArtifacts", () => {
     expect(artifacts.runtime.generatedAt).toEqual(expect.any(String));
   });
 
-  it("buildR2ArtifactsFromState derives backup and runtime from one authoritative export snapshot", async () => {
+  it("buildR2ArtifactsFromState keeps backup data from exportDb while runtime artifacts use merged eligible connections", async () => {
     const exportedSnapshot = {
       format: "9router-db-v1",
       schemaVersion: 1,
       providerConnections: [
-        { id: "backup-only", provider: "stale", isActive: true, routingStatus: "eligible" },
+        { id: "backup-only", provider: "stale", isActive: true, routingStatus: "blocked" },
         { id: "disabled", provider: "stale", isActive: false, routingStatus: "eligible" },
       ],
       providerNodes: [{ id: "stale-node" }],
@@ -223,10 +276,17 @@ describe("r2RuntimeArtifacts", () => {
 
     expect(artifacts.backup).toEqual(exportedSnapshot);
     expect(artifacts.runtime.providers).toEqual({
-      "backup-only": expect.objectContaining({
-        id: "backup-only",
-        provider: "stale",
+      "conn-1": expect.objectContaining({
+        id: "conn-1",
+        provider: "openai",
         isActive: true,
+        routingStatus: "eligible",
+      }),
+    });
+    expect(artifacts.credentials.providers).toEqual({
+      "conn-1": expect.objectContaining({
+        id: "conn-1",
+        provider: "openai",
         routingStatus: "eligible",
       }),
     });
@@ -252,6 +312,7 @@ describe("r2RuntimeArtifacts", () => {
     };
 
     exportDb.mockImplementation(async () => structuredClone(sourceSnapshot));
+    getProviderConnections.mockResolvedValue(structuredClone(sourceSnapshot.providerConnections));
 
     const { buildRuntimeArtifact } = await import("@/lib/r2RuntimeArtifacts.js");
 
@@ -287,6 +348,7 @@ describe("r2RuntimeArtifacts", () => {
       schemaVersion: 99,
       providerConnections: [{ id: "fallback", isActive: true, routingStatus: "eligible" }],
     });
+    getProviderConnections.mockResolvedValue([]);
 
     const {
       buildBackupArtifact,
@@ -320,6 +382,7 @@ describe("r2RuntimeArtifacts", () => {
       settings: { sticky: true },
     };
     exportDb.mockResolvedValue(structuredClone(malformedExportSnapshot));
+    getProviderConnections.mockResolvedValue([]);
 
     const artifacts = await buildR2ArtifactsFromState();
 
@@ -347,6 +410,9 @@ describe("r2RuntimeArtifacts", () => {
       apiKeys: [],
       settings: { roundRobin: true },
     });
+    getProviderConnections.mockResolvedValue([
+      { id: "conn-opt", provider: "openai", isActive: true, routingStatus: "eligible" },
+    ]);
 
     const { buildRuntimeArtifact } = await import("@/lib/r2RuntimeArtifacts.js");
 

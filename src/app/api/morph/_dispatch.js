@@ -8,6 +8,11 @@ import { getDefaultMorphModel, saveMorphUsage } from "@/lib/morphUsageDb.js";
 import { trackPendingRequest } from "@/lib/usageDb.js";
 
 const DEFAULT_MORPH_UPSTREAM_TIMEOUT_MS = 25_000;
+const ANSI_PINK = "\x1b[38;5;205m";
+const ANSI_RESET = "\x1b[0m";
+const MORPH_UPSTREAM_HEADERS = {
+  "Accept-Encoding": "identity",
+};
 
 function buildUpstreamUrl(baseUrl, upstreamPath) {
   return new URL(upstreamPath, `${baseUrl.replace(/\/+$/, "")}/`).toString();
@@ -87,7 +92,7 @@ function logMorphEndpointAccess(req, requestLabel, requestPayload, upstreamPath)
     : getDefaultMorphModel(fallbackCapability);
   const upstreamLabel = upstreamPath ? ` upstream=${upstreamPath}` : "";
 
-  console.log(`[morph] ${req.method || "POST"} ${pathname}${upstreamLabel} model=${model}`);
+  console.log(`${ANSI_PINK}[morph] ${req.method || "POST"} ${pathname}${upstreamLabel} model=${model}${ANSI_RESET}`);
 }
 
 function parseMorphRequestPayload(requestBody) {
@@ -108,6 +113,19 @@ function shouldBufferMorphResponse(response, requestPayload) {
   const contentType = String(response.headers?.get("content-type") || "").toLowerCase();
   if (contentType.includes("text/event-stream")) return false;
   return contentType.includes("application/json");
+}
+
+async function readResponseTextSafely(response, context) {
+  if (!response) {
+    return null;
+  }
+
+  try {
+    return await response.clone().text();
+  } catch (error) {
+    console.warn(`[morph] Skipping ${context} body read:`, error);
+    return null;
+  }
 }
 
 function doesMorphKeyPatchChange(entry, patch) {
@@ -247,6 +265,7 @@ export async function dispatchMorphCapability({ capability, req, morphSettings, 
             headers: {
               Authorization: `Bearer ${apiKey}`,
               "Content-Type": "application/json",
+              ...MORPH_UPSTREAM_HEADERS,
             },
             body: requestBody,
             signal: AbortSignal.timeout(timeoutMs),
@@ -276,10 +295,10 @@ export async function dispatchMorphCapability({ capability, req, morphSettings, 
           return response;
         }
 
-        const responseText = await response.clone().text().catch(() => "");
+        const responseText = await readResponseTextSafely(response, "error");
         const nextPatch = buildMorphKeyStatusPatch({
           status: response.status,
-          responseText,
+          responseText: responseText || "",
           fallbackLabel: `HTTP ${response.status}`,
         });
 
@@ -298,7 +317,7 @@ export async function dispatchMorphCapability({ capability, req, morphSettings, 
     });
 
     const responseText = shouldBufferMorphResponse(upstreamResponse, requestPayload)
-      ? await upstreamResponse.clone().text().catch(() => null)
+      ? await readResponseTextSafely(upstreamResponse, "usage")
       : null;
 
     const persistUsagePromise = persistMorphUsage({

@@ -45,6 +45,7 @@ vi.mock("@/shared/constants/config", () => ({
 vi.mock("@/shared/constants/providers", () => ({
   FREE_TIER_PROVIDERS: {},
   WEB_COOKIE_PROVIDERS: {},
+  USAGE_SUPPORTED_PROVIDERS: ["codex", "github", "claude", "antigravity", "kiro", "kimi-coding", "ollama"],
   isOpenAICompatibleProvider: () => false,
   isAnthropicCompatibleProvider: () => false,
 }));

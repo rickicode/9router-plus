@@ -51,13 +51,28 @@ let mitmIsRestarting = false;
 
 function resolveBundledServerPath() {
   if (process.env.MITM_SERVER_PATH) return process.env.MITM_SERVER_PATH;
-  const sibling = path.join(__dirname, "server.js");
-  if (fs.existsSync(sibling)) return sibling;
-  const fromCwd = path.join(process.cwd(), "src", "mitm", "server.js");
-  if (fs.existsSync(fromCwd)) return fromCwd;
-  const fromNext = path.join(process.cwd(), "..", "src", "mitm", "server.js");
-  if (fs.existsSync(fromNext)) return fromNext;
-  return fromCwd;
+
+  const isCompleteMitmServer = (serverPath) => {
+    const dir = path.dirname(serverPath);
+    return fs.existsSync(serverPath)
+      && fs.existsSync(path.join(dir, "config.js"))
+      && fs.existsSync(path.join(dir, "paths.js"))
+      && fs.existsSync(path.join(dir, "cert", "generate.js"))
+      && fs.existsSync(path.join(dir, "handlers", "antigravity.js"));
+  };
+
+  const candidates = [
+    path.join(__dirname, "server.js"),
+    path.join(process.cwd(), "src", "mitm", "server.js"),
+    path.join(process.cwd(), "..", "src", "mitm", "server.js"),
+    path.join(process.cwd(), "..", "..", "src", "mitm", "server.js"),
+    path.join(__dirname, "..", "..", "..", "..", "src", "mitm", "server.js"),
+  ];
+
+  const complete = candidates.find(isCompleteMitmServer);
+  if (complete) return complete;
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) || candidates[1];
 }
 
 // Copy bundled server.js into DATA_DIR so MITM doesn't lock node_modules

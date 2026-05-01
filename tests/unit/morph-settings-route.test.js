@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getSettings = vi.fn();
 const updateSettings = vi.fn();
-const refreshSchedule = vi.fn();
+const getUsageWorkerStatus = vi.fn();
 const readRuntimeConfig = vi.fn();
 const applyOutboundProxyEnv = vi.fn();
 const isCloudEnabled = vi.fn();
@@ -32,9 +32,9 @@ vi.mock("@/lib/network/outboundProxy", () => ({
   applyOutboundProxyEnv,
 }));
 
-vi.mock("@/lib/quotaRefreshScheduler", () => ({
-  getQuotaRefreshScheduler: () => ({
-    refreshSchedule,
+vi.mock("@/lib/usageWorker/client", () => ({
+  getUsageWorkerClient: () => ({
+    getStatus: getUsageWorkerStatus,
   }),
 }));
 
@@ -51,7 +51,7 @@ describe("/api/settings morph settings", () => {
     vi.resetModules();
     vi.clearAllMocks();
     vi.stubGlobal("fetch", vi.fn());
-    readRuntimeConfig.mockResolvedValue({ redis: {} });
+    readRuntimeConfig.mockResolvedValue({ version: 1 });
     isCloudEnabled.mockResolvedValue(false);
     syncToCloud.mockResolvedValue(undefined);
   });

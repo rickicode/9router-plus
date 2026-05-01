@@ -9,7 +9,15 @@ import {
   updateSettings,
 } from "./localDb.js";
 import { DB_SQLITE_FILE } from "./sqliteHelpers.js";
-import { buildBackupArtifact, buildRuntimeArtifact } from "./r2RuntimeArtifacts.js";
+import {
+  R2_FULL_CREDENTIALS_OBJECT_KEY,
+  R2_RUNTIME_CONFIG_OBJECT_KEY,
+  buildBackupArtifact,
+  buildRuntimeArtifact,
+  buildEligibleRuntimeArtifact,
+  buildFullCredentialsArtifact,
+  buildRuntimeConfigArtifact,
+} from "./r2RuntimeArtifacts.js";
 import { buildR2BucketProbeUrl, buildR2ObjectUrl, putObjectWithRetry, signR2Request } from "./r2ObjectClient.js";
 import { computeSqliteFingerprint, hasSqliteChanged } from "./r2SqliteFingerprint.js";
 
@@ -29,6 +37,7 @@ function buildArtifactUrls(baseUrl) {
   return {
     backupUrl: `${normalizedBaseUrl}/backup.json`,
     runtimeUrl: `${normalizedBaseUrl}/runtime.json`,
+    eligibleUrl: `${normalizedBaseUrl}/eligible.json`,
     sqliteUrl: `${normalizedBaseUrl}/sqlite/latest.db`,
   };
 }
@@ -68,11 +77,18 @@ function buildRuntimeObjectKey(settingsOrConfig = {}) {
   }
 }
 
+function buildEligibleObjectKey(settingsOrConfig = {}) {
+  return buildRuntimeObjectKey(settingsOrConfig).replace(/runtime\.json$/, "eligible.json");
+}
+
 function buildArtifactWriteUrls(settingsOrConfig) {
   const config = settingsOrConfig?.r2Config || settingsOrConfig;
   return {
     backupUrl: buildR2ObjectUrl(config, buildBackupObjectKey(settingsOrConfig)),
     runtimeUrl: buildR2ObjectUrl(config, buildRuntimeObjectKey(settingsOrConfig)),
+    eligibleUrl: buildR2ObjectUrl(config, buildEligibleObjectKey(settingsOrConfig)),
+    fullRuntimeUrl: buildR2ObjectUrl(config, R2_FULL_CREDENTIALS_OBJECT_KEY),
+    runtimeConfigUrl: buildR2ObjectUrl(config, R2_RUNTIME_CONFIG_OBJECT_KEY),
     sqliteUrl: buildR2ObjectUrl(config, buildSqliteObjectKey(settingsOrConfig)),
   };
 }
@@ -275,6 +291,7 @@ export async function publishRuntimeArtifacts({
   dbSnapshot = null,
   backupSnapshot = null,
   runtimeSnapshot = null,
+  eligibleSnapshot = null,
   sqliteChanged = false,
   sqliteData = null,
   putObject = putObjectWithRetry,
@@ -285,9 +302,15 @@ export async function publishRuntimeArtifacts({
 
   const backupArtifact = await buildBackupArtifact(backupSnapshot ?? dbSnapshot);
   const runtimeArtifact = await buildRuntimeArtifact(runtimeSnapshot ?? dbSnapshot);
+  const eligibleArtifact = await buildEligibleRuntimeArtifact(eligibleSnapshot ?? runtimeSnapshot ?? dbSnapshot);
+  const credentialsArtifact = await buildFullCredentialsArtifact(eligibleSnapshot ?? runtimeSnapshot ?? dbSnapshot);
+  const runtimeConfigArtifact = await buildRuntimeConfigArtifact(runtimeSnapshot ?? dbSnapshot);
   const result = {
     backup: null,
     runtime: null,
+    eligible: null,
+    credentials: null,
+    runtimeConfig: null,
     sqlite: null,
   };
 
@@ -313,6 +336,17 @@ export async function publishRuntimeArtifacts({
     result.runtime = createUploadFailureResult(error);
   }
 
+  try {
+    const eligibleUpload = await putObject({
+      objectUrl: artifactUrls.eligibleUrl || artifactUrls.runtimeUrl.replace(/runtime\.json$/, "eligible.json"),
+      body: JSON.stringify(eligibleArtifact),
+      contentType: "application/json",
+    });
+    result.eligible = createUploadResult(eligibleUpload);
+  } catch (error) {
+    result.eligible = createUploadFailureResult(error);
+  }
+
   if (!sqliteChanged) {
     result.sqlite = {
       ok: true,
@@ -320,18 +354,47 @@ export async function publishRuntimeArtifacts({
       skipped: true,
       attempts: 0,
     };
-    return result;
+  } else {
+    try {
+      const sqliteUpload = await putObject({
+        objectUrl: artifactUrls.sqliteUrl,
+        body: sqliteData,
+        contentType: "application/octet-stream",
+      });
+      result.sqlite = createUploadResult(sqliteUpload);
+    } catch (error) {
+      result.sqlite = createUploadFailureResult(error);
+    }
   }
 
-  try {
-    const sqliteUpload = await putObject({
-      objectUrl: artifactUrls.sqliteUrl,
-      body: sqliteData,
-      contentType: "application/octet-stream",
-    });
-    result.sqlite = createUploadResult(sqliteUpload);
-  } catch (error) {
-    result.sqlite = createUploadFailureResult(error);
+  if (artifactUrls.fullRuntimeUrl) {
+    try {
+      const credentialsUpload = await putObject({
+        objectUrl: artifactUrls.fullRuntimeUrl,
+        body: JSON.stringify(credentialsArtifact),
+        contentType: "application/json",
+      });
+      result.credentials = createUploadResult(credentialsUpload);
+    } catch (error) {
+      result.credentials = createUploadFailureResult(error);
+    }
+  } else {
+    result.credentials = { ok: true, uploaded: false, skipped: true, attempts: 0 };
+  }
+
+  if (artifactUrls.runtimeConfigUrl) {
+    try {
+      const runtimeConfigUpload = await putObject({
+        objectUrl: artifactUrls.runtimeConfigUrl,
+        body: JSON.stringify(runtimeConfigArtifact),
+        contentType: "application/json",
+      });
+      result.runtimeConfig = createUploadResult(runtimeConfigUpload);
+    } catch (error) {
+      result.runtimeConfig = createUploadFailureResult(error);
+    }
+  } else {
+    result.runtimeConfig = { ok: true, uploaded: false, skipped: true, attempts: 0 };
   }
 
   return result;
@@ -406,6 +469,7 @@ export async function publishRuntimeArtifactsFromSettings({
     dbSnapshot: snapshot,
     backupSnapshot,
     runtimeSnapshot: snapshot,
+    eligibleSnapshot: snapshot,
     sqliteChanged,
     sqliteData,
     putObject: uploadWithAuth,
@@ -418,7 +482,13 @@ export async function publishRuntimeArtifactsFromSettings({
   const timestamp = new Date().toISOString();
   const settingsPatch = {};
 
-  if (publishResult.backup?.uploaded && publishResult.runtime?.uploaded) {
+  if (
+    publishResult.backup?.ok === true &&
+    publishResult.runtime?.ok === true &&
+    publishResult.eligible?.ok === true &&
+    publishResult.credentials?.ok === true &&
+    publishResult.runtimeConfig?.ok === true
+  ) {
     settingsPatch.r2LastRuntimePublishAt = timestamp;
   }
 
@@ -452,6 +522,9 @@ export async function readBackupArtifactFromSettings({
     backupUrl: artifactUrl,
     runtimeUrl: resolvedSettings?.r2RuntimePublicBaseUrl
       ? buildArtifactUrls(resolvedSettings.r2RuntimePublicBaseUrl).runtimeUrl
+      : null,
+    eligibleUrl: resolvedSettings?.r2RuntimePublicBaseUrl
+      ? buildArtifactUrls(resolvedSettings.r2RuntimePublicBaseUrl).eligibleUrl
       : null,
     sqliteUrl: buildR2ObjectUrl(resolvedSettings?.r2Config, buildSqliteObjectKey(resolvedSettings)),
   };

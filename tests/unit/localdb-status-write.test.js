@@ -107,6 +107,72 @@ describe("localDb provider connection status writes", () => {
     });
   });
 
+
+  it("upserts oauth connections by normalized email casing", async () => {
+    const { dataDir, localDb } = await loadModulesWithTempDataDir();
+
+    const created = await localDb.createProviderConnection({
+      provider: "codex",
+      authType: "oauth",
+      email: "User@Example.com ",
+      accessToken: "token-1",
+      refreshToken: "refresh-1",
+      isActive: true,
+      priority: 1,
+    });
+
+    const upserted = await localDb.createProviderConnection({
+      provider: "codex",
+      authType: "oauth",
+      email: "user@example.com",
+      accessToken: "token-2",
+      refreshToken: "refresh-2",
+      routingStatus: "eligible",
+    });
+
+    expect(upserted.id).toBe(created.id);
+    expect(upserted.email).toBe("user@example.com");
+
+    const persisted = readProviderConnectionFromSqlite(dataDir, created.id);
+    expect(persisted).toMatchObject({
+      id: created.id,
+      email: "user@example.com",
+      accessToken: "token-2",
+      refreshToken: "refresh-2",
+    });
+  });
+
+
+  it("normalizes oauth email casing on direct updates too", async () => {
+    const { dataDir, localDb } = await loadModulesWithTempDataDir();
+
+    const created = await localDb.createProviderConnection({
+      provider: "codex",
+      authType: "oauth",
+      email: "user@example.com",
+      accessToken: "token-1",
+      refreshToken: "refresh-1",
+    });
+
+    const updated = await localDb.updateProviderConnection(created.id, {
+      email: " User@Example.com ",
+      accessToken: "token-2",
+    });
+
+    expect(updated).toMatchObject({
+      id: created.id,
+      email: "user@example.com",
+      accessToken: "token-2",
+    });
+
+    const persisted = readProviderConnectionFromSqlite(dataDir, created.id);
+    expect(persisted).toMatchObject({
+      id: created.id,
+      email: "user@example.com",
+      accessToken: "token-2",
+    });
+  });
+
   it("does not persist legacy status fields during create upsert normalization", async () => {
     const { dataDir, localDb } = await loadModulesWithTempDataDir();
 

@@ -10,6 +10,7 @@ import {
   buildR2SettingsPayload,
   DEFAULT_R2_SETTINGS_RESPONSE,
   getDirtyR2Config,
+  getNextR2Config,
   getR2ConnectionState,
   hasUnsavedR2Changes,
   isPrivateR2Configured,
@@ -128,7 +129,7 @@ export default function SettingsPageClient() {
   const handleR2FieldChange = (field, value) => {
     setR2Settings((current) => ({
       ...current,
-      r2Config: getDirtyR2Config(current.r2Config, value, field),
+      r2Config: getNextR2Config(current.r2Config, value, field),
     }));
   };
 
@@ -504,6 +505,9 @@ export default function SettingsPageClient() {
                     <p>
                       Save resets the connection validation state until you run a new test, because the
                       API treats changed credentials as unverified.
+                    </p>
+                    <p className="mt-2">
+                      You can paste a Cloudflare R2 bucket URL into Endpoint or Public/Base URL to auto-fill Account ID, Bucket, Endpoint, and Region.
                     </p>
                     {r2IsDirty ? (
                       <p className="mt-2">Test Connection stays disabled until these edits are saved.</p>

@@ -6,6 +6,7 @@ import Modal from "@/shared/components/Modal";
 import Input from "@/shared/components/Input";
 import Button from "@/shared/components/Button";
 import Badge from "@/shared/components/Badge";
+import Toggle from "@/shared/components/Toggle";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 
 export default function EditConnectionModal({ isOpen, connection, proxyPools, onSave, onClose }) {
@@ -13,6 +14,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
     name: "",
     priority: 1,
     apiKey: "",
+    isActive: true,
   });
   const [azureData, setAzureData] = useState({
     azureEndpoint: "",
@@ -32,6 +34,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
         name: connection.name || "",
         priority: connection.priority || 1,
         apiKey: "",
+        isActive: connection.isActive !== false,
       });
       if (connection.provider === "azure" && connection.providerSpecificData) {
         setAzureData({
@@ -97,6 +100,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
       const updates = {
         name: formData.name,
         priority: formData.priority,
+        isActive: formData.isActive,
       };
       if (!isOAuth && formData.apiKey) {
         updates.apiKey = formData.apiKey;
@@ -172,6 +176,20 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
           value={formData.priority}
           onChange={(e) => setFormData({ ...formData, priority: Number.parseInt(e.target.value, 10) || 1 })}
         />
+
+        <div className="flex items-center justify-between rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-3">
+          <div>
+            <p className="font-medium text-[var(--color-text-main)]">Enable this account</p>
+            <p className="text-sm text-[var(--color-text-muted)]">
+              Turn this off to disable the account for routing until you re-enable it.
+            </p>
+          </div>
+          <Toggle
+            checked={formData.isActive}
+            onChange={(checked) => setFormData((prev) => ({ ...prev, isActive: checked }))}
+            disabled={saving}
+          />
+        </div>
 
         {!isOAuth && (
           <>
@@ -264,6 +282,7 @@ EditConnectionModal.propTypes = {
     name: PropTypes.string,
     email: PropTypes.string,
     priority: PropTypes.number,
+    isActive: PropTypes.bool,
     authType: PropTypes.string,
     provider: PropTypes.string,
     providerSpecificData: PropTypes.object,

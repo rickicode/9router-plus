@@ -1,12 +1,13 @@
 import { getSettings } from "./localDb.js";
-import { publishRuntimeArtifactsFromSettings, backupUsageToAll } from "./r2BackupClient.js";
+import { publishRuntimeArtifactsFromSettings } from "./r2BackupClient.js";
+import { syncCloudUsageEvents } from "./cloudUsageSync.js";
 
 const SCHEDULE_INTERVALS_MS = {
   daily: 24 * 60 * 60 * 1000,
   weekly: 7 * 24 * 60 * 60 * 1000,
   monthly: 30 * 24 * 60 * 60 * 1000,
 };
-const USAGE_BACKUP_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+const USAGE_SYNC_INTERVAL_MS = 30 * 1000;
 
 let sqliteBackupTimer = null;
 let usageBackupTimer = null;
@@ -37,7 +38,7 @@ async function runSqliteBackup() {
 
   try {
     const result = await publishRuntimeArtifactsFromSettings();
-    const configOk = result.backup?.ok === true && result.runtime?.ok === true;
+    const configOk = result.backup?.ok === true && result.runtime?.ok === true && result.credentials?.ok === true && result.runtimeConfig?.ok === true;
     const sqliteOk = result.sqlite?.ok === true;
     console.log(`[R2Backup] Direct publish: config=${configOk ? "ok" : "failed"}, sqlite=${sqliteOk ? "ok" : "failed"}`);
     if (!configOk || !sqliteOk) {
@@ -49,23 +50,15 @@ async function runSqliteBackup() {
 }
 
 async function runUsageBackup() {
-  if (!await isScheduledR2BackupEnabled()) return;
-
   try {
-    const { getUsageDb } = await import("./usageDb.js");
-    const db = await getUsageDb();
-    if (!db?.data) return;
-
-    const usageData = {
-      dailySummary: db.data.dailySummary || {},
-      totalRequestsLifetime: db.data.totalRequestsLifetime || 0,
-      backedUpAt: new Date().toISOString()
-    };
-
-    const result = await backupUsageToAll(usageData);
-    console.log(`[R2Backup] Usage backup: ${result.successes}/${result.total} workers OK`);
+    const result = await syncCloudUsageEvents();
+    if (result.skipped) return;
+    console.log(`[CloudUsage] Pulled ${result.events} events from ${result.successes}/${result.total} workers`);
+    if (result.failures?.length) {
+      console.warn(`[CloudUsage] Pull failures:`, result.failures);
+    }
   } catch (error) {
-    console.error(`[R2Backup] Usage backup failed:`, error.message);
+    console.error(`[CloudUsage] Pull failed:`, error.message);
   }
 }
 
@@ -94,13 +87,15 @@ export async function startR2BackupScheduler() {
   setTimeout(async () => {
     if (await isScheduledR2BackupEnabled()) {
       runSqliteBackup();
-      runUsageBackup();
     }
   }, 2 * 60 * 1000);
 
+  // Start usage sync immediately to avoid losing worker buffer events.
+  void runUsageBackup();
+
   // Schedule periodic backups
   await scheduleSqliteBackup();
-  usageBackupTimer = setInterval(runUsageBackup, USAGE_BACKUP_INTERVAL_MS);
+  usageBackupTimer = setInterval(runUsageBackup, USAGE_SYNC_INTERVAL_MS);
 
   console.log("[R2Backup] Scheduler started");
 }

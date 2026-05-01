@@ -6,6 +6,173 @@ import { register } from "../index.js";
 import { FORMATS } from "../formats.js";
 import { v4 as uuidv4 } from "uuid";
 
+const DEFAULT_KIRO_PAYLOAD_MAX_BYTES = 580000;
+const KIRO_HISTORY_MESSAGE_MAX_CHARS = 12000;
+const KIRO_TOOL_RESULT_MAX_CHARS = 4000;
+const KIRO_TOOL_DESCRIPTION_MAX_CHARS = 1000;
+const KIRO_TOOL_SCHEMA_MAX_BYTES = 8000;
+
+function getKiroPayloadMaxBytes() {
+  const configuredBytes = Number(globalThis.process?.env?.KIRO_MAX_PAYLOAD_BYTES);
+  if (Number.isFinite(configuredBytes) && configuredBytes > 10000) {
+    return configuredBytes;
+  }
+
+  // Backward-compatible fallback: legacy env name is in chars, but the value is
+  // now interpreted as a serialized payload byte budget.
+  const configuredChars = Number(globalThis.process?.env?.KIRO_MAX_PAYLOAD_CHARS);
+  return Number.isFinite(configuredChars) && configuredChars > 10000
+    ? configuredChars
+    : DEFAULT_KIRO_PAYLOAD_MAX_BYTES;
+}
+
+function getJsonLength(value) {
+  try {
+    const serialized = JSON.stringify(value);
+    if (typeof Buffer !== "undefined") {
+      return Buffer.byteLength(serialized, "utf8");
+    }
+    return new TextEncoder().encode(serialized).length;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+function truncateMiddle(text, maxChars) {
+  const value = String(text || "");
+  if (value.length <= maxChars) return value;
+  const marker = `\n\n[... truncated ${value.length - maxChars} characters to fit Kiro input limit ...]\n\n`;
+  const remaining = Math.max(0, maxChars - marker.length);
+  const headLength = Math.ceil(remaining * 0.6);
+  const tailLength = Math.max(0, remaining - headLength);
+  return `${value.slice(0, headLength)}${marker}${tailLength > 0 ? value.slice(-tailLength) : ""}`;
+}
+
+function trimMessageText(message, maxChars) {
+  if (message?.userInputMessage?.content) {
+    message.userInputMessage.content = truncateMiddle(message.userInputMessage.content, maxChars);
+  }
+  if (message?.assistantResponseMessage?.content) {
+    message.assistantResponseMessage.content = truncateMiddle(message.assistantResponseMessage.content, maxChars);
+  }
+}
+
+function trimToolResults(context) {
+  const toolResults = context?.toolResults;
+  if (!Array.isArray(toolResults)) return;
+
+  for (const result of toolResults) {
+    if (!Array.isArray(result?.content)) continue;
+    for (const item of result.content) {
+      if (typeof item?.text === "string") {
+        item.text = truncateMiddle(item.text, KIRO_TOOL_RESULT_MAX_CHARS);
+      }
+    }
+  }
+}
+
+function trimTools(context) {
+  const tools = context?.tools;
+  if (!Array.isArray(tools)) return;
+
+  for (const tool of tools) {
+    const spec = tool?.toolSpecification;
+    if (!spec) continue;
+    if (typeof spec.description === "string") {
+      spec.description = truncateMiddle(spec.description, KIRO_TOOL_DESCRIPTION_MAX_CHARS);
+    }
+    if (getJsonLength(spec.inputSchema) > KIRO_TOOL_SCHEMA_MAX_BYTES) {
+      spec.inputSchema = { json: { type: "object", properties: {}, required: [] } };
+    }
+  }
+}
+
+function getCurrentMessageContentOverhead(payload, state, currentMessage) {
+  return getJsonLength({
+    ...payload,
+    conversationState: {
+      ...state,
+      currentMessage: {
+        userInputMessage: {
+          ...currentMessage.userInputMessage,
+          content: "",
+        },
+      },
+    },
+  });
+}
+
+function trimCurrentMessageToBudget(payload, state, currentMessage, maxBytes, reserveBytes) {
+  if (!currentMessage?.userInputMessage?.content) return;
+
+  const overhead = getCurrentMessageContentOverhead(payload, state, currentMessage);
+  const available = maxBytes - overhead - reserveBytes;
+  if (available <= 0) {
+    currentMessage.userInputMessage.content = "";
+    return;
+  }
+
+  currentMessage.userInputMessage.content = truncateMiddle(currentMessage.userInputMessage.content, available);
+}
+
+function dropImages(message) {
+  if (message?.userInputMessage?.images) {
+    delete message.userInputMessage.images;
+  }
+}
+
+function cleanupEmptyContext(message) {
+  const context = message?.userInputMessage?.userInputMessageContext;
+  if (context && Object.keys(context).length === 0) {
+    delete message.userInputMessage.userInputMessageContext;
+  }
+}
+
+function enforceKiroPayloadLimit(payload) {
+  const maxBytes = getKiroPayloadMaxBytes();
+  if (getJsonLength(payload) <= maxBytes) return payload;
+
+  const state = payload?.conversationState;
+  const history = Array.isArray(state?.history) ? state.history : [];
+  const currentMessage = state?.currentMessage;
+
+  for (const item of history) {
+    trimMessageText(item, KIRO_HISTORY_MESSAGE_MAX_CHARS);
+    trimToolResults(item.userInputMessage?.userInputMessageContext);
+  }
+  trimToolResults(currentMessage?.userInputMessage?.userInputMessageContext);
+  trimTools(currentMessage?.userInputMessage?.userInputMessageContext);
+
+  while (getJsonLength(payload) > maxBytes && history.length > 0) {
+    history.shift();
+  }
+
+  if (getJsonLength(payload) > maxBytes) {
+    dropImages(currentMessage);
+    for (const item of history) dropImages(item);
+  }
+
+  if (getJsonLength(payload) > maxBytes && currentMessage?.userInputMessage?.content) {
+    trimCurrentMessageToBudget(payload, state, currentMessage, maxBytes, 2000);
+  }
+
+  if (getJsonLength(payload) > maxBytes && currentMessage?.userInputMessage?.userInputMessageContext?.tools) {
+    delete currentMessage.userInputMessage.userInputMessageContext.tools;
+    cleanupEmptyContext(currentMessage);
+  }
+
+  if (getJsonLength(payload) > maxBytes && currentMessage?.userInputMessage?.userInputMessageContext?.toolResults) {
+    delete currentMessage.userInputMessage.userInputMessageContext.toolResults;
+    cleanupEmptyContext(currentMessage);
+  }
+
+  if (getJsonLength(payload) > maxBytes && currentMessage?.userInputMessage?.content) {
+    trimCurrentMessageToBudget(payload, state, currentMessage, maxBytes, 0);
+  }
+
+  return payload;
+}
+
 /**
  * Convert OpenAI messages to Kiro format
  * Rules: system/tool/user -> user role, merge consecutive same roles
@@ -327,7 +494,7 @@ export function buildKiroPayload(model, body, stream, credentials) {
     if (topP !== undefined) payload.inferenceConfig.topP = topP;
   }
 
-  return payload;
+  return enforceKiroPayloadLimit(payload);
 }
 
 register(FORMATS.OPENAI, FORMATS.KIRO, buildKiroPayload, null);

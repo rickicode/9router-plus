@@ -12,36 +12,35 @@ import {
 
 const MAX_CUSTOM_INSTRUCTIONS_BYTES = 200 * 1024; // 200 KB safety cap
 
-function buildPayload() {
-  return getSettings().then((settings) => {
-    const cfg = normalizeCodexInstructionsSettings(settings?.codexInstructions);
-    const customContent = readCustomCodexInstructionsFile();
-    const hasCustomFile = customContent !== null;
+async function buildPayload() {
+  const settings = await getSettings();
+  const cfg = normalizeCodexInstructionsSettings(settings?.codexInstructions);
+  const customContent = await readCustomCodexInstructionsFile();
+  const hasCustomFile = customContent !== null;
 
-    let effectiveContent;
-    if (!cfg.enabled) {
-      effectiveContent = "";
-    } else if (cfg.mode === "custom" && hasCustomFile && customContent.length > 0) {
-      effectiveContent = customContent;
-    } else {
-      effectiveContent = CODEX_DEFAULT_INSTRUCTIONS;
-    }
+  let effectiveContent;
+  if (!cfg.enabled) {
+    effectiveContent = "";
+  } else if (cfg.mode === "custom" && hasCustomFile && customContent.length > 0) {
+    effectiveContent = customContent;
+  } else {
+    effectiveContent = CODEX_DEFAULT_INSTRUCTIONS;
+  }
 
-    return {
-      enabled: cfg.enabled,
-      mode: cfg.mode,
-      hasCustomFile,
-      customContent: customContent ?? "",
-      customLength: customContent ? customContent.length : 0,
-      effectiveContent,
-      effectiveLength: effectiveContent.length,
-      defaultContent: CODEX_DEFAULT_INSTRUCTIONS,
-      defaultLength: CODEX_DEFAULT_INSTRUCTIONS.length,
-      filename: CODEX_INSTRUCTIONS_FILENAME,
-      filePath: CODEX_INSTRUCTIONS_FILE_PATH,
-      maxBytes: MAX_CUSTOM_INSTRUCTIONS_BYTES,
-    };
-  });
+  return {
+    enabled: cfg.enabled,
+    mode: cfg.mode,
+    hasCustomFile,
+    customContent: customContent ?? "",
+    customLength: customContent ? customContent.length : 0,
+    effectiveContent,
+    effectiveLength: effectiveContent.length,
+    defaultContent: CODEX_DEFAULT_INSTRUCTIONS,
+    defaultLength: CODEX_DEFAULT_INSTRUCTIONS.length,
+    filename: CODEX_INSTRUCTIONS_FILENAME,
+    filePath: CODEX_INSTRUCTIONS_FILE_PATH,
+    maxBytes: MAX_CUSTOM_INSTRUCTIONS_BYTES,
+  };
 }
 
 export async function GET() {
@@ -110,9 +109,9 @@ export async function PUT(request) {
 
   try {
     if (fileMutation === "write" && writeContent !== null) {
-      writeCustomCodexInstructionsFile(writeContent);
+      await writeCustomCodexInstructionsFile(writeContent);
     } else if (fileMutation === "delete") {
-      deleteCustomCodexInstructionsFile();
+      await deleteCustomCodexInstructionsFile();
     }
   } catch (error) {
     return NextResponse.json(

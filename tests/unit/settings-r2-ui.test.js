@@ -5,11 +5,13 @@ import path from "node:path";
 import {
   buildR2SettingsPayload,
   getDirtyR2Config,
+  getNextR2Config,
   getR2ConnectionState,
   hasUnsavedR2Changes,
   isPrivateR2Configured,
   isPrivateR2Ready,
   normalizeR2SettingsResponse,
+  parseCloudflareR2Url,
   sanitizeR2RuntimeCacheTtlSeconds,
 } from "../../src/app/(dashboard)/dashboard/settings/r2SettingsUi.js";
 
@@ -22,6 +24,76 @@ describe("settings R2 UI helpers", () => {
     const source = await fs.readFile(pagePath, "utf8");
 
     expect(source).toContain('{ key: "region", label: "Region", required: true, autoComplete: "off" }');
+  });
+
+  it("parses a standard Cloudflare R2 bucket URL into account, endpoint, bucket, and region", () => {
+    expect(
+      parseCloudflareR2Url("https://f8ab5bbdd826db1b9aa1059d7842be75.r2.cloudflarestorage.com/9router")
+    ).toEqual({
+      accountId: "f8ab5bbdd826db1b9aa1059d7842be75",
+      endpoint: "https://f8ab5bbdd826db1b9aa1059d7842be75.r2.cloudflarestorage.com",
+      bucket: "9router",
+      region: "auto",
+    });
+  });
+
+  it("parses jurisdiction-specific Cloudflare R2 URLs", () => {
+    expect(
+      parseCloudflareR2Url("https://f8ab5bbdd826db1b9aa1059d7842be75.eu.r2.cloudflarestorage.com/bucket-a")
+    ).toEqual({
+      accountId: "f8ab5bbdd826db1b9aa1059d7842be75",
+      endpoint: "https://f8ab5bbdd826db1b9aa1059d7842be75.eu.r2.cloudflarestorage.com",
+      bucket: "bucket-a",
+      region: "eu",
+    });
+  });
+
+  it("ignores non-Cloudflare URLs when attempting R2 autofill", () => {
+    expect(parseCloudflareR2Url("https://example.com/not-r2")).toBeNull();
+  });
+
+  it("auto-fills related config fields when an R2 URL is pasted into endpoint", () => {
+    expect(
+      getNextR2Config(
+        {
+          accountId: "",
+          accessKeyId: "key",
+          secretAccessKey: "secret",
+          bucket: "",
+          endpoint: "",
+          region: "",
+          publicUrl: "",
+          connected: true,
+          lastCheckedAt: "2026-04-26T00:00:00.000Z",
+          lastError: "",
+        },
+        "https://f8ab5bbdd826db1b9aa1059d7842be75.r2.cloudflarestorage.com/9router",
+        "endpoint"
+      )
+    ).toMatchObject({
+      accountId: "f8ab5bbdd826db1b9aa1059d7842be75",
+      bucket: "9router",
+      endpoint: "https://f8ab5bbdd826db1b9aa1059d7842be75.r2.cloudflarestorage.com",
+      region: "auto",
+      connected: false,
+      lastCheckedAt: null,
+      lastError: "",
+    });
+  });
+
+  it("mentions Cloudflare R2 URL autofill guidance on the settings page", async () => {
+    const pagePath = path.resolve(
+      import.meta.dirname,
+      "../../src/app/(dashboard)/dashboard/settings/SettingsPageClient.jsx"
+    );
+    const source = await fs.readFile(pagePath, "utf8");
+
+    expect(source).toContain("You can paste a Cloudflare R2 bucket URL into Endpoint or Public/Base URL");
+    expect(source).toContain("getNextR2Config");
+    expect(source).not.toContain("Load Buckets");
+    expect(source).not.toContain("Detected buckets");
+    expect(source).not.toContain("buildDefaultCloudflareR2Endpoint");
+    expect(source).not.toContain("Account ID, Access Key ID, and Secret Access Key are required before loading buckets.");
   });
 
   it("normalizes API state and preserves a full PATCH payload contract", () => {

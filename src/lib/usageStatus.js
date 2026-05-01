@@ -1,6 +1,6 @@
 import { getProviderConnectionById, updateProviderConnection } from "@/lib/localDb";
 import { saveRequestDetail, saveRequestUsage } from "@/lib/usageDb";
-import { projectLegacyConnectionState, writeConnectionHotState } from "@/lib/providerHotState";
+import { writeConnectionHotState } from "@/lib/providerHotState";
 
 const AUTH_EXPIRED_PATTERNS = ["expired", "authentication", "unauthorized", "401", "re-authorize"];
 const AUTH_BLOCKED_PATTERNS = [
@@ -28,13 +28,20 @@ const CODEX_LIVE_QUOTA_PATTERNS = [
   "insufficient quota",
   "billing hard limit",
   "hard limit reached",
+  "usage_limit_reached",
   "usage limit reached",
+  "usage limit has been reached",
   "weekly quota exhausted",
 ];
 const UPSTREAM_PROCESSING_ERROR_PATTERNS = [
   "error occurred",
   "request id",
   "internal error",
+];
+
+const TRANSIENT_UPSTREAM_TIMEOUT_PATTERNS = [
+  "upstream timed out after",
+  "stream idle timed out after",
 ];
 
 export function isAuthExpiredMessage(usage) {
@@ -64,13 +71,128 @@ function stripLegacyMirrorFields(updates = {}) {
   return sanitized;
 }
 
-export async function syncUsageStatus(connection, updates = {}) {
-  if (!connection?.id) return null;
+function parseSnapshot(value) {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  if (typeof value !== "string") return null;
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function buildCodexSyntheticSnapshot(connection = {}, snapshot = {}, { checkedAt = new Date().toISOString() } = {}) {
+  const previousSnapshot = parseSnapshot(connection?.usageSnapshot);
+  const reasonDetail = snapshot?.message || connection?.reasonDetail || null;
+  const quotas = snapshot?.quotas && typeof snapshot.quotas === "object"
+    ? snapshot.quotas
+    : (previousSnapshot?.quotas && typeof previousSnapshot.quotas === "object" ? previousSnapshot.quotas : {});
+
+  const nextSnapshot = {
+    provider: connection?.provider || "codex",
+    checkedAt,
+    ...previousSnapshot,
+    ...snapshot,
+    quotas,
+  };
+
+  if (!nextSnapshot.message && reasonDetail) {
+    nextSnapshot.message = reasonDetail;
+  }
+  if (!nextSnapshot.resetAt && (snapshot?.resetAt || connection?.resetAt)) {
+    nextSnapshot.resetAt = snapshot?.resetAt || connection?.resetAt;
+  }
+  if (!nextSnapshot.nextRetryAt && (snapshot?.nextRetryAt || connection?.nextRetryAt)) {
+    nextSnapshot.nextRetryAt = snapshot?.nextRetryAt || connection?.nextRetryAt;
+  }
+
+  return nextSnapshot;
+}
+
+function ensureUsageSnapshot(connection, updates = {}, { checkedAt } = {}) {
+  if (updates?.usageSnapshot !== undefined && updates?.usageSnapshot !== null) {
+    return updates;
+  }
+
+  // Build synthetic snapshot for ALL providers, not just Codex
+  const syntheticSnapshot = {
+    provider: connection?.provider || null,
+    checkedAt: checkedAt || new Date().toISOString(),
+    message: updates?.reasonDetail || updates?.reasonCode || "Status updated",
+    routingStatus: updates?.routingStatus || null,
+    quotaState: updates?.quotaState || null,
+    authState: updates?.authState || null,
+    healthStatus: updates?.healthStatus || null,
+    ...(updates?.resetAt ? { resetAt: updates.resetAt } : {}),
+    ...(updates?.nextRetryAt ? { nextRetryAt: updates.nextRetryAt } : {}),
+  };
+
+  // For Codex, use the richer synthetic snapshot
+  if (connection?.provider === "codex") {
+    const codexSnapshot = buildCodexSyntheticSnapshot(connection, {
+      message: updates?.reasonDetail || null,
+      resetAt: updates?.resetAt || null,
+      nextRetryAt: updates?.nextRetryAt || null,
+    }, { checkedAt });
+
+    return {
+      ...updates,
+      usageSnapshot: JSON.stringify(codexSnapshot),
+    };
+  }
+
+  return {
+    ...updates,
+    usageSnapshot: JSON.stringify(syntheticSnapshot),
+  };
+}
+
+export async function syncUsageStatus(connection, updates) {
+  if (!connection?.id || !updates || typeof updates !== "object") {
+    return;
+  }
+
+  // Prevent stale updates from overwriting fresh data
+  const currentConnection = await getProviderConnectionById(connection.id);
+  if (currentConnection?.lastCheckedAt && updates?.lastCheckedAt) {
+    const currentCheckedAt = new Date(currentConnection.lastCheckedAt).getTime();
+    const newCheckedAt = new Date(updates.lastCheckedAt).getTime();
+
+    if (currentCheckedAt > newCheckedAt) {
+      console.warn(`[UsageStatus] Ignoring stale update for ${connection.id}: current=${currentConnection.lastCheckedAt}, new=${updates.lastCheckedAt}`);
+      return;
+    }
+  }
 
   const sanitizedUpdates = stripLegacyMirrorFields(updates);
+  const allowAuthRecovery = sanitizedUpdates.allowAuthRecovery === true;
+  if ("allowAuthRecovery" in sanitizedUpdates) {
+    delete sanitizedUpdates.allowAuthRecovery;
+  }
+  const isRecoveryToEligible = sanitizedUpdates.routingStatus === "eligible"
+    && sanitizedUpdates.authState === "ok";
+  const hasAuthInvalidBlock = connection?.reasonCode === "auth_invalid"
+    || connection?.authState === "invalid"
+    || connection?.routingStatus === "blocked";
+
+  if (isRecoveryToEligible && hasAuthInvalidBlock && !allowAuthRecovery) {
+    return stripLegacyMirrorFields({
+      ...connection,
+      ...sanitizedUpdates,
+      routingStatus: connection?.routingStatus,
+      authState: connection?.authState,
+      reasonCode: connection?.reasonCode,
+      reasonDetail: connection?.reasonDetail,
+      nextRetryAt: connection?.nextRetryAt ?? sanitizedUpdates.nextRetryAt ?? null,
+      resetAt: connection?.resetAt ?? sanitizedUpdates.resetAt ?? null,
+    });
+  }
+
   const lastCheckedAt = sanitizedUpdates.lastCheckedAt || updates.lastCheckedAt || updates.lastTested || new Date().toISOString();
   const hotPatch = {
-    ...sanitizedUpdates,
+    ...ensureUsageSnapshot(connection, sanitizedUpdates, { checkedAt: lastCheckedAt }),
     lastCheckedAt,
     version: sanitizedUpdates.version || updates.version || Date.now(),
   };
@@ -91,7 +213,7 @@ function getHealthyUsageStatusUpdates(usage) {
     healthStatus: "healthy",
     quotaState: "ok",
     authState: "ok",
-    reasonCode: "unknown",
+    reasonCode: null,
     reasonDetail: null,
     lastCheckedAt,
     usageSnapshot: JSON.stringify(usage || {}),
@@ -100,18 +222,26 @@ function getHealthyUsageStatusUpdates(usage) {
   };
 }
 
-export function getConnectionRecoveryPatch({ lastCheckedAt = new Date().toISOString() } = {}) {
+export function getConnectionRecoveryPatch({ lastCheckedAt = new Date().toISOString(), usageSnapshot = undefined } = {}) {
   return {
     routingStatus: "eligible",
     healthStatus: "healthy",
     quotaState: "ok",
     authState: "ok",
-    reasonCode: "unknown",
+    reasonCode: null,
     reasonDetail: null,
     nextRetryAt: null,
     resetAt: null,
     backoffLevel: 0,
     lastCheckedAt,
+    ...(usageSnapshot !== undefined ? { usageSnapshot } : {}),
+  };
+}
+
+export function getLiveRequestRecoveryPatch({ lastCheckedAt = new Date().toISOString(), usageSnapshot = undefined } = {}) {
+  return {
+    ...getConnectionRecoveryPatch({ lastCheckedAt, usageSnapshot }),
+    allowAuthRecovery: true,
   };
 }
 
@@ -138,7 +268,7 @@ export function isConfirmedAuthBlockedError(error, { statusCode = null } = {}) {
   return hasAuthEvidence;
 }
 
-export function getConnectionAuthBlockedPatch(error, { lastCheckedAt = new Date().toISOString(), statusCode = null } = {}) {
+export function getConnectionAuthBlockedPatch(error, { lastCheckedAt = new Date().toISOString(), statusCode = null, usageSnapshot = undefined } = {}) {
   const message = typeof error === "string"
     ? error
     : error?.message || error?.error || error?.cause?.message || "";
@@ -148,17 +278,23 @@ export function getConnectionAuthBlockedPatch(error, { lastCheckedAt = new Date(
   }
 
   const reasonDetail = message || "Provider error";
+  const normalizedReason = reasonDetail.toLowerCase();
+  const requiresReauthorization = normalizedReason.includes("re-authorize")
+    || normalizedReason.includes("reauthorize")
+    || normalizedReason.includes("invalid grant")
+    || normalizedReason.includes("revoked");
 
   return {
-    routingStatus: "blocked",
+    routingStatus: requiresReauthorization ? "disabled" : "blocked",
     healthStatus: "healthy",
     quotaState: "ok",
     authState: "invalid",
-    reasonCode: "auth_invalid",
+    reasonCode: requiresReauthorization ? "reauthorization_required" : "auth_invalid",
     reasonDetail,
     nextRetryAt: null,
     resetAt: null,
     lastCheckedAt,
+    ...(usageSnapshot !== undefined ? { usageSnapshot } : {}),
   };
 }
 
@@ -184,11 +320,43 @@ export function isUpstreamProcessingError(statusCode, errorMessage) {
   return UPSTREAM_PROCESSING_ERROR_PATTERNS.some((pattern) => normalized.includes(pattern));
 }
 
+export function isTransientUpstreamTimeoutError(error, { statusCode = null, errorCode = null } = {}) {
+  const message = typeof error === "string"
+    ? error
+    : error?.message || error?.error || error?.cause?.message || "";
+
+  const normalizedMessage = String(message || "").toLowerCase();
+  const normalizedErrorCode = String(errorCode || error?.code || "").toUpperCase();
+  const numericStatusCode = Number.isFinite(Number(statusCode)) ? Number(statusCode) : null;
+
+  if (normalizedErrorCode === "UPSTREAM_TIMEOUT" || normalizedErrorCode === "STREAM_IDLE_TIMEOUT") {
+    return true;
+  }
+
+  if (numericStatusCode !== null && numericStatusCode !== 504) {
+    return false;
+  }
+
+  return TRANSIENT_UPSTREAM_TIMEOUT_PATTERNS.some((pattern) => normalizedMessage.includes(pattern));
+}
+
 export function getCodexLiveQuotaSignal(connection, { statusCode, errorText, errorCode } = {}) {
   if (connection?.provider !== "codex") return null;
   if (statusCode !== 429) return null;
 
-  const normalized = [errorText, errorCode]
+  let parsedErrorType = "";
+  let parsedResetAt = null;
+  if (typeof errorText === "string") {
+    try {
+      const parsed = JSON.parse(errorText);
+      parsedErrorType = parsed?.error?.type || parsed?.type || parsed?.code || "";
+      parsedResetAt = parsed?.error?.resets_at || parsed?.error?.reset_at || parsed?.resets_at || parsed?.reset_at || null;
+    } catch {
+      parsedErrorType = "";
+    }
+  }
+
+  const normalized = [errorText, errorCode, parsedErrorType]
     .filter(Boolean)
     .map((value) => String(value).toLowerCase())
     .join(" ");
@@ -197,12 +365,20 @@ export function getCodexLiveQuotaSignal(connection, { statusCode, errorText, err
     return null;
   }
 
+  const numericReset = Number(parsedResetAt);
+  const parsedResetTimestamp = Number.isFinite(numericReset)
+    ? (numericReset < 1000000000000 ? numericReset * 1000 : numericReset)
+    : parsedResetAt
+      ? new Date(parsedResetAt).getTime()
+      : null;
+
   return {
     provider: "codex",
     kind: "quota_exhausted",
     reasonCode: "quota_exhausted",
     reasonDetail: "Codex quota exhausted",
     errorCode: "codex_live_quota_exhausted",
+    resetAt: Number.isFinite(parsedResetTimestamp) ? new Date(parsedResetTimestamp).toISOString() : null,
   };
 }
 
@@ -213,14 +389,14 @@ function getCodexExhaustedQuota(usage = {}) {
   for (const [quotaName, quota] of Object.entries(quotas)) {
     if (!quota || typeof quota !== "object") continue;
 
-    const remaining = quota.remaining;
-    const used = quota.used;
-    const total = quota.total;
+    const remaining = getFiniteNumber(quota.remaining);
+    const used = getFiniteNumber(quota.used);
+    const total = getFiniteNumber(quota.total);
 
-    const hasExhaustedRemaining = typeof remaining === "number" && remaining <= 0;
-    const hasExhaustedTotal = typeof total === "number"
+    const hasExhaustedRemaining = remaining !== null && remaining <= 0;
+    const hasExhaustedTotal = total !== null
       && total > 0
-      && typeof used === "number"
+      && used !== null
       && used >= total;
 
     if (hasExhaustedRemaining || hasExhaustedTotal) {
@@ -254,27 +430,40 @@ function getConfiguredMinimumRemainingQuotaPercent(connection = {}, options = {}
   return Math.max(0, Math.min(100, parsed));
 }
 
+function getFiniteNumber(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
 function getSafeRemainingPercent(quota = {}) {
   if (!quota || typeof quota !== "object") return null;
 
-  const explicitRemainingPercentage = quota.remainingPercentage;
-  if (Number.isFinite(explicitRemainingPercentage) && explicitRemainingPercentage >= 0 && explicitRemainingPercentage <= 100) {
+  const explicitRemainingPercentage = getFiniteNumber(quota.remainingPercentage);
+  if (explicitRemainingPercentage !== null && explicitRemainingPercentage >= 0 && explicitRemainingPercentage <= 100) {
     return explicitRemainingPercentage;
   }
 
-  const total = quota.total;
-  const used = quota.used;
-  const remaining = quota.remaining;
+  const total = getFiniteNumber(quota.total);
+  const used = getFiniteNumber(quota.used);
+  const remaining = getFiniteNumber(quota.remaining);
 
-  if (Number.isFinite(total) && total > 0 && Number.isFinite(remaining) && remaining >= 0 && remaining <= total) {
+  if (total !== null && total > 0 && remaining !== null && remaining >= 0 && remaining <= total) {
     const remainingPercent = (remaining / total) * 100;
     return Number.isFinite(remainingPercent) && remainingPercent >= 0 && remainingPercent <= 100
       ? remainingPercent
       : null;
   }
 
-  if (!Number.isFinite(total) || total <= 0) return null;
-  if (!Number.isFinite(used) || used < 0) return null;
+  if (total === null || total <= 0) return null;
+  if (used === null || used < 0) return null;
 
   const remainingPercent = ((total - used) / total) * 100;
   if (!Number.isFinite(remainingPercent) || remainingPercent < 0 || remainingPercent > 100) {
@@ -350,6 +539,27 @@ export function getUsageStatusUpdates(connection, usage, options = {}) {
   const liveSignal = options.liveSignal || null;
   const nowIso = options.observedAt || new Date().toISOString();
   const usageMessage = typeof usage?.message === "string" ? usage.message : "";
+
+  const codexUsageApiUnavailableMatch = connection?.provider === "codex"
+    ? usageMessage.match(/^Codex connected\. Usage API temporarily unavailable \((\d{3})\)\.?$/)
+    : null;
+
+  if (codexUsageApiUnavailableMatch) {
+    return {
+      ...base,
+      routingStatus: "eligible",
+      healthStatus: "degraded",
+      quotaState: "ok",
+      authState: "ok",
+      reasonCode: "usage_request_failed",
+      reasonDetail: usageMessage,
+      usageSnapshot: JSON.stringify(usage || {}),
+      resetAt: null,
+      nextRetryAt: null,
+      lastCheckedAt: nowIso,
+    };
+  }
+
   const authBlockedPatch = getConnectionAuthBlockedPatch(usageMessage, {
     lastCheckedAt: nowIso,
     statusCode: connection?.provider === "codex" && /\((\d{3})\)/.test(usageMessage)
@@ -375,6 +585,11 @@ export function getUsageStatusUpdates(connection, usage, options = {}) {
       reasonDetail: liveSignal.reasonDetail || "Codex quota exhausted",
       resetAt: liveSignal.resetAt || null,
       nextRetryAt: liveSignal.resetAt || null,
+      usageSnapshot: JSON.stringify(buildCodexSyntheticSnapshot(connection, {
+        message: liveSignal.reasonDetail || "Codex quota exhausted",
+        resetAt: liveSignal.resetAt || null,
+        nextRetryAt: liveSignal.resetAt || null,
+      }, { checkedAt: nowIso })),
     };
   }
 
@@ -392,6 +607,7 @@ export function getUsageStatusUpdates(connection, usage, options = {}) {
           reasonDetail: "Kiro quota exhausted",
           resetAt: kiroQuotaSignal.resetAt || null,
           nextRetryAt: kiroQuotaSignal.resetAt || null,
+          usageSnapshot: JSON.stringify(usage || {}),
         };
       }
 
@@ -405,6 +621,7 @@ export function getUsageStatusUpdates(connection, usage, options = {}) {
           reasonDetail: `Kiro remaining quota is at or below ${kiroQuotaSignal.minimumRemainingQuotaPercent}%`,
           resetAt: kiroQuotaSignal.resetAt || null,
           nextRetryAt: kiroQuotaSignal.resetAt || null,
+          usageSnapshot: JSON.stringify(usage || {}),
         };
       }
     }
@@ -432,6 +649,7 @@ export function getUsageStatusUpdates(connection, usage, options = {}) {
       reasonDetail,
       resetAt: exhaustedQuota?.resetAt || null,
       nextRetryAt: exhaustedQuota?.resetAt || null,
+      usageSnapshot: JSON.stringify(usage || {}),
     };
   }
 
@@ -454,6 +672,7 @@ export function getUsageStatusUpdates(connection, usage, options = {}) {
       reasonDetail: `Remaining quota is at or below ${minimumRemainingQuotaPercent}%`,
       resetAt: thresholdQuota.resetAt || null,
       nextRetryAt: thresholdQuota.resetAt || null,
+      usageSnapshot: JSON.stringify(usage || {}),
     };
   }
 
@@ -603,17 +822,24 @@ export async function applyProxyOutcomeReport(report = {}) {
   const errorMessage = report.error?.message || report.error || null;
 
   if (status === "error") {
-    // OpenAI sometimes returns generic 5xx processing failures with a request ID
-    // instead of a more specific auth/quota code. Treat those as upstream unhealthy
-    // so the account is blocked from routing until it recovers.
+    if (isTransientUpstreamTimeoutError(report.error, {
+      statusCode,
+      errorCode: report.error?.code,
+    })) {
+      await syncUsageStatus(connection, {
+        lastCheckedAt: observedAt,
+        lastError: null,
+        lastErrorType: null,
+        lastErrorAt: null,
+        errorCode: null,
+      });
+      return { ok: true };
+    }
+
+    // Generic upstream processing failures are operational noise and should not
+    // become persisted account status.
     if (isUpstreamProcessingError(statusCode, errorMessage)) {
       await syncUsageStatus(connection, {
-        routingStatus: "blocked",
-        healthStatus: "unhealthy",
-        quotaState: "ok",
-        authState: "ok",
-        reasonCode: "upstream_unhealthy",
-        reasonDetail: errorMessage || "Upstream processing error",
         lastCheckedAt: observedAt,
       });
       return { ok: true };

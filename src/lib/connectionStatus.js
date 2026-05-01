@@ -1,7 +1,18 @@
+import { USAGE_SUPPORTED_PROVIDERS } from "@/shared/constants/providers";
+
 function getFutureTimestamp(value) {
   const timestamp = new Date(value).getTime();
   if (!value || !Number.isFinite(timestamp) || timestamp <= Date.now()) return null;
   return new Date(timestamp).toISOString();
+}
+
+function requiresUsageSnapshotForEligibility(connection = {}) {
+  return connection?.authType === "oauth"
+    && USAGE_SUPPORTED_PROVIDERS.includes(connection?.provider);
+}
+
+function hasUsageSnapshot(connection = {}) {
+  return connection?.usageSnapshot !== undefined && connection?.usageSnapshot !== null;
 }
 
 export function getConnectionActiveModelLocks(connection = {}) {
@@ -43,6 +54,13 @@ export function getConnectionProviderCooldownUntil(connection = {}) {
 }
 
 function getCentralizedStatus(connection = {}) {
+  if (connection?.reasonCode === "reauthorization_required") {
+    return { status: "disabled", source: "reasonCode" };
+  }
+
+  const needsUsageSnapshot = requiresUsageSnapshotForEligibility(connection);
+  const hasUsageEvidence = hasUsageSnapshot(connection);
+
   switch (connection?.authState) {
     case "expired":
     case "invalid":
@@ -68,6 +86,9 @@ function getCentralizedStatus(connection = {}) {
       return { status: "exhausted", source: "quotaState" };
     case "ok":
       if (connection?.authState === "ok" && connection?.healthStatus === "healthy") {
+        if (needsUsageSnapshot && !hasUsageEvidence) {
+          return { status: "unknown", source: "missingUsageSnapshot" };
+        }
         return { status: "eligible", source: "quotaState" };
       }
       break;
@@ -77,6 +98,10 @@ function getCentralizedStatus(connection = {}) {
 
   switch (connection?.routingStatus) {
     case "eligible":
+      if (needsUsageSnapshot && !hasUsageEvidence) {
+        return { status: "unknown", source: "missingUsageSnapshot" };
+      }
+      return { status: connection.routingStatus, source: "routingStatus" };
     case "exhausted":
     case "blocked":
     case "unknown":

@@ -119,6 +119,8 @@ describe("getConnectionEffectiveStatus", () => {
 
   it("maps connection states to canonical top-level statuses", () => {
     expect(getConnectionCentralizedStatus({ routingStatus: "eligible" })).toBe("eligible");
+    expect(getConnectionCentralizedStatus({ routingStatus: "eligible", authType: "oauth", provider: "codex" })).toBe("unknown");
+    expect(getConnectionCentralizedStatus({ routingStatus: "eligible", authType: "oauth", provider: "codex", usageSnapshot: "{}" })).toBe("eligible");
     expect(getConnectionCentralizedStatus({ routingStatus: "eligible", authState: "expired" })).toBe("blocked");
     expect(getConnectionCentralizedStatus({ routingStatus: "eligible", healthStatus: "failed" })).toBe("blocked");
     expect(getConnectionCentralizedStatus({ routingStatus: "eligible", quotaState: "blocked" })).toBe("exhausted");
@@ -143,8 +145,24 @@ describe("getConnectionEffectiveStatus", () => {
 
   it("preserves non-blocked filter buckets for eligible, disabled, and unknown states", () => {
     expect(getConnectionFilterStatus({ routingStatus: "eligible" })).toBe("eligible");
+    expect(getConnectionFilterStatus({ routingStatus: "eligible", authType: "oauth", provider: "codex" })).toBe("unknown");
     expect(getConnectionFilterStatus({ isActive: false, routingStatus: "eligible" })).toBe("disabled");
-    expect(getConnectionFilterStatus({})).toBe("unknown");
+    expect(getConnectionFilterStatus({ routingStatus: "mystery" })).toBe("unknown");
+  });
+
+  it("treats reauthorization-required accounts as disabled", () => {
+    expect(getConnectionCentralizedStatus({
+      routingStatus: "disabled",
+      authState: "invalid",
+      reasonCode: "reauthorization_required",
+      reasonDetail: "Token invalid or revoked",
+    })).toBe("disabled");
+
+    expect(getConnectionFilterStatus({
+      routingStatus: "disabled",
+      authState: "invalid",
+      reasonCode: "reauthorization_required",
+    })).toBe("disabled");
   });
 
   it("provides coherent badge labels and variants for canonical statuses", () => {

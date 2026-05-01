@@ -192,9 +192,10 @@ export const statsEmitter = global._statsEmitter;
 // the LAST start's timer survived; if N starts overlapped and only one end
 // fired, the other N-1 leaked their timers and counters until process exit).
 if (!global._pendingTimers) global._pendingTimers = {};
-const pendingTimers = global._pendingTimers;
-
+const pendingTimers = {};
 const PENDING_TIMEOUT_MS = 60 * 1000; // 1 minute
+const ANSI_PINK = "\x1b[38;5;205m";
+const ANSI_RESET = "\x1b[0m";
 
 /**
  * Track a pending request
@@ -267,7 +268,8 @@ export function trackPendingRequest(model, provider, connectionId, started, erro
         .map(([key, value]) => `${key}=${value}`)
         .join(" | ")
     : "";
-  console.log(`[${t}] [${statusLabel}] ${started ? "START" : "END"}${error ? " (ERROR)" : ""} | provider=${provider} | model=${model}${metadataLabel ? ` | ${metadataLabel}` : ""}`);
+  const line = `[${t}] [${statusLabel}] ${started ? "START" : "END"}${error ? " (ERROR)" : ""} | provider=${provider} | model=${model}${metadataLabel ? ` | ${metadataLabel}` : ""}`;
+  console.log(provider === "morph" ? `${ANSI_PINK}${line}${ANSI_RESET}` : line);
   statsEmitter.emit("pending");
 }
 

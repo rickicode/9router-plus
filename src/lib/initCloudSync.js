@@ -1,10 +1,9 @@
-import initializeApp from "@/shared/services/initializeApp";
-
 let initialized = false;
 
 export async function ensureAppInitialized() {
   if (!initialized) {
     try {
+      const { default: initializeApp } = await import("@/shared/services/initializeApp");
       await initializeApp();
       initialized = true;
     } catch (error) {

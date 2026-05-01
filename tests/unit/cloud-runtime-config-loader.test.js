@@ -6,7 +6,8 @@ import {
 } from "../../cloud/src/services/runtimeConfig.js";
 import {
   getRuntimeConfig,
-  getRuntimeRegistration
+  getRuntimeRegistration,
+  invalidateRuntimeConfig
 } from "../../cloud/src/services/storage.js";
 
 function createEnv(machineDataById) {
@@ -42,12 +43,19 @@ function createValidRuntimeConfig(overrides = {}) {
 
 describe("runtime config loader", () => {
   it("fetches runtime.json and caches it until ttl expires", async () => {
-    const fetchImpl = vi.fn(async () =>
-      new Response(JSON.stringify(createValidRuntimeConfig({ settings: { version: 1 } })), {
+    const fetchImpl = vi.fn(async (url) => {
+      if (String(url).endsWith("/eligible.json")) {
+        return new Response(JSON.stringify({ providers: { eligible: { id: "eligible" } } }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      return new Response(JSON.stringify(createValidRuntimeConfig({ settings: { version: 1 } })), {
         status: 200,
         headers: { "content-type": "application/json" }
-      })
-    );
+      });
+    });
 
     let nowMs = 10_000;
     const loader = createRuntimeConfigLoader({
@@ -65,9 +73,31 @@ describe("runtime config loader", () => {
     const second = await loader.load("machine-1", registration);
 
     expect(first.settings.version).toBe(1);
+    expect(first.providers).toEqual({ eligible: { id: "eligible" } });
     expect(second).toEqual(first);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(fetchImpl).toHaveBeenCalledWith("https://runtime.example.com/base/runtime.json");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenNthCalledWith(1, "https://runtime.example.com/base/runtime.json");
+    expect(fetchImpl).toHaveBeenNthCalledWith(2, "https://runtime.example.com/base/eligible.json");
+  });
+
+  it("falls back to runtime providers when eligible artifact is missing", async () => {
+    const fetchImpl = vi.fn(async (url) => {
+      if (String(url).endsWith("/eligible.json")) {
+        return new Response("missing", { status: 404 });
+      }
+
+      return new Response(JSON.stringify(createValidRuntimeConfig({
+        providers: { runtime: { id: "runtime" } },
+      })), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+
+    const loader = createRuntimeConfigLoader({ fetchImpl });
+    const config = await loader.load("machine-fallback", { runtimeUrl: "https://runtime.example.com/base" });
+
+    expect(config.providers).toEqual({ runtime: { id: "runtime" } });
   });
 
   it("returns stale cached config on transient fetch failure after ttl expiry", async () => {
@@ -75,6 +105,12 @@ describe("runtime config loader", () => {
       .fn()
       .mockResolvedValueOnce(
         new Response(JSON.stringify(createValidRuntimeConfig({ settings: { version: 1 } })), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ providers: { eligible: { id: "eligible-1" } } }), {
           status: 200,
           headers: { "content-type": "application/json" }
         })
@@ -97,7 +133,7 @@ describe("runtime config loader", () => {
     const stale = await loader.load("machine-2", registration);
 
     expect(stale).toEqual(fresh);
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
   it("throws when transient fetch failure happens before any successful load", async () => {
@@ -117,6 +153,18 @@ describe("runtime config loader", () => {
       .fn()
       .mockResolvedValueOnce(
         new Response(JSON.stringify(createValidRuntimeConfig({ settings: { version: 1 } })), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ providers: { eligible: { id: "eligible-1" } } }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ providers: [] }), {
           status: 200,
           headers: { "content-type": "application/json" }
         })
@@ -160,12 +208,19 @@ describe("runtime config loader", () => {
       }
     });
 
-    const fetchImpl = vi.fn(async () =>
-      new Response(JSON.stringify(createValidRuntimeConfig({ settings: { source: "remote" } })), {
+    const fetchImpl = vi.fn(async (url) => {
+      if (String(url).endsWith("/eligible.json")) {
+        return new Response(JSON.stringify({ providers: { remote: { id: "remote" } } }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      return new Response(JSON.stringify(createValidRuntimeConfig({ settings: { source: "remote" } })), {
         status: 200,
         headers: { "content-type": "application/json" }
-      })
-    );
+      });
+    });
 
     const registration = await getRuntimeRegistration("machine-5", env);
     const config = await getRuntimeConfig("machine-5", env, {
@@ -177,6 +232,77 @@ describe("runtime config loader", () => {
       cacheTtlMs: 1_000
     });
     expect(config.settings.source).toBe("remote");
+    expect(config.providers).toEqual({ remote: { id: "remote" } });
+  });
+
+  it("merges local machine provider overrides onto remote runtime config", async () => {
+    const env = createEnv({
+      "machine-override": {
+        providers: {
+          remote: {
+            id: "remote",
+            routingStatus: "blocked",
+            quotaState: "exhausted",
+            nextRetryAt: "2026-04-29T01:00:00.000Z",
+          }
+        },
+        modelAliases: {},
+        combos: [],
+        apiKeys: [],
+        settings: {},
+        meta: {
+          runtimeUrl: "https://runtime.example.com/base",
+          cacheTtlSeconds: 1
+        }
+      }
+    });
+
+    const fetchImpl = vi.fn(async (url) => {
+      if (String(url).endsWith("/eligible.json")) {
+        return new Response(JSON.stringify({
+          providers: {
+            remote: {
+              id: "remote",
+              provider: "anthropic",
+              isActive: true,
+              routingStatus: "eligible",
+              quotaState: "ok",
+            }
+          }
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      return new Response(JSON.stringify(createValidRuntimeConfig({
+        providers: {
+          remote: {
+            id: "remote",
+            provider: "anthropic",
+            isActive: true,
+            routingStatus: "eligible",
+            quotaState: "ok",
+          }
+        },
+        settings: { source: "remote" }
+      })), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+
+    const config = await getRuntimeConfig("machine-override", env, {
+      runtimeConfigLoader: createRuntimeConfigLoader({ fetchImpl })
+    });
+
+    expect(config.providers.remote).toMatchObject({
+      id: "remote",
+      provider: "anthropic",
+      routingStatus: "blocked",
+      quotaState: "exhausted",
+      nextRetryAt: "2026-04-29T01:00:00.000Z",
+    });
   });
 
   it("prefers spec cacheTtlSeconds over legacy cacheTtlMs when both exist", async () => {
@@ -213,7 +339,19 @@ describe("runtime config loader", () => {
         })
       )
       .mockResolvedValueOnce(
+        new Response(JSON.stringify({ providers: { old: { id: "old" } } }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
         new Response(JSON.stringify(createValidRuntimeConfig({ settings: { source: "new-url" } })), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ providers: { next: { id: "next" } } }), {
           status: 200,
           headers: { "content-type": "application/json" }
         })
@@ -241,9 +379,66 @@ describe("runtime config loader", () => {
 
     expect(oldConfig.settings.source).toBe("old-url");
     expect(newConfig.settings.source).toBe("new-url");
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
     expect(fetchImpl).toHaveBeenNthCalledWith(1, "https://old.example.com/base/runtime.json");
-    expect(fetchImpl).toHaveBeenNthCalledWith(2, "https://new.example.com/base/runtime.json");
+    expect(fetchImpl).toHaveBeenNthCalledWith(3, "https://new.example.com/base/runtime.json");
+  });
+
+  it("invalidates cached runtime config explicitly", async () => {
+    const fetchImpl = vi.fn(async (url) => {
+      if (String(url).endsWith("/eligible.json")) {
+        return new Response(JSON.stringify({ providers: { current: { id: `eligible-${fetchImpl.mock.calls.length}` } } }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      return new Response(JSON.stringify(createValidRuntimeConfig({ settings: { source: `runtime-${fetchImpl.mock.calls.length}` } })), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+
+    const loader = createRuntimeConfigLoader({ fetchImpl, now: () => 50_000 });
+    const registration = {
+      runtimeUrl: "https://runtime.example.com/base",
+      cacheTtlMs: 60_000,
+    };
+
+    const first = await loader.load("machine-8", registration);
+    loader.invalidate("machine-8", registration);
+    const second = await loader.load("machine-8", registration);
+
+    expect(first.settings.source).not.toBe(second.settings.source);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
+
+  it("invalidates runtime config through storage helper", async () => {
+    const env = createEnv({
+      "machine-9": {
+        providers: {},
+        modelAliases: {},
+        combos: [],
+        apiKeys: [],
+        settings: {},
+        meta: {
+          runtimeUrl: "https://runtime.example.com/base",
+          cacheTtlSeconds: 15,
+        }
+      }
+    });
+
+    const runtimeConfigLoader = {
+      invalidate: vi.fn(),
+    };
+
+    const result = await invalidateRuntimeConfig("machine-9", env, { runtimeConfigLoader });
+
+    expect(result).toBe(true);
+    expect(runtimeConfigLoader.invalidate).toHaveBeenCalledWith("machine-9", {
+      runtimeUrl: "https://runtime.example.com/base",
+      cacheTtlMs: 15_000,
+    });
   });
 });
 
