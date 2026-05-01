@@ -85,6 +85,7 @@ export async function registerWithWorker(workerUrl, secret, metadata = {}) {
  */
 export async function fetchWorkerStatus(workerUrl, secret) {
   const url = `${normalizeUrl(workerUrl)}/admin/status.json`;
+  const startedAt = Date.now();
 
   const res = await fetch(url, {
     method: "GET",
@@ -102,7 +103,10 @@ export async function fetchWorkerStatus(workerUrl, secret) {
     throw err;
   }
 
-  return body;
+  return {
+    ...(body || {}),
+    latencyMs: Date.now() - startedAt,
+  };
 }
 
 export async function refreshWorkerRuntime(workerUrl, secret) {
@@ -157,8 +161,9 @@ export async function unregisterWorker(workerUrl, secret) {
   return body || {};
 }
 
-export async function fetchWorkerUsageEvents(workerUrl, secret, { cursor = 0, limit = 500 } = {}) {
+export async function fetchWorkerUsageEvents(workerUrl, secret, { machineId, cursor = 0, limit = 500 } = {}) {
   const params = new URLSearchParams({
+    machineId: String(machineId || "").trim(),
     cursor: String(Number(cursor) || 0),
     limit: String(Number(limit) || 500),
   });

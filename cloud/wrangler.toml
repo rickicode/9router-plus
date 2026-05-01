@@ -3,6 +3,9 @@ main = "src/index.js"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
+[vars]
+CLOUD_SHARED_SECRET = "30d4c31504619029bfd2727a515f3bf2463fbd2be389826d87005e7b19a9c70a"
+
 [alias]
 "@/lib/usageDb.js" = "./src/stubs/usageDb.js"
 "open-sse/config/codexInstructionsResolver.js" = "./src/stubs/codexInstructionsResolver.js"
@@ -11,9 +14,23 @@ compatibility_flags = ["nodejs_compat"]
 # R2 bucket for all data (providers, settings, usage, backups)
 [[r2_buckets]]
 binding = "R2_DATA"
-bucket_name = "9router-data"
+bucket_name = "9router"
 
 # Private runtime artifacts written by 9router and read by the Worker.
 [[r2_buckets]]
 binding = "R2_RUNTIME"
-bucket_name = "9router-data"
+bucket_name = "9router"
+
+
+# Shared secret is stored in [vars] so standard deploys do not require
+# running `wrangler secret put` for this worker.
+#
+#   wrangler deploy
+#
+# If you later switch to named Wrangler environments, move CLOUD_SHARED_SECRET
+# into `[env.<name>.vars]` for that environment.
+#
+#   wrangler deploy --env production
+#
+# WARNING: [vars] stores the value in plaintext in this file.
+# Use `wrangler secret put` instead if you need Cloudflare-managed secret storage.

@@ -15,6 +15,14 @@ function sanitizeRuntimeConnection(connection) {
   return cloneRecord(connection);
 }
 
+function shouldIncludeRuntimeConnection(connection) {
+  return Boolean(
+    connection?.id &&
+    connection.isActive !== false &&
+    connection.routingStatus === "eligible"
+  );
+}
+
 function normalizeRuntimeApiKeys(apiKeys) {
   if (!Array.isArray(apiKeys)) return [];
   return apiKeys
@@ -63,6 +71,7 @@ function buildRuntimeSettings(settings = {}) {
   delete safeSettings.r2RuntimePublicBaseUrl;
   delete safeSettings.r2RuntimeCacheTtlSeconds;
   delete safeSettings.r2LastRuntimePublishAt;
+  delete safeSettings.r2LastRuntimeArtifactHash;
   delete safeSettings.r2LastBackupAt;
   delete safeSettings.r2LastRestoreAt;
   delete safeSettings.r2LastSqliteBackupFingerprint;
@@ -152,9 +161,7 @@ export async function buildRuntimeArtifact(stateOrOptions = null, maybeOptions =
   const providers = {};
 
   for (const connection of resolved.providerConnections) {
-    if (!connection?.id) continue;
-    if (connection.isActive === false) continue;
-    if (connection.routingStatus !== "eligible") continue;
+    if (!shouldIncludeRuntimeConnection(connection)) continue;
     providers[connection.id] = sanitizeRuntimeConnection(connection);
   }
 
@@ -186,9 +193,7 @@ export async function buildFullCredentialsArtifact(stateOrOptions = null, maybeO
   const providers = {};
 
   for (const connection of resolved.providerConnections) {
-    if (!connection?.id) continue;
-    if (connection.isActive === false) continue;
-    if (connection.routingStatus !== "eligible") continue;
+    if (!shouldIncludeRuntimeConnection(connection)) continue;
     providers[connection.id] = sanitizeRuntimeConnection(connection);
   }
 

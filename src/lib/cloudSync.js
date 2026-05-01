@@ -106,8 +106,26 @@ async function ensureWorkerRuntimeArtifacts(settings) {
   return publishResult;
 }
 
-async function syncToWorker(entry, secret) {
+async function syncToWorker(entry, secret, { skipRefresh = false, publishResult = null } = {}) {
   const startedAt = Date.now();
+
+  if (skipRefresh) {
+    const syncedAt = publishResult?.runtimeUploadSkipped ? (publishResult?.runtimeGeneratedAt || new Date().toISOString()) : new Date().toISOString();
+    const latencyMs = Date.now() - startedAt;
+    await updateCloudUrlEntry(entry.id, {
+      status: "online",
+      lastSyncOk: true,
+      lastSyncAt: syncedAt,
+      lastSyncError: null,
+      latencyMs,
+      lastChecked: new Date().toISOString(),
+    });
+    return {
+      success: true,
+      refreshedAt: syncedAt,
+      skipped: true,
+    };
+  }
 
   let response;
   try {
@@ -155,8 +173,12 @@ export async function syncToCloud() {
   }
 
   const publishResult = await ensureWorkerRuntimeArtifacts(settings);
+  const shouldRefreshWorkers = publishResult.runtimeUploadSkipped !== true;
   const results = await Promise.allSettled(
-    eligible.map((entry) => syncToWorker(entry, secret))
+    eligible.map((entry) => syncToWorker(entry, secret, {
+      skipRefresh: !shouldRefreshWorkers,
+      publishResult,
+    }))
   );
 
   const successes = results.filter((r) => r.status === "fulfilled");
@@ -183,6 +205,8 @@ export async function syncToCloud() {
       runtimeConfig: publishResult.runtimeConfig,
       sqlite: publishResult.sqlite,
     },
+    runtimeUploadSkipped: publishResult.runtimeUploadSkipped === true,
+    runtimeArtifactHash: publishResult.artifactHash || null,
   };
 }
 
@@ -194,6 +218,9 @@ export async function syncToCloudActive() {
   if (!secret) {
     throw new Error("Global cloud shared secret is missing. Regenerate it in Endpoint -> Cloud.");
   }
-  await ensureWorkerRuntimeArtifacts(settings);
-  return syncToWorker(entry, secret);
+  const publishResult = await ensureWorkerRuntimeArtifacts(settings);
+  return syncToWorker(entry, secret, {
+    skipRefresh: publishResult.runtimeUploadSkipped === true,
+    publishResult,
+  });
 }

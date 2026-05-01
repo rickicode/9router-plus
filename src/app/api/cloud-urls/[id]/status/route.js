@@ -58,9 +58,8 @@ export async function GET(request, context) {
     return NextResponse.json({ error: "Cloud URL has no URL configured" }, { status: 400 });
   }
 
-  const probe = await probeCloudHealth(entry.url);
-
   if (!globalSecret) {
+    const probe = await probeCloudHealth(entry.url);
     return NextResponse.json({
       reachable: probe.ok,
       probe,
@@ -78,18 +77,25 @@ export async function GET(request, context) {
   let workerStatus = null;
   let workerError = null;
   let workerStatusCode = null;
+  let probe = null;
 
-  if (probe.ok) {
-    try {
-      workerStatus = await fetchWorkerStatus(entry.url, globalSecret);
-    } catch (error) {
-      workerError = error.message || "status fetch failed";
-      workerStatusCode = error.status || null;
-    }
+  try {
+    workerStatus = await fetchWorkerStatus(entry.url, globalSecret);
+    probe = {
+      ok: true,
+      status: "online",
+      latencyMs: workerStatus?.latencyMs ?? null,
+      version: workerStatus?.version || null,
+      uptime: workerStatus?.uptime ?? null,
+    };
+  } catch (error) {
+    workerError = error.message || "status fetch failed";
+    workerStatusCode = error.status || null;
+    probe = await probeCloudHealth(entry.url);
   }
 
   return NextResponse.json({
-    reachable: probe.ok,
+    reachable: probe?.ok === true,
     probe,
     registered: true,
     url: entry.url,

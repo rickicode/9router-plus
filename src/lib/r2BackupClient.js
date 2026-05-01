@@ -28,6 +28,25 @@ const ENCRYPTED_BACKUP_FORMAT = "9router-r2-encrypted-backup-v1";
 const ENCRYPTED_SQLITE_FORMAT = "9router-r2-encrypted-sqlite-v1";
 const BACKUP_ENCRYPTION_KEY_ID = "local-r2-backup-key-v1";
 
+function stableStringify(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableStringify(entry)).join(",")}]`;
+  }
+
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+      .join(",")}}`;
+  }
+
+  return JSON.stringify(value ?? null);
+}
+
+function hashArtifactPayload(value) {
+  return crypto.createHash("sha256").update(stableStringify(value)).digest("hex");
+}
+
 function buildArtifactUrls(baseUrl) {
   const normalizedBaseUrl = normalizeUrl(baseUrl);
 
@@ -310,6 +329,7 @@ export async function publishRuntimeArtifacts({
   sqliteChanged = false,
   sqliteData = null,
   putObject = putObjectWithRetry,
+  skipRuntimeUpload = false,
 } = {}) {
   if (!artifactUrls?.backupUrl || !artifactUrls?.runtimeUrl || !artifactUrls?.sqliteUrl) {
     throw new Error("artifactUrls.backupUrl, artifactUrls.runtimeUrl, and artifactUrls.sqliteUrl are required");
@@ -340,26 +360,34 @@ export async function publishRuntimeArtifacts({
     result.backup = createUploadFailureResult(error);
   }
 
-  try {
-    const runtimeUpload = await putObject({
-      objectUrl: artifactUrls.runtimeUrl,
-      body: JSON.stringify(runtimeArtifact),
-      contentType: "application/json",
-    });
-    result.runtime = createUploadResult(runtimeUpload);
-  } catch (error) {
-    result.runtime = createUploadFailureResult(error);
+  if (skipRuntimeUpload) {
+    result.runtime = { ok: true, uploaded: false, skipped: true, attempts: 0 };
+  } else {
+    try {
+      const runtimeUpload = await putObject({
+        objectUrl: artifactUrls.runtimeUrl,
+        body: JSON.stringify(runtimeArtifact),
+        contentType: "application/json",
+      });
+      result.runtime = createUploadResult(runtimeUpload);
+    } catch (error) {
+      result.runtime = createUploadFailureResult(error);
+    }
   }
 
-  try {
-    const eligibleUpload = await putObject({
-      objectUrl: artifactUrls.eligibleUrl || artifactUrls.runtimeUrl.replace(/runtime\.json$/, "eligible.json"),
-      body: JSON.stringify(eligibleArtifact),
-      contentType: "application/json",
-    });
-    result.eligible = createUploadResult(eligibleUpload);
-  } catch (error) {
-    result.eligible = createUploadFailureResult(error);
+  if (skipRuntimeUpload) {
+    result.eligible = { ok: true, uploaded: false, skipped: true, attempts: 0 };
+  } else {
+    try {
+      const eligibleUpload = await putObject({
+        objectUrl: artifactUrls.eligibleUrl || artifactUrls.runtimeUrl.replace(/runtime\.json$/, "eligible.json"),
+        body: JSON.stringify(eligibleArtifact),
+        contentType: "application/json",
+      });
+      result.eligible = createUploadResult(eligibleUpload);
+    } catch (error) {
+      result.eligible = createUploadFailureResult(error);
+    }
   }
 
   if (!sqliteChanged) {
@@ -383,36 +411,52 @@ export async function publishRuntimeArtifacts({
   }
 
   if (artifactUrls.fullRuntimeUrl) {
-    try {
-      const credentialsUpload = await putObject({
-        objectUrl: artifactUrls.fullRuntimeUrl,
-        body: JSON.stringify(credentialsArtifact),
-        contentType: "application/json",
-      });
-      result.credentials = createUploadResult(credentialsUpload);
-    } catch (error) {
-      result.credentials = createUploadFailureResult(error);
+    if (skipRuntimeUpload) {
+      result.credentials = { ok: true, uploaded: false, skipped: true, attempts: 0 };
+    } else {
+      try {
+        const credentialsUpload = await putObject({
+          objectUrl: artifactUrls.fullRuntimeUrl,
+          body: JSON.stringify(credentialsArtifact),
+          contentType: "application/json",
+        });
+        result.credentials = createUploadResult(credentialsUpload);
+      } catch (error) {
+        result.credentials = createUploadFailureResult(error);
+      }
     }
   } else {
     result.credentials = { ok: true, uploaded: false, skipped: true, attempts: 0 };
   }
 
   if (artifactUrls.runtimeConfigUrl) {
-    try {
-      const runtimeConfigUpload = await putObject({
-        objectUrl: artifactUrls.runtimeConfigUrl,
-        body: JSON.stringify(runtimeConfigArtifact),
-        contentType: "application/json",
-      });
-      result.runtimeConfig = createUploadResult(runtimeConfigUpload);
-    } catch (error) {
-      result.runtimeConfig = createUploadFailureResult(error);
+    if (skipRuntimeUpload) {
+      result.runtimeConfig = { ok: true, uploaded: false, skipped: true, attempts: 0 };
+    } else {
+      try {
+        const runtimeConfigUpload = await putObject({
+          objectUrl: artifactUrls.runtimeConfigUrl,
+          body: JSON.stringify(runtimeConfigArtifact),
+          contentType: "application/json",
+        });
+        result.runtimeConfig = createUploadResult(runtimeConfigUpload);
+      } catch (error) {
+        result.runtimeConfig = createUploadFailureResult(error);
+      }
     }
   } else {
     result.runtimeConfig = { ok: true, uploaded: false, skipped: true, attempts: 0 };
   }
 
-  return result;
+  return {
+    ...result,
+    artifactHash: hashArtifactPayload({
+      runtimeArtifact,
+      eligibleArtifact,
+      credentialsArtifact,
+      runtimeConfigArtifact,
+    }),
+  };
 }
 
 export async function publishRuntimeArtifactsFromSettings({
@@ -480,6 +524,20 @@ export async function publishRuntimeArtifactsFromSettings({
   const sqliteData = resolvedSettings?.r2Config && sqliteState?.data
     ? buildEncryptedSqliteEnvelope(sqliteState.data, encryptionSettings)
     : sqliteState?.data || null;
+  const runtimeArtifactsForHash = await Promise.all([
+    buildRuntimeArtifact(runtimeSnapshot),
+    buildEligibleRuntimeArtifact(runtimeSnapshot),
+    buildFullCredentialsArtifact(runtimeSnapshot),
+    buildRuntimeConfigArtifact(runtimeSnapshot),
+  ]);
+  const artifactHash = hashArtifactPayload({
+    runtimeArtifact: runtimeArtifactsForHash[0],
+    eligibleArtifact: runtimeArtifactsForHash[1],
+    credentialsArtifact: runtimeArtifactsForHash[2],
+    runtimeConfigArtifact: runtimeArtifactsForHash[3],
+  });
+  const runtimeGeneratedAt = runtimeArtifactsForHash[0]?.generatedAt || new Date().toISOString();
+  const skipRuntimeUpload = resolvedSettings?.r2LastRuntimeArtifactHash === artifactHash;
   const publishResult = await publishRuntimeArtifacts({
     artifactUrls,
     dbSnapshot: snapshot,
@@ -489,6 +547,7 @@ export async function publishRuntimeArtifactsFromSettings({
     sqliteChanged,
     sqliteData,
     putObject: uploadWithAuth,
+    skipRuntimeUpload,
   });
 
   if (sqliteFailure) {
@@ -506,6 +565,7 @@ export async function publishRuntimeArtifactsFromSettings({
     publishResult.runtimeConfig?.ok === true
   ) {
     settingsPatch.r2LastRuntimePublishAt = timestamp;
+    settingsPatch.r2LastRuntimeArtifactHash = artifactHash;
   }
 
   if (publishResult.sqlite?.uploaded && sqliteState?.fingerprint) {
@@ -519,6 +579,9 @@ export async function publishRuntimeArtifactsFromSettings({
 
   return {
     ...publishResult,
+    artifactHash,
+    runtimeGeneratedAt,
+    runtimeUploadSkipped: skipRuntimeUpload,
     sqliteFingerprint: sqliteState?.fingerprint || null,
     sqliteChanged,
   };

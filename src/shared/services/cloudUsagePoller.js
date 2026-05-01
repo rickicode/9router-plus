@@ -4,6 +4,10 @@ import { getCloudUrl } from "@/lib/cloudUrlResolver";
 
 const DEFAULT_CLOUD_USAGE_POLL_INTERVAL_MS = 15000;
 
+function isCloudUsagePollingEnabled(settings = {}) {
+  return settings?.cloudUsagePollingEnabled === true;
+}
+
 function normalizeCloudUsage(value) {
   if (Array.isArray(value)) {
     return value.map(normalizeCloudUsage);
@@ -60,6 +64,12 @@ export class CloudUsagePoller {
     if (this.intervalId) return;
 
     await this.initializeMachineId();
+    const settings = await getSettings();
+    if (!isCloudUsagePollingEnabled(settings)) {
+      this.lastPollSuccess = false;
+      this.lastError = "Cloud usage polling disabled";
+      return;
+    }
 
     this.runPollCycle().catch((error) => {
       console.error("[CloudUsagePoller] Poll failed:", error);

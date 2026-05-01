@@ -111,9 +111,12 @@ export async function initializeApp() {
 
     // Start cloud usage poller if enabled
     if (await isCloudEnabled()) {
-      const usagePoller = await getCloudUsagePoller();
-      await usagePoller.start();
-      console.log('[INIT] Cloud usage poller started');
+      const settings = await getSettings();
+      if (settings.cloudUsagePollingEnabled === true) {
+        const usagePoller = await getCloudUsagePoller();
+        await usagePoller.start();
+        console.log('[INIT] Cloud usage poller started');
+      }
     }
 
     // Start cloud sync scheduler if enabled

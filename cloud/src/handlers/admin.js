@@ -316,6 +316,9 @@ function buildStatusPayload(data, runtimeConfig = null) {
     rotatedAt: meta.rotatedAt || null,
     lastSyncAt: meta.lastSyncAt || state.lastSyncAt || null,
     syncCount: meta.syncCount || 0,
+    runtimeGeneratedAt: runtimeConfig?.generatedAt || null,
+    credentialsGeneratedAt: runtimeConfig?.credentialsGeneratedAt || null,
+    runtimeConfigGeneratedAt: runtimeConfig?.runtimeConfigGeneratedAt || null,
     providers,
     counts: {
       providers: providers.length,

@@ -2,6 +2,7 @@ import { fetchWorkerUsageEvents } from "./cloudWorkerClient.js";
 import { atomicUpdateSettings, getSettings, isCloudEnabled } from "./localDb.js";
 import { appendRequestLog, saveRequestUsage } from "./usageDb.js";
 import { saveMorphUsage } from "./morphUsageDb.js";
+import { getConsistentMachineId } from "@/shared/utils/machineId";
 
 const DEFAULT_LIMIT = 500;
 const MAX_SEEN_EVENT_IDS_PER_WORKER = 2000;
@@ -117,6 +118,7 @@ export async function syncCloudUsageEvents({ settings = null, limit = DEFAULT_LI
   }
 
   const resolvedSettings = settings || await getSettings();
+  const machineId = await getConsistentMachineId();
   const syncState = getSyncState(resolvedSettings);
   const workers = Array.isArray(resolvedSettings.cloudUrls)
     ? resolvedSettings.cloudUrls.filter((entry) => entry?.url)
@@ -139,7 +141,7 @@ export async function syncCloudUsageEvents({ settings = null, limit = DEFAULT_LI
     const cursor = Number(syncState.cursorsByWorkerId?.[workerKey]) || 0;
 
     try {
-      const result = await fetchWorkerUsageEvents(worker.url, secret, { cursor, limit });
+      const result = await fetchWorkerUsageEvents(worker.url, secret, { machineId, cursor, limit });
       const events = Array.isArray(result.events) ? result.events : [];
       for (const event of events) {
         const eventId = buildEventId(event, worker);
