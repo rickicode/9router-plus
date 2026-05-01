@@ -1,10 +1,9 @@
 /**
  * Shared-secret utilities for worker admin endpoints.
  *
- * The cloud worker is identified per-machine. Each machineId stores a 32-byte
- * hex shared secret in `data.meta.secret`. The web app proves ownership by
- * presenting the secret in the `X-Cloud-Secret` header (preferred) or in a
- * `?token=` query parameter (only used by the human-facing status dashboard).
+ * The cloud worker now trusts a single shared secret injected through env.
+ * 9Router sends that secret in the `X-Cloud-Secret` header (preferred) or in
+ * a `?token=` query parameter for the server-rendered dashboard page.
  */
 
 /**
@@ -40,18 +39,20 @@ export function constantTimeEqual(a, b) {
   return mismatch === 0;
 }
 
-/**
- * Validate that a presented secret matches the secret stored for a machine.
- *
- * @param {string | null} presented - secret extracted from the request
- * @param {Object | null} data - machine data loaded from R2, may be null
- * @returns {boolean}
- */
-export function isSecretValid(presented, data) {
-  if (!presented) return false;
-  const stored = data?.meta?.secret;
-  if (!stored) return false;
-  return constantTimeEqual(stored, presented);
+export function getConfiguredSharedSecret(env) {
+  const secret = typeof env?.CLOUD_SHARED_SECRET === "string"
+    ? env.CLOUD_SHARED_SECRET.trim()
+    : typeof env?.WORKER_SHARED_SECRET === "string"
+      ? env.WORKER_SHARED_SECRET.trim()
+      : "";
+  return secret || null;
+}
+
+export function isWorkerSharedSecretValid(request, env) {
+  const presented = extractSecret(request);
+  const configured = getConfiguredSharedSecret(env);
+  if (!presented || !configured) return false;
+  return constantTimeEqual(presented, configured);
 }
 
 /**

@@ -70,6 +70,10 @@ function mergePrivateRuntimeArtifacts(credentialsArtifact, runtimeConfigArtifact
     settings.morph = credentialsArtifact.morph;
   }
 
+  const credentialApiKeys = Array.isArray(credentialsArtifact.apiKeys)
+    ? credentialsArtifact.apiKeys
+    : null;
+
   return {
     generatedAt: credentialsArtifact.generatedAt || runtimeConfigArtifact.generatedAt || new Date().toISOString(),
     credentialsGeneratedAt: credentialsArtifact.generatedAt || null,
@@ -78,7 +82,7 @@ function mergePrivateRuntimeArtifacts(credentialsArtifact, runtimeConfigArtifact
     providers: credentialsArtifact.providers || {},
     modelAliases: runtimeConfigArtifact.modelAliases || {},
     combos: runtimeConfigArtifact.combos || [],
-    apiKeys: runtimeConfigArtifact.apiKeys || [],
+    apiKeys: credentialApiKeys || runtimeConfigArtifact.apiKeys || [],
     settings,
   };
 }

@@ -5,7 +5,6 @@ import {
   probeCloudHealth,
   buildWorkerDashboardUrl,
 } from "@/lib/cloudWorkerClient";
-import { getConsistentMachineId } from "@/shared/utils/machineId";
 import { hasValidCloudRouteOrigin } from "@/lib/cloudRequestAuth";
 
 function maskSecret(secret) {
@@ -50,6 +49,7 @@ export async function GET(request, context) {
 
   const settings = await getSettings();
   const entry = (settings.cloudUrls || []).find((c) => c.id === id);
+  const globalSecret = typeof settings.cloudSharedSecret === "string" ? settings.cloudSharedSecret : "";
   if (!entry) {
     return NextResponse.json({ error: "Cloud URL not found" }, { status: 404 });
   }
@@ -58,22 +58,20 @@ export async function GET(request, context) {
     return NextResponse.json({ error: "Cloud URL has no URL configured" }, { status: 400 });
   }
 
-  const machineId = await getConsistentMachineId();
   const probe = await probeCloudHealth(entry.url);
 
-  if (!entry.secret) {
+  if (!globalSecret) {
     return NextResponse.json({
       reachable: probe.ok,
       probe,
       registered: false,
-      machineId,
       lastSyncAt: entry.lastSyncAt || null,
       lastSyncOk: entry.lastSyncOk ?? null,
       providersCount: entry.providersCount ?? null,
       url: entry.url,
       hasSecret: false,
       secretMasked: null,
-      message: "Worker not registered yet. Re-add the cloud URL to register.",
+      message: "Global cloud shared secret is missing. Regenerate it in 9Router before syncing workers.",
     });
   }
 
@@ -83,7 +81,7 @@ export async function GET(request, context) {
 
   if (probe.ok) {
     try {
-      workerStatus = await fetchWorkerStatus(entry.url, entry.secret, machineId);
+      workerStatus = await fetchWorkerStatus(entry.url, globalSecret);
     } catch (error) {
       workerError = error.message || "status fetch failed";
       workerStatusCode = error.status || null;
@@ -94,7 +92,6 @@ export async function GET(request, context) {
     reachable: probe.ok,
     probe,
     registered: true,
-    machineId,
     url: entry.url,
     name: entry.name || null,
     lastSyncAt: entry.lastSyncAt || workerStatus?.lastSyncAt || null,
@@ -105,8 +102,8 @@ export async function GET(request, context) {
     workerError,
     workerStatusCode,
     hasSecret: true,
-    secretMasked: maskSecret(entry.secret),
-    secret: shouldRevealSecret(request) ? entry.secret : undefined,
-    dashboardUrl: buildWorkerDashboardUrl(entry.url, entry.secret, machineId),
+    secretMasked: maskSecret(globalSecret),
+    secret: shouldRevealSecret(request) ? globalSecret : undefined,
+    dashboardUrl: buildWorkerDashboardUrl(entry.url, globalSecret),
   });
 }

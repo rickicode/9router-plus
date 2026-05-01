@@ -121,12 +121,7 @@ function normalizeArtifactState(snapshot) {
 
 async function getRuntimeArtifactState(snapshot = null) {
   if (isArtifactState(snapshot)) {
-    const resolved = normalizeArtifactState(snapshot);
-    const mergedConnections = await getProviderConnections();
-    if (Array.isArray(mergedConnections) && mergedConnections.length > 0) {
-      resolved.providerConnections = mergedConnections.map((connection) => cloneRecord(connection));
-    }
-    return resolved;
+    return normalizeArtifactState(snapshot);
   }
 
   const [exportedSnapshot, mergedConnections] = await Promise.all([
@@ -203,6 +198,7 @@ export async function buildFullCredentialsArtifact(stateOrOptions = null, maybeO
     schemaVersion: 1,
     generatedAt: resolveGeneratedAt(options),
     providers,
+    apiKeys: normalizeRuntimeApiKeys(resolved.apiKeys),
     morph: morph || null,
   };
 }
@@ -229,12 +225,19 @@ export async function buildRuntimeConfigArtifact(stateOrOptions = null, maybeOpt
 export async function buildR2ArtifactsFromState() {
   const state = await exportDb();
   const generatedAt = new Date().toISOString();
+  const mergedConnections = await getProviderConnections();
+  const runtimeState = Array.isArray(mergedConnections) && mergedConnections.length > 0
+    ? {
+        ...state,
+        providerConnections: mergedConnections.map((connection) => cloneRecord(connection)),
+      }
+    : state;
   const [backup, runtime, eligible, credentials, runtimeConfig] = await Promise.all([
     buildBackupArtifact(state),
-    buildRuntimeArtifact(state, { generatedAt }),
-    buildEligibleRuntimeArtifact(state, { generatedAt }),
-    buildFullCredentialsArtifact(state, { generatedAt }),
-    buildRuntimeConfigArtifact(state, { generatedAt }),
+    buildRuntimeArtifact(runtimeState, { generatedAt }),
+    buildEligibleRuntimeArtifact(runtimeState, { generatedAt }),
+    buildFullCredentialsArtifact(runtimeState, { generatedAt }),
+    buildRuntimeConfigArtifact(runtimeState, { generatedAt }),
   ]);
 
   return { backup, runtime, eligible, credentials, runtimeConfig };

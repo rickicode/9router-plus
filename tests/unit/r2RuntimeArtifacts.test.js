@@ -190,6 +190,9 @@ describe("r2RuntimeArtifacts", () => {
         routingStatus: "eligible",
       }),
     });
+    expect(fullCredentials.apiKeys).toEqual([
+      { id: "key-1", key: "worker-key", name: "worker", isActive: true },
+    ]);
 
     const artifacts = await buildR2ArtifactsFromState();
     expect(artifacts.backup).toEqual(exportedSnapshot);
@@ -224,6 +227,9 @@ describe("r2RuntimeArtifacts", () => {
         routingStatus: "eligible",
       }),
     });
+    expect(artifacts.credentials.apiKeys).toEqual([
+      { id: "key-1", key: "worker-key", name: "worker", isActive: true },
+    ]);
     expect(artifacts.eligible).toEqual({
       generatedAt: expect.any(String),
       providers: {
@@ -434,5 +440,40 @@ describe("r2RuntimeArtifacts", () => {
       settings: { roundRobin: true },
     });
     expect(exportDb).toHaveBeenCalledTimes(1);
+  });
+
+  it("buildFullCredentialsArtifact uses the provided snapshot instead of live provider connections", async () => {
+    const snapshot = {
+      format: "9router-db-v1",
+      schemaVersion: 1,
+      providerConnections: [
+        { id: "snapshot-conn", provider: "openai", apiKey: "sk-snapshot", isActive: true, routingStatus: "eligible" },
+      ],
+      modelAliases: {},
+      combos: [],
+      apiKeys: [
+        { id: "key-snapshot", key: "snapshot-worker-key", isActive: true },
+      ],
+      settings: {},
+    };
+
+    getProviderConnections.mockResolvedValue([
+      { id: "live-conn", provider: "codex", accessToken: "live-token", isActive: true, routingStatus: "eligible" },
+    ]);
+
+    const { buildFullCredentialsArtifact } = await import("@/lib/r2RuntimeArtifacts.js");
+    const artifact = await buildFullCredentialsArtifact(snapshot);
+
+    expect(artifact.providers).toEqual({
+      "snapshot-conn": expect.objectContaining({
+        id: "snapshot-conn",
+        provider: "openai",
+        apiKey: "sk-snapshot",
+      }),
+    });
+    expect(artifact.providers["live-conn"]).toBeUndefined();
+    expect(artifact.apiKeys).toEqual([
+      { id: "key-snapshot", key: "snapshot-worker-key", isActive: true },
+    ]);
   });
 });

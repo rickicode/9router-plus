@@ -1,4 +1,3 @@
-import { getConsistentMachineId } from "@/shared/utils/machineId";
 import { fetchWorkerUsageEvents } from "./cloudWorkerClient.js";
 import { atomicUpdateSettings, getSettings, isCloudEnabled } from "./localDb.js";
 import { appendRequestLog, saveRequestUsage } from "./usageDb.js";
@@ -120,13 +119,16 @@ export async function syncCloudUsageEvents({ settings = null, limit = DEFAULT_LI
   const resolvedSettings = settings || await getSettings();
   const syncState = getSyncState(resolvedSettings);
   const workers = Array.isArray(resolvedSettings.cloudUrls)
-    ? resolvedSettings.cloudUrls.filter((entry) => entry?.url && entry?.secret)
+    ? resolvedSettings.cloudUrls.filter((entry) => entry?.url)
     : [];
+  const secret = typeof resolvedSettings.cloudSharedSecret === "string" ? resolvedSettings.cloudSharedSecret : "";
   if (workers.length === 0) {
     return { successes: 0, total: 0, events: 0 };
   }
+  if (!secret) {
+    return { successes: 0, total: workers.length, events: 0, failures: ["Global cloud shared secret is missing"] };
+  }
 
-  const machineId = await getConsistentMachineId();
   let successes = 0;
   let eventCount = 0;
   const failures = [];
@@ -137,7 +139,7 @@ export async function syncCloudUsageEvents({ settings = null, limit = DEFAULT_LI
     const cursor = Number(syncState.cursorsByWorkerId?.[workerKey]) || 0;
 
     try {
-      const result = await fetchWorkerUsageEvents(worker.url, worker.secret, machineId, { cursor, limit });
+      const result = await fetchWorkerUsageEvents(worker.url, secret, { cursor, limit });
       const events = Array.isArray(result.events) ? result.events : [];
       for (const event of events) {
         const eventId = buildEventId(event, worker);

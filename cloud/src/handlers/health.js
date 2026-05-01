@@ -1,13 +1,16 @@
 // cloud/src/handlers/health.js
 import { getRuntimeConfig } from "../services/storage.js";
 import { getState, getUptime } from "../services/state.js";
+import { isWorkerSharedSecretValid } from "../utils/secret.js";
 import * as log from "../utils/logger.js";
 
+const WORKER_RECORD_ID = "shared";
+
 /**
- * GET /worker/health/:machineId
+ * GET /worker/health
  * Return health status based on last sync time
  */
-export async function handleHealth(request, env, machineId) {
+export async function handleHealth(request, env) {
   if (request.method !== "GET") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
       status: 405,
@@ -15,16 +18,15 @@ export async function handleHealth(request, env, machineId) {
     });
   }
 
-  // Validate machineId
-  if (!machineId || typeof machineId !== "string" || machineId.length < 3) {
-    return new Response(JSON.stringify({ error: "Invalid machineId" }), {
-      status: 400,
+  if (!isWorkerSharedSecretValid(request, env)) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
       headers: { "Content-Type": "application/json" }
     });
   }
 
   const state = getState();
-  const data = await getRuntimeConfig(machineId, env);
+  const data = await getRuntimeConfig(WORKER_RECORD_ID, env);
 
   // Calculate sync age
   let syncAge = null;

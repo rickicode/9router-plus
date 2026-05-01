@@ -39,12 +39,12 @@ async function loadModulesWithTempDataDir() {
 async function seedCloudUrl(localDb, overrides = {}) {
   await localDb.atomicUpdateSettings((settings) => ({
     ...settings,
+    cloudSharedSecret: "test-cloud-secret",
     cloudUrls: [
       {
         id: "worker-1",
         url: "https://worker1.example.com/",
         name: "Worker 1",
-        secret: "test-cloud-secret",
         ...overrides,
       },
     ],
@@ -134,7 +134,7 @@ describe("cloud-urls race condition", () => {
         return {
           ok: true,
           status: 200,
-          json: async () => ({ success: true, machineId: "machine-1" }),
+          json: async () => ({ success: true }),
         };
       }
 
@@ -230,7 +230,7 @@ describe("cloud-urls race condition", () => {
         return {
           ok: true,
           status: 200,
-          json: async () => ({ success: true, machineId: "machine-1" }),
+          json: async () => ({ success: true }),
         };
       }
 
@@ -267,7 +267,7 @@ describe("cloud-urls race condition", () => {
         return {
           ok: true,
           status: 200,
-          json: async () => ({ success: true, machineId: "machine-1" }),
+          json: async () => ({ success: true }),
         };
       }
 

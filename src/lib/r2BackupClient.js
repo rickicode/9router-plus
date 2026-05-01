@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
 import {
   exportDb,
+  getProviderConnections,
   getSettings,
   prepareLocalDbForExternalRestore,
   reloadLocalDbAfterExternalRestore,
@@ -286,6 +287,20 @@ function decryptSqliteEnvelope(buffer, settings = {}) {
   return decryptEnvelopePayload(envelope.payload, settings);
 }
 
+async function resolveRuntimeSnapshot(snapshot) {
+  try {
+    const mergedConnections = await getProviderConnections();
+    return Array.isArray(mergedConnections) && mergedConnections.length > 0
+      ? {
+          ...snapshot,
+          providerConnections: mergedConnections,
+        }
+      : snapshot;
+  } catch {
+    return snapshot;
+  }
+}
+
 export async function publishRuntimeArtifacts({
   artifactUrls,
   dbSnapshot = null,
@@ -438,6 +453,7 @@ export async function publishRuntimeArtifactsFromSettings({
     ? buildArtifactWriteUrls(resolvedSettings)
     : buildArtifactUrls(resolvedSettings?.r2RuntimePublicBaseUrl);
   const snapshot = dbSnapshot || await exportDb();
+  const runtimeSnapshot = await resolveRuntimeSnapshot(snapshot);
   const uploadWithAuth = async (request) => putObject({
     ...request,
     r2Config: resolvedSettings?.r2Config || null,
@@ -468,8 +484,8 @@ export async function publishRuntimeArtifactsFromSettings({
     artifactUrls,
     dbSnapshot: snapshot,
     backupSnapshot,
-    runtimeSnapshot: snapshot,
-    eligibleSnapshot: snapshot,
+    runtimeSnapshot,
+    eligibleSnapshot: runtimeSnapshot,
     sqliteChanged,
     sqliteData,
     putObject: uploadWithAuth,
@@ -590,7 +606,9 @@ export async function getR2Config() {
 async function getR2WorkerEntries() {
   const settings = await getSettings();
   const cloudUrls = Array.isArray(settings.cloudUrls) ? settings.cloudUrls : [];
-  return cloudUrls.filter(c => c?.url && c?.secret);
+  const secret = typeof settings.cloudSharedSecret === "string" ? settings.cloudSharedSecret : "";
+  if (!secret) return [];
+  return cloudUrls.filter(c => c?.url).map((entry) => ({ ...entry, secret }));
 }
 
 /**

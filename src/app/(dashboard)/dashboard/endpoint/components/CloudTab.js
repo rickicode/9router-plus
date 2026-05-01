@@ -102,8 +102,10 @@ export default function CloudTab() {
   const [newCloudName, setNewCloudName] = useState("");
   const [adding, setAdding] = useState(false);
   const [syncingId, setSyncingId] = useState(null);
-  const [revealedSecrets, setRevealedSecrets] = useState({});
-  const [loadingSecretId, setLoadingSecretId] = useState(null);
+  const [globalSecretMasked, setGlobalSecretMasked] = useState("");
+  const [globalSecretRevealed, setGlobalSecretRevealed] = useState("");
+  const [loadingGlobalSecret, setLoadingGlobalSecret] = useState(false);
+  const [regeneratingSecret, setRegeneratingSecret] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [tunnelEnabled, setTunnelEnabled] = useState(false);
@@ -132,6 +134,10 @@ export default function CloudTab() {
       if (cloudUrlsRes.ok) {
         const data = await cloudUrlsRes.json();
         setCloudUrls(Array.isArray(data.cloudUrls) ? data.cloudUrls : []);
+        setGlobalSecretMasked(data.cloudSharedSecretMasked || "");
+        if (typeof data.cloudSharedSecret === "string" && data.cloudSharedSecret) {
+          setGlobalSecretRevealed(data.cloudSharedSecret);
+        }
       }
     } catch (e) {
       console.error("Failed to load settings:", e);
@@ -204,6 +210,9 @@ export default function CloudTab() {
       if (!res.ok) throw new Error(data.error || "Failed to add cloud URL");
       setNewCloudUrl("");
       setNewCloudName("");
+      if (data?.cloudSharedSecretMasked) {
+        setGlobalSecretMasked(data.cloudSharedSecretMasked);
+      }
       if (data?.initialSync?.ok) {
         setInfo("Cloud worker registered and initial runtime refresh completed.");
       } else if (data?.initialSync?.error) {
@@ -278,75 +287,81 @@ export default function CloudTab() {
     }
   };
 
-  const handleRevealSecret = async (id) => {
+  const handleRevealSecret = async () => {
     try {
-      if (revealedSecrets[id]) {
-        setRevealedSecrets((prev) => {
-          const next = { ...prev };
-          delete next[id];
-          return next;
-        });
+      if (globalSecretRevealed) {
+        setGlobalSecretRevealed("");
         return;
       }
 
-      setLoadingSecretId(id);
-      const res = await fetch(`/api/cloud-urls/${id}/status?includeSecret=1`, {
+      setLoadingGlobalSecret(true);
+      const res = await fetch(`/api/cloud-urls?includeSecret=1`, {
         headers: { "X-Requested-With": "XMLHttpRequest" },
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to load worker secret");
-      if (!data.secret) throw new Error("Worker secret is unavailable");
-      setRevealedSecrets((prev) => ({ ...prev, [id]: data.secret }));
+      if (!res.ok) throw new Error(data.error || "Failed to load cloud secret");
+      if (!data.cloudSharedSecret) throw new Error("Cloud secret is unavailable");
+      setGlobalSecretRevealed(data.cloudSharedSecret);
+      setGlobalSecretMasked(data.cloudSharedSecretMasked || globalSecretMasked);
     } catch (e) {
       setError(e.message);
     } finally {
-      setLoadingSecretId(null);
+      setLoadingGlobalSecret(false);
     }
   };
 
-  const handleCopySecret = async (entryId, fallbackMasked) => {
-    const secret = revealedSecrets[entryId];
-    if (secret) {
-      copy(secret, entryId);
+  const handleCopySecret = async () => {
+    if (globalSecretRevealed) {
+      copy(globalSecretRevealed, "global-cloud-secret");
       return;
     }
 
     try {
-      setLoadingSecretId(entryId);
-      const res = await fetch(`/api/cloud-urls/${entryId}/status?includeSecret=1`, {
+      setLoadingGlobalSecret(true);
+      const res = await fetch(`/api/cloud-urls?includeSecret=1`, {
         headers: { "X-Requested-With": "XMLHttpRequest" },
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to load worker secret");
-      if (!data.secret) throw new Error("Worker secret is unavailable");
-      setRevealedSecrets((prev) => ({ ...prev, [entryId]: data.secret }));
-      copy(data.secret, entryId);
+      if (!res.ok) throw new Error(data.error || "Failed to load cloud secret");
+      if (!data.cloudSharedSecret) throw new Error("Cloud secret is unavailable");
+      setGlobalSecretRevealed(data.cloudSharedSecret);
+      setGlobalSecretMasked(data.cloudSharedSecretMasked || globalSecretMasked);
+      copy(data.cloudSharedSecret, "global-cloud-secret");
     } catch (e) {
-      setError(e.message || `Failed to copy ${fallbackMasked || "secret"}`);
+      setError(e.message || "Failed to copy cloud secret");
     } finally {
-      setLoadingSecretId(null);
+      setLoadingGlobalSecret(false);
+    }
+  };
+
+  const handleRegenerateSecret = async () => {
+    if (!confirm("Regenerate the global cloud secret? All workers will stop syncing until you update CLOUD_SHARED_SECRET on each worker.")) {
+      return;
+    }
+
+    setRegeneratingSecret(true);
+    setError("");
+    setInfo("");
+    try {
+      const res = await fetch("/api/cloud-urls", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "regenerate-secret" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to regenerate cloud secret");
+      setGlobalSecretMasked(data.cloudSharedSecretMasked || "");
+      setGlobalSecretRevealed(data.cloudSharedSecret || "");
+      setInfo(data.warning || "Global cloud secret regenerated.");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setRegeneratingSecret(false);
     }
   };
 
   return (
     <div className="space-y-6">
-      <GlassCard>
-        <SectionHeader
-          title="Cloudflare Tunnel"
-          subtitle="Expose your local 9Router instance via Cloudflare Tunnel"
-          badge={<StatusBadge status={tunnelEnabled ? "Enabled" : "Disabled"} />}
-        />
-        <div className="mt-4 space-y-3">
-          {tunnelEnabled && tunnelUrl && (
-            <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-3">
-              <div className="mb-1 text-xs text-[var(--color-text-muted)]">Public URL</div>
-              <div className="text-sm font-mono text-[var(--color-text-main)]">{tunnelUrl}</div>
-            </div>
-          )}
-          <div className="text-xs text-[var(--color-text-muted)]">Manage tunnel settings in the Main tab</div>
-        </div>
-      </GlassCard>
-
       <GlassCard>
         <SectionHeader
           label="R2 STORAGE"
@@ -393,7 +408,7 @@ export default function CloudTab() {
         <SectionHeader
           label="CLOUDFLARE WORKER"
           title="Cloud Workers"
-          subtitle="Self-hosted Cloudflare Workers that execute the latest synced config from Settings. Each worker is registered with a per-machine shared secret."
+          subtitle="Self-hosted Cloudflare Workers that execute the latest synced config from Settings. 9Router owns one global shared secret for all workers until you regenerate it."
           badge={<StatusBadge status={cloudUrls.length > 0 ? `${cloudUrls.length} configured` : "None"} />}
         />
 
@@ -425,9 +440,6 @@ export default function CloudTab() {
                 : (status?.probe?.status || entry.status || "unknown");
               const workerError = status?.workerError || status?.error || null;
               const workerStatus = status?.workerStatus;
-              const secretValue = revealedSecrets[entry.id] || status?.secretMasked || (entry.hasSecret ? "••••" : "Unavailable");
-              const hasSecret = status?.hasSecret ?? entry.hasSecret;
-              const isSecretLoading = loadingSecretId === entry.id;
               const workerMessage = getWorkerMessage(entry, workerError, workerStatus);
               const isSyncingThis = syncingId === entry.id;
               const isAnySyncing = syncingId !== null;
@@ -466,24 +478,8 @@ export default function CloudTab() {
                       </div>
                       <div className="mt-3 rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-2">
                         <div className="mb-1 text-[11px] uppercase tracking-[0.04em] text-[var(--color-text-muted)]">Worker Secret</div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <code className="rounded bg-black/20 px-2 py-1 text-xs text-[var(--color-text-main)]">{secretValue}</code>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => handleRevealSecret(entry.id)}
-                            disabled={!hasSecret || isSecretLoading}
-                          >
-                            {!hasSecret ? "Unavailable" : revealedSecrets[entry.id] ? "Hide" : (isSecretLoading ? "Loading…" : "Reveal")}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => handleCopySecret(entry.id, status?.secretMasked)}
-                            disabled={!hasSecret || isSecretLoading}
-                          >
-                            {copied === entry.id ? "Copied" : "Copy"}
-                          </Button>
+                        <div className="text-xs text-[var(--color-text-muted)]">
+                          This worker uses the global 9Router cloud secret shown below.
                         </div>
                       </div>
                       {workerMessage && (
@@ -497,7 +493,7 @@ export default function CloudTab() {
                         size="sm"
                         variant="secondary"
                         onClick={() => handleSyncNow(entry.id)}
-                        disabled={isAnySyncing || !entry.hasSecret}
+                        disabled={isAnySyncing}
                         title="Retry sync for this worker"
                       >
                         {isSyncingThis ? "Syncing…" : "Sync now"}
@@ -539,8 +535,35 @@ export default function CloudTab() {
               </Button>
             </div>
             <div className="mt-2 text-[11px] text-[var(--color-text-muted)]">
-              9Router probes <code>/admin/health</code>, generates a per-worker shared secret, registers the worker, then immediately attempts an initial runtime refresh.
+              9Router probes <code>/admin/health</code>, then registers the worker with the current global cloud secret automatically.
             </div>
+          </div>
+
+          <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4">
+            <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1">
+                <div className="text-sm font-medium text-[var(--color-text-main)]">
+                  Global Cloud Secret
+                </div>
+                <div className="text-xs text-[var(--color-text-muted)]">
+                  Copy this secret into <code>CLOUD_SHARED_SECRET</code> on every worker. Regenerating it updates 9Router immediately and requires manual worker env updates.
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="secondary" onClick={handleRevealSecret} disabled={loadingGlobalSecret}>
+                  {globalSecretRevealed ? "Hide" : (loadingGlobalSecret ? "Loading…" : "Reveal")}
+                </Button>
+                <Button size="sm" variant="secondary" onClick={handleCopySecret} disabled={loadingGlobalSecret}>
+                  {copied === "global-cloud-secret" ? "Copied" : "Copy"}
+                </Button>
+                <Button size="sm" onClick={handleRegenerateSecret} disabled={regeneratingSecret}>
+                  {regeneratingSecret ? "Regenerating…" : "Regenerate"}
+                </Button>
+              </div>
+            </div>
+            <code className="block rounded bg-black/20 px-3 py-2 text-xs text-[var(--color-text-main)] break-all">
+              {globalSecretRevealed || globalSecretMasked || "Unavailable"}
+            </code>
           </div>
 
           <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] p-4">

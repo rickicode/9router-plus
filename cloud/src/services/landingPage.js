@@ -23,7 +23,7 @@ small{color:#666}
 <body><div class="box">
 <h1>9Router Worker</h1>
 <p>Worker is running. Configure this URL in your 9Router dashboard under <strong>Endpoint &rarr; Cloud</strong>.</p>
-<p><small>Status dashboard: <code>/admin/status?machineId=...&amp;token=...</code></small></p>
+<p><small>Status dashboard: <code>/admin/status?token=...</code></small></p>
 </div></body></html>`;
 
   return new Response(html, {

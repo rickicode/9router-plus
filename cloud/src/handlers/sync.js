@@ -1,7 +1,9 @@
 import * as log from "../utils/logger.js";
 import { getMachineData, saveMachineData, deleteMachineData } from "../services/storage.js";
 import { updateLastSync } from "../services/state.js";
-import { extractSecret, isSecretValid } from "../utils/secret.js";
+import { isWorkerSharedSecretValid } from "../utils/secret.js";
+
+const WORKER_RECORD_ID = "shared";
 
 const CORS_HEADERS = {
   "Content-Type": "application/json",
@@ -55,8 +57,7 @@ export async function handleSync(request, env, ctx) {
  * Returns either { ok: true, data } or { ok: false, response }.
  */
 async function authorize(request, machineId, env, { requireExisting = true } = {}) {
-  const data = await getMachineData(machineId, env);
-  const presented = extractSecret(request);
+  const data = await getMachineData(WORKER_RECORD_ID, env);
 
   if (!data) {
     if (requireExisting) {
@@ -66,8 +67,8 @@ async function authorize(request, machineId, env, { requireExisting = true } = {
     return { ok: true, data: null };
   }
 
-  if (!isSecretValid(presented, data)) {
-    log.warn("SYNC", "Invalid secret", { machineId });
+  if (!isWorkerSharedSecretValid(request, env)) {
+    log.warn("SYNC", "Invalid shared secret", { machineId });
     return { ok: false, response: jsonResponse({ error: "Unauthorized" }, 401) };
   }
 

@@ -1,4 +1,22 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+
+const exportDb = vi.fn();
+const getProviderConnections = vi.fn();
+
+vi.mock("@/lib/localDb.js", async () => {
+  const actual = await vi.importActual("@/lib/localDb.js");
+  return {
+    ...actual,
+    exportDb,
+    getProviderConnections,
+  };
+});
+
+beforeEach(() => {
+  exportDb.mockReset();
+  getProviderConnections.mockReset();
+  getProviderConnections.mockResolvedValue([]);
+});
 
 describe("putObjectWithRetry", () => {
   it("retries failed PUT responses and returns attempts after a later success", async () => {
@@ -137,6 +155,69 @@ describe("publishRuntimeArtifacts", () => {
       "https://storage.example.com/runtime.json",
       "https://storage.example.com/eligible.json",
     ]);
+  });
+
+  it("uploads full credentials with active API keys when full runtime URL is configured", async () => {
+    const uploadedBodies = new Map();
+    const putObject = vi.fn().mockImplementation(async ({ objectUrl, body }) => {
+      uploadedBodies.set(objectUrl, typeof body === "string" ? body : String(body));
+      return { ok: true, attempts: 1 };
+    });
+
+    const { publishRuntimeArtifacts } = await import("@/lib/r2BackupClient.js");
+
+    await publishRuntimeArtifacts({
+      artifactUrls: {
+        backupUrl: "https://storage.example.com/backup.json",
+        runtimeUrl: "https://storage.example.com/runtime.json",
+        eligibleUrl: "https://storage.example.com/eligible.json",
+        fullRuntimeUrl: "https://storage.example.com/runtime/credentials.full.json",
+        sqliteUrl: "https://storage.example.com/sqlite/latest.db",
+      },
+      dbSnapshot: {
+        format: "9router-db-v1",
+        schemaVersion: 1,
+        providerConnections: [
+          { id: "conn-1", provider: "openai", apiKey: "sk-provider", isActive: true, routingStatus: "eligible" },
+        ],
+        modelAliases: {},
+        combos: [],
+        apiKeys: [
+          { id: "key-1", key: "worker-key", name: "Primary Worker", isActive: true },
+          { id: "key-2", key: "disabled-key", name: "Disabled Worker", isActive: false },
+        ],
+        settings: {
+          morph: {
+            baseUrl: "https://api.morphllm.com",
+            apiKeys: [
+              { email: "active@example.com", key: "mk-active", status: "active", isExhausted: false },
+            ],
+          },
+        },
+      },
+      sqliteChanged: false,
+      putObject,
+    });
+
+    const credentialsPayload = JSON.parse(uploadedBodies.get("https://storage.example.com/runtime/credentials.full.json"));
+    expect(credentialsPayload.providers).toEqual({
+      "conn-1": expect.objectContaining({
+        id: "conn-1",
+        provider: "openai",
+        apiKey: "sk-provider",
+        routingStatus: "eligible",
+      }),
+    });
+    expect(credentialsPayload.apiKeys).toEqual([
+      { id: "key-1", key: "worker-key", name: "Primary Worker", isActive: true },
+    ]);
+    expect(credentialsPayload.morph).toEqual({
+      baseUrl: "https://api.morphllm.com",
+      apiKeys: [
+        { id: undefined, email: "active@example.com", key: "mk-active", status: "active", isExhausted: false },
+      ],
+      roundRobinEnabled: false,
+    });
   });
 
   it("uploads sqlite when the database changed", async () => {
@@ -315,6 +396,8 @@ describe("publishRuntimeArtifactsFromSettings", () => {
   it("uploads config artifacts, skips unchanged sqlite, and patches runtime publish only when both config uploads succeed", async () => {
     const putObject = vi.fn().mockResolvedValue({ ok: true, attempts: 1 });
     const settingsUpdater = vi.fn().mockResolvedValue(undefined);
+    exportDb.mockResolvedValue(buildSnapshot());
+    getProviderConnections.mockResolvedValue([]);
 
     const { publishRuntimeArtifactsFromSettings } = await import("@/lib/r2BackupClient.js");
 
@@ -334,6 +417,117 @@ describe("publishRuntimeArtifactsFromSettings", () => {
     expect(settingsUpdater).toHaveBeenCalledTimes(1);
     expect(settingsUpdater).toHaveBeenCalledWith({
       r2LastRuntimePublishAt: expect.any(String),
+    });
+  });
+
+  it("uses merged eligible provider connections for credentials.full during manual or scheduled publish", async () => {
+    const uploadedBodies = new Map();
+    const putObject = vi.fn().mockImplementation(async ({ objectUrl, body }) => {
+      uploadedBodies.set(objectUrl, typeof body === "string" ? body : String(body));
+      return { ok: true, attempts: 1 };
+    });
+
+    exportDb.mockResolvedValue({
+      ...buildSnapshot(),
+      providerConnections: [
+        { id: "stale-conn", provider: "openai", apiKey: "stale-key", isActive: true, routingStatus: "blocked" },
+      ],
+      apiKeys: [
+        { id: "key-1", key: "worker-key", isActive: true },
+      ],
+    });
+    getProviderConnections.mockResolvedValue([
+      { id: "live-conn", provider: "openai", apiKey: "live-key", isActive: true, routingStatus: "eligible" },
+    ]);
+
+    const { publishRuntimeArtifactsFromSettings } = await import("@/lib/r2BackupClient.js");
+
+    await publishRuntimeArtifactsFromSettings({
+      settings: buildSettings({
+        r2Config: {
+          endpoint: "https://acct.r2.cloudflarestorage.com",
+          bucket: "media",
+          accessKeyId: "key",
+          secretAccessKey: "secret",
+          region: "auto",
+        },
+      }),
+      putObject,
+      settingsUpdater: vi.fn().mockResolvedValue(undefined),
+      fingerprintReader: vi.fn().mockReturnValue({
+        fingerprint: "fp-1",
+        data: Buffer.from("sqlite-bytes"),
+      }),
+    });
+
+    const credentialsUrl = "https://acct.r2.cloudflarestorage.com/media/runtime/credentials.full.json";
+    const credentialsPayload = JSON.parse(uploadedBodies.get(credentialsUrl));
+    expect(credentialsPayload.providers).toEqual({
+      "live-conn": expect.objectContaining({
+        id: "live-conn",
+        provider: "openai",
+        apiKey: "live-key",
+        routingStatus: "eligible",
+      }),
+    });
+    expect(credentialsPayload.providers["stale-conn"]).toBeUndefined();
+    expect(credentialsPayload.apiKeys).toEqual([
+      { id: "key-1", key: "worker-key", isActive: true },
+    ]);
+  });
+
+  it("falls back to the provided snapshot when merged provider connections cannot be loaded", async () => {
+    const uploadedBodies = new Map();
+    const putObject = vi.fn().mockImplementation(async ({ objectUrl, body }) => {
+      uploadedBodies.set(objectUrl, typeof body === "string" ? body : String(body));
+      return { ok: true, attempts: 1 };
+    });
+
+    getProviderConnections.mockRejectedValue(new Error("hot state unavailable"));
+
+    const { publishRuntimeArtifactsFromSettings } = await import("@/lib/r2BackupClient.js");
+
+    await expect(publishRuntimeArtifactsFromSettings({
+      settings: buildSettings({
+        r2Config: {
+          endpoint: "https://acct.r2.cloudflarestorage.com",
+          bucket: "media",
+          accessKeyId: "key",
+          secretAccessKey: "secret",
+          region: "auto",
+        },
+      }),
+      dbSnapshot: {
+        ...buildSnapshot(),
+        providerConnections: [
+          { id: "snapshot-conn", provider: "openai", apiKey: "snapshot-key", isActive: true, routingStatus: "eligible" },
+        ],
+        apiKeys: [
+          { id: "key-1", key: "worker-key", isActive: true },
+        ],
+      },
+      putObject,
+      settingsUpdater: vi.fn().mockResolvedValue(undefined),
+      fingerprintReader: vi.fn().mockReturnValue({
+        fingerprint: "fp-1",
+        data: Buffer.from("sqlite-bytes"),
+      }),
+    })).resolves.toMatchObject({
+      backup: { ok: true },
+      runtime: { ok: true },
+      eligible: { ok: true },
+      credentials: { ok: true },
+    });
+
+    const credentialsUrl = "https://acct.r2.cloudflarestorage.com/media/runtime/credentials.full.json";
+    const credentialsPayload = JSON.parse(uploadedBodies.get(credentialsUrl));
+    expect(credentialsPayload.providers).toEqual({
+      "snapshot-conn": expect.objectContaining({
+        id: "snapshot-conn",
+        provider: "openai",
+        apiKey: "snapshot-key",
+        routingStatus: "eligible",
+      }),
     });
   });
 

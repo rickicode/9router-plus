@@ -1,5 +1,5 @@
 import { getConsistentMachineId } from "@/shared/utils/machineId";
-import { atomicUpdateProviderConnection } from "@/lib/localDb";
+import { atomicUpdateProviderConnection, getSettings } from "@/lib/localDb";
 import { getCloudUrl } from "@/lib/cloudUrlResolver";
 
 const DEFAULT_CLOUD_USAGE_POLL_INTERVAL_MS = 15000;
@@ -125,10 +125,27 @@ export class CloudUsagePoller {
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
       try {
-        const response = await fetch(`${cloudUrl}/worker/usage/${this.machineId}`, {
+        const settings = await getSettings();
+        const cloudEntry = Array.isArray(settings.cloudUrls)
+          ? settings.cloudUrls.find((entry) => entry?.url === cloudUrl)
+          : null;
+        const cloudSecret = typeof settings.cloudSharedSecret === "string" ? settings.cloudSharedSecret : "";
+        if (!cloudEntry?.url) {
+          this.lastError = "Worker entry unavailable";
+          console.error("[CloudUsagePoller] Worker entry unavailable");
+          return;
+        }
+        if (!cloudSecret) {
+          this.lastError = "Global cloud shared secret missing";
+          console.error("[CloudUsagePoller] Global cloud secret unavailable");
+          return;
+        }
+
+        const response = await fetch(`${cloudUrl}/worker/usage`, {
           signal: controller.signal,
           headers: {
             Accept: "application/json",
+            "X-Cloud-Secret": cloudSecret,
           },
         });
 

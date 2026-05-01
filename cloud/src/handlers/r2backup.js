@@ -1,15 +1,15 @@
 import * as log from "../utils/logger.js";
 import {
-  getMachineData,
   exportMachineData,
-  saveSqliteBackup,
   listSqliteBackups,
   getSqliteBackup,
   saveUsageData,
   saveRequestLog,
   listMachines
 } from "../services/storage.js";
-import { extractSecret, isSecretValid } from "../utils/secret.js";
+import { isWorkerSharedSecretValid } from "../utils/secret.js";
+
+const WORKER_RECORD_ID = "shared";
 
 const CORS_HEADERS = {
   "Content-Type": "application/json",
@@ -23,19 +23,12 @@ function jsonResponse(data, status = 200) {
   });
 }
 
-async function authorize(request, machineId, env) {
-  const data = await getMachineData(machineId, env);
-  const presented = extractSecret(request);
-
-  if (!data) {
-    return { ok: false, response: jsonResponse({ error: "Machine not registered" }, 404) };
-  }
-
-  if (!isSecretValid(presented, data)) {
+async function authorize(request, env) {
+  if (!isWorkerSharedSecretValid(request, env)) {
     return { ok: false, response: jsonResponse({ error: "Unauthorized" }, 401) };
   }
 
-  return { ok: true, data };
+  return { ok: true };
 }
 
 /**
@@ -52,14 +45,7 @@ export async function handleSqliteBackupUpload(request, env) {
  * GET /r2/backup/sqlite - List all SQLite backups
  */
 export async function handleSqliteBackupList(request, env) {
-  const url = new URL(request.url);
-  const machineId = url.searchParams.get("machineId");
-
-  if (!machineId) {
-    return jsonResponse({ error: "Missing machineId query param" }, 400);
-  }
-
-  const auth = await authorize(request, machineId, env);
+  const auth = await authorize(request, env);
   if (!auth.ok) return auth.response;
 
   try {
@@ -75,13 +61,7 @@ export async function handleSqliteBackupList(request, env) {
  */
 export async function handleSqliteBackupDownload(request, env) {
   const url = new URL(request.url);
-  const machineId = url.searchParams.get("machineId");
-
-  if (!machineId) {
-    return jsonResponse({ error: "Missing machineId query param" }, 400);
-  }
-
-  const auth = await authorize(request, machineId, env);
+  const auth = await authorize(request, env);
   if (!auth.ok) return auth.response;
 
   // Extract key from path: /r2/backup/sqlite/download?key=...
@@ -112,18 +92,11 @@ export async function handleSqliteBackupDownload(request, env) {
  * GET /r2/export/:machineId - Export all data for restore/rollback
  */
 export async function handleExportData(request, env) {
-  const url = new URL(request.url);
-  const machineId = url.pathname.split("/")[3];
-
-  if (!machineId) {
-    return jsonResponse({ error: "Missing machineId" }, 400);
-  }
-
-  const auth = await authorize(request, machineId, env);
+  const auth = await authorize(request, env);
   if (!auth.ok) return auth.response;
 
   try {
-    const exportData = await exportMachineData(machineId, env);
+    const exportData = await exportMachineData(WORKER_RECORD_ID, env);
     return jsonResponse({
       success: true,
       ...exportData
@@ -138,19 +111,12 @@ export async function handleExportData(request, env) {
  * POST /r2/usage/:machineId - Save usage data backup
  */
 export async function handleUsageBackup(request, env) {
-  const url = new URL(request.url);
-  const machineId = url.pathname.split("/")[3];
-
-  if (!machineId) {
-    return jsonResponse({ error: "Missing machineId" }, 400);
-  }
-
-  const auth = await authorize(request, machineId, env);
+  const auth = await authorize(request, env);
   if (!auth.ok) return auth.response;
 
   try {
     const body = await request.json();
-    await saveUsageData(machineId, body, env);
+    await saveUsageData(WORKER_RECORD_ID, body, env);
     return jsonResponse({ success: true });
   } catch (error) {
     return jsonResponse({ error: error.message }, 500);
@@ -161,19 +127,12 @@ export async function handleUsageBackup(request, env) {
  * POST /r2/requests/:machineId - Save request log backup
  */
 export async function handleRequestLogBackup(request, env) {
-  const url = new URL(request.url);
-  const machineId = url.pathname.split("/")[3];
-
-  if (!machineId) {
-    return jsonResponse({ error: "Missing machineId" }, 400);
-  }
-
-  const auth = await authorize(request, machineId, env);
+  const auth = await authorize(request, env);
   if (!auth.ok) return auth.response;
 
   try {
     const body = await request.json();
-    await saveRequestLog(machineId, body, env);
+    await saveRequestLog(WORKER_RECORD_ID, body, env);
     return jsonResponse({ success: true });
   } catch (error) {
     return jsonResponse({ error: error.message }, 500);
@@ -184,14 +143,7 @@ export async function handleRequestLogBackup(request, env) {
  * GET /r2/info - Get R2 storage info (machines list, backup count)
  */
 export async function handleR2Info(request, env) {
-  const url = new URL(request.url);
-  const machineId = url.searchParams.get("machineId");
-
-  if (!machineId) {
-    return jsonResponse({ error: "Missing machineId query param" }, 400);
-  }
-
-  const auth = await authorize(request, machineId, env);
+  const auth = await authorize(request, env);
   if (!auth.ok) return auth.response;
 
   try {

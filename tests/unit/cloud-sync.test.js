@@ -1,15 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const getConsistentMachineId = vi.fn();
 const getSettings = vi.fn();
 const atomicUpdateSettings = vi.fn();
 const getActiveCloudEntry = vi.fn();
 const refreshWorkerRuntime = vi.fn();
 const publishRuntimeArtifactsFromSettings = vi.fn();
-
-vi.mock("@/shared/utils/machineId", () => ({
-  getConsistentMachineId,
-}));
 
 vi.mock("@/lib/localDb", () => ({
   getSettings,
@@ -32,7 +27,6 @@ describe("cloudSync", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    getConsistentMachineId.mockResolvedValue("machine-1");
     atomicUpdateSettings.mockImplementation(async (mutator) => mutator({ cloudUrls: [] }));
     publishRuntimeArtifactsFromSettings.mockResolvedValue({
       backup: { ok: true },
@@ -54,8 +48,9 @@ describe("cloudSync", () => {
         secretAccessKey: "secret",
         region: "auto",
       },
+      cloudSharedSecret: "global-secret-1",
       cloudUrls: [
-        { id: "worker-1", url: "https://worker.example.com", secret: "secret-1" },
+        { id: "worker-1", url: "https://worker.example.com" },
       ],
     });
     refreshWorkerRuntime.mockResolvedValue({ success: true, refreshedAt: "2026-04-30T00:00:00.000Z" });
@@ -70,8 +65,7 @@ describe("cloudSync", () => {
     });
     expect(refreshWorkerRuntime).toHaveBeenCalledWith(
       "https://worker.example.com",
-      "secret-1",
-      "machine-1"
+      "global-secret-1"
     );
     expect(result).toMatchObject({
       success: true,
@@ -86,8 +80,9 @@ describe("cloudSync", () => {
 
   it("fails before worker refresh when private R2 is not configured", async () => {
     getSettings.mockResolvedValue({
+      cloudSharedSecret: "global-secret-1",
       cloudUrls: [
-        { id: "worker-1", url: "https://worker.example.com", secret: "secret-1" },
+        { id: "worker-1", url: "https://worker.example.com" },
       ],
     });
 
@@ -110,8 +105,9 @@ describe("cloudSync", () => {
         secretAccessKey: "",
         region: "auto",
       },
+      cloudSharedSecret: "global-secret-1",
       cloudUrls: [
-        { id: "worker-1", url: "https://worker.example.com", secret: "secret-1" },
+        { id: "worker-1", url: "https://worker.example.com" },
       ],
     });
 
@@ -134,8 +130,9 @@ describe("cloudSync", () => {
         secretAccessKey: "secret",
         region: "auto",
       },
+      cloudSharedSecret: "global-secret-1",
       cloudUrls: [
-        { id: "worker-1", url: "https://worker.example.com", secret: "secret-1" },
+        { id: "worker-1", url: "https://worker.example.com" },
       ],
     });
     publishRuntimeArtifactsFromSettings.mockResolvedValue({
@@ -165,11 +162,11 @@ describe("cloudSync", () => {
         secretAccessKey: "secret",
         region: "auto",
       },
+      cloudSharedSecret: "global-secret-1",
     });
     getActiveCloudEntry.mockResolvedValue({
       id: "worker-1",
       url: "https://worker.example.com",
-      secret: "secret-1",
     });
     refreshWorkerRuntime.mockResolvedValue({ success: true, refreshedAt: "2026-04-30T00:00:00.000Z" });
 

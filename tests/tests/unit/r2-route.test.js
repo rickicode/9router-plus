@@ -106,11 +106,11 @@ describe("localDb R2 settings", () => {
       settings: {
         r2RuntimePublicBaseUrl: "https://old-runtime.example.com/base",
         r2RuntimeCacheTtlSeconds: 15,
+        cloudSharedSecret: "worker-secret-123456",
         cloudUrls: [
           {
             id: "worker-1",
             url: "https://worker.example.com",
-            secret: "worker-secret-123456",
           },
         ],
       },
@@ -128,7 +128,6 @@ describe("localDb R2 settings", () => {
     expect(cloudWorkerClientMocks.registerWithWorker).toHaveBeenCalledWith(
       "https://worker.example.com",
       "worker-secret-123456",
-      null,
       expect.objectContaining({
         runtimeUrl: "https://new-runtime.example.com/base",
         cacheTtlSeconds: 45,
@@ -140,11 +139,11 @@ describe("localDb R2 settings", () => {
     await loadLocalDb({
       settings: {
         r2RuntimePublicBaseUrl: "https://runtime.example.com/base",
+        cloudSharedSecret: "worker-secret-123456",
         cloudUrls: [
           {
             id: "worker-1",
             url: "https://worker.example.com",
-            secret: "********************",
           },
         ],
       },
@@ -169,11 +168,11 @@ describe("localDb R2 settings", () => {
     const localDb = await loadLocalDb({
       settings: {
         r2RuntimePublicBaseUrl: "https://old-runtime.example.com/base",
+        cloudSharedSecret: "worker-secret-123456",
         cloudUrls: [
           {
             id: "worker-1",
             url: "https://worker.example.com",
-            secret: "worker-secret-123456",
           },
         ],
       },

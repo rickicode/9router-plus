@@ -4,7 +4,6 @@ const getSettings = vi.fn();
 const probeCloudHealth = vi.fn();
 const fetchWorkerStatus = vi.fn();
 const buildWorkerDashboardUrl = vi.fn();
-const getConsistentMachineId = vi.fn();
 
 vi.mock("next/server", () => ({
   NextResponse: {
@@ -26,10 +25,6 @@ vi.mock("@/lib/cloudWorkerClient", () => ({
   buildWorkerDashboardUrl,
 }));
 
-vi.mock("@/shared/utils/machineId", () => ({
-  getConsistentMachineId,
-}));
-
 let GET;
 
 function makeRequest(url, headers = {}) {
@@ -42,12 +37,12 @@ describe("/api/cloud-urls/[id]/status", () => {
     process.env.NODE_ENV = "development";
 
     getSettings.mockResolvedValue({
+      cloudSharedSecret: "secret-1234567890",
       cloudUrls: [
         {
           id: "worker-1",
           url: "https://worker.example.com",
           name: "Primary Worker",
-          secret: "secret-1234567890",
           lastSyncAt: "2026-04-26T10:00:00.000Z",
           lastSyncOk: true,
           lastSyncError: null,
@@ -61,7 +56,6 @@ describe("/api/cloud-urls/[id]/status", () => {
       counts: { providers: 3 },
     });
     buildWorkerDashboardUrl.mockReturnValue("https://worker.example.com/admin/status?token=abc");
-    getConsistentMachineId.mockResolvedValue("machine-123");
 
     const mod = await import("../../src/app/api/cloud-urls/[id]/status/route.js");
     GET = mod.GET;

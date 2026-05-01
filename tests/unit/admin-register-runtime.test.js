@@ -12,6 +12,7 @@ function createEnv() {
   const store = new Map();
 
   return {
+    CLOUD_SHARED_SECRET: "super-secret-1234",
     R2_DATA: {
       async get(key) {
         if (!store.has(key)) return null;
@@ -33,15 +34,38 @@ function createEnv() {
 }
 
 describe("cloud admin register runtime metadata", () => {
+  it("returns 503 when the worker shared secret env is missing", async () => {
+    const env = createEnv();
+    env.CLOUD_SHARED_SECRET = "";
+
+    const request = new Request("https://example.com/admin/register", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-Cloud-Secret": "super-secret-1234",
+      },
+      body: JSON.stringify({
+        runtimeUrl: "https://runtime.example.com",
+      })
+    });
+
+    const response = await handleAdminRegister(request, env);
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(payload).toMatchObject({ error: "Worker shared secret is not configured" });
+  });
+
   it("stores runtimeUrl during registration and returns runtimeUrl", async () => {
     const env = createEnv();
 
     const request = new Request("https://example.com/admin/register", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "X-Cloud-Secret": "super-secret-1234",
+      },
       body: JSON.stringify({
-        machineId: "machine-123",
-        secret: "super-secret-1234",
         runtimeUrl: "https://runtime.example.com",
         cacheTtlSeconds: 45,
       })
@@ -49,7 +73,7 @@ describe("cloud admin register runtime metadata", () => {
 
     const response = await handleAdminRegister(request, env);
     const payload = await response.json();
-    const stored = await getMachineData("machine-123", env);
+    const stored = await getMachineData("shared", env);
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
@@ -57,7 +81,6 @@ describe("cloud admin register runtime metadata", () => {
       runtimeUrl: "https://runtime.example.com"
     });
     expect(stored.meta).toMatchObject({
-      secret: "super-secret-1234",
       runtimeUrl: "https://runtime.example.com",
       cacheTtlSeconds: 45,
     });
@@ -68,10 +91,11 @@ describe("cloud admin register runtime metadata", () => {
 
     const request = new Request("https://example.com/admin/register", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "X-Cloud-Secret": "super-secret-1234",
+      },
       body: JSON.stringify({
-        machineId: "machine-bad-ttl",
-        secret: "super-secret-1234",
         runtimeUrl: "https://runtime.example.com",
         cacheTtlSeconds: 0,
       })
@@ -79,7 +103,7 @@ describe("cloud admin register runtime metadata", () => {
 
     const response = await handleAdminRegister(request, env);
     const payload = await response.json();
-    const stored = await getMachineData("machine-bad-ttl", env);
+    const stored = await env.R2_DATA.get("machines/shared.json");
 
     expect(response.status).toBe(400);
     expect(payload).toMatchObject({ error: "Invalid cacheTtlSeconds" });
@@ -91,10 +115,11 @@ describe("cloud admin register runtime metadata", () => {
 
     const request = new Request("https://example.com/admin/register", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "X-Cloud-Secret": "super-secret-1234",
+      },
       body: JSON.stringify({
-        machineId: "machine-http",
-        secret: "super-secret-1234",
         runtimeUrl: "http://runtime.example.com",
       })
     });
@@ -106,15 +131,16 @@ describe("cloud admin register runtime metadata", () => {
     expect(payload).toMatchObject({ error: "runtimeUrl must use HTTPS" });
   });
 
-  it("preserves existing runtime metadata on same-secret re-register when omitted", async () => {
+  it("preserves existing runtime metadata on re-register when omitted", async () => {
     const env = createEnv();
 
     const firstRequest = new Request("https://example.com/admin/register", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "X-Cloud-Secret": "super-secret-1234",
+      },
       body: JSON.stringify({
-        machineId: "machine-keep",
-        secret: "super-secret-1234",
         runtimeUrl: "https://runtime.example.com",
         cacheTtlSeconds: 30,
       })
@@ -124,16 +150,16 @@ describe("cloud admin register runtime metadata", () => {
 
     const secondRequest = new Request("https://example.com/admin/register", {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        machineId: "machine-keep",
-        secret: "super-secret-1234"
-      })
+      headers: {
+        "content-type": "application/json",
+        "X-Cloud-Secret": "super-secret-1234",
+      },
+      body: JSON.stringify({})
     });
 
     const response = await handleAdminRegister(secondRequest, env);
     const payload = await response.json();
-    const stored = await getMachineData("machine-keep", env);
+    const stored = await getMachineData("shared", env);
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
@@ -146,9 +172,9 @@ describe("cloud admin register runtime metadata", () => {
     });
   });
 
-  it("persists runtime metadata when claiming a legacy record", async () => {
+  it("persists runtime metadata when a shared record already exists", async () => {
     const env = createEnv();
-    await env.R2_DATA.put("machines/machine-legacy.json", JSON.stringify({
+    await env.R2_DATA.put("machines/shared.json", JSON.stringify({
       providers: {},
       modelAliases: {},
       combos: [],
@@ -159,27 +185,25 @@ describe("cloud admin register runtime metadata", () => {
 
     const request = new Request("https://example.com/admin/register", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "X-Cloud-Secret": "super-secret-1234",
+      },
       body: JSON.stringify({
-        machineId: "machine-legacy",
-        secret: "super-secret-1234",
         runtimeUrl: "https://runtime.example.com",
       })
     });
 
     const response = await handleAdminRegister(request, env);
     const payload = await response.json();
-    const stored = await getMachineData("machine-legacy", env);
+    const stored = await getMachineData("shared", env);
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
       success: true,
-      claimedLegacy: true,
       runtimeUrl: "https://runtime.example.com"
     });
     expect(stored.meta).toMatchObject({
-      claimedLegacy: true,
-      secret: "super-secret-1234",
       runtimeUrl: "https://runtime.example.com",
     });
   });
@@ -189,10 +213,11 @@ describe("cloud admin register runtime metadata", () => {
 
     const firstRequest = new Request("https://example.com/admin/register", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "X-Cloud-Secret": "super-secret-1234",
+      },
       body: JSON.stringify({
-        machineId: "machine-locked",
-        secret: "super-secret-1234",
         runtimeUrl: "https://runtime.example.com",
       })
     });
@@ -201,34 +226,36 @@ describe("cloud admin register runtime metadata", () => {
 
     const secondRequest = new Request("https://example.com/admin/register", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "X-Cloud-Secret": "wrong-secret-1234",
+      },
       body: JSON.stringify({
-        machineId: "machine-locked",
-        secret: "wrong-secret-1234",
         runtimeUrl: "https://evil.example.com",
       })
     });
 
     const response = await handleAdminRegister(secondRequest, env);
     const payload = await response.json();
-    const stored = await getMachineData("machine-locked", env);
+    const stored = await getMachineData("shared", env);
 
     expect(response.status).toBe(401);
-    expect(payload).toMatchObject({ error: "Secret mismatch — machine already registered" });
+    expect(payload).toMatchObject({ error: "Unauthorized" });
     expect(stored.meta).toMatchObject({
       runtimeUrl: "https://runtime.example.com",
     });
   });
 
-  it("refreshes runtime cache for an authorized machine", async () => {
+  it("refreshes runtime cache for an authorized worker", async () => {
     const env = createEnv();
 
     await handleAdminRegister(new Request("https://example.com/admin/register", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "X-Cloud-Secret": "super-secret-1234",
+      },
       body: JSON.stringify({
-        machineId: "machine-refresh",
-        secret: "super-secret-1234",
         runtimeUrl: "https://runtime.example.com",
       })
     }), env);
@@ -263,13 +290,13 @@ describe("cloud admin register runtime metadata", () => {
           "content-type": "application/json",
           "X-Cloud-Secret": "super-secret-1234",
         },
-        body: JSON.stringify({ machineId: "machine-refresh" })
+        body: JSON.stringify({})
       }), env);
       const payload = await response.json();
-      const stored = await getMachineData("machine-refresh", env);
+      const stored = await getMachineData("shared", env);
 
       expect(response.status).toBe(200);
-      expect(payload).toMatchObject({ success: true, machineId: "machine-refresh" });
+      expect(payload).toMatchObject({ success: true });
       expect(stored.meta.runtimeRefreshRequestedAt).toEqual(expect.any(String));
     } finally {
       globalThis.fetch = originalFetch;
@@ -281,10 +308,11 @@ describe("cloud admin register runtime metadata", () => {
 
     await handleAdminRegister(new Request("https://example.com/admin/register", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "X-Cloud-Secret": "super-secret-1234",
+      },
       body: JSON.stringify({
-        machineId: "machine-refresh-locked",
-        secret: "super-secret-1234",
         runtimeUrl: "https://runtime.example.com",
       })
     }), env);
@@ -295,7 +323,7 @@ describe("cloud admin register runtime metadata", () => {
         "content-type": "application/json",
         "X-Cloud-Secret": "wrong-secret-1234",
       },
-      body: JSON.stringify({ machineId: "machine-refresh-locked" })
+      body: JSON.stringify({})
     }), env);
     const payload = await response.json();
 
@@ -303,16 +331,16 @@ describe("cloud admin register runtime metadata", () => {
     expect(payload).toMatchObject({ error: "Unauthorized" });
   });
 
-  it("deletes a registered machine when unregister is authorized", async () => {
+  it("deletes the shared record when unregister is authorized", async () => {
     const env = createEnv();
 
     await handleAdminRegister(new Request("https://example.com/admin/register", {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        machineId: "machine-delete",
-        secret: "super-secret-1234",
-      })
+      headers: {
+        "content-type": "application/json",
+        "X-Cloud-Secret": "super-secret-1234",
+      },
+      body: JSON.stringify({})
     }), env);
 
     const response = await handleAdminUnregister(new Request("https://example.com/admin/unregister", {
@@ -321,13 +349,13 @@ describe("cloud admin register runtime metadata", () => {
         "content-type": "application/json",
         "X-Cloud-Secret": "super-secret-1234",
       },
-      body: JSON.stringify({ machineId: "machine-delete" })
+      body: JSON.stringify({})
     }), env);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload).toMatchObject({ success: true, machineId: "machine-delete" });
-    expect(await getMachineData("machine-delete", env)).toBeNull();
+    expect(payload).toMatchObject({ success: true });
+    expect(await getMachineData("shared", env)).toBeNull();
   });
 
   it("rejects unregister when secret is invalid", async () => {
@@ -335,11 +363,11 @@ describe("cloud admin register runtime metadata", () => {
 
     await handleAdminRegister(new Request("https://example.com/admin/register", {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        machineId: "machine-delete-locked",
-        secret: "super-secret-1234",
-      })
+      headers: {
+        "content-type": "application/json",
+        "X-Cloud-Secret": "super-secret-1234",
+      },
+      body: JSON.stringify({})
     }), env);
 
     const response = await handleAdminUnregister(new Request("https://example.com/admin/unregister", {
@@ -348,13 +376,13 @@ describe("cloud admin register runtime metadata", () => {
         "content-type": "application/json",
         "X-Cloud-Secret": "wrong-secret-1234",
       },
-      body: JSON.stringify({ machineId: "machine-delete-locked" })
+      body: JSON.stringify({})
     }), env);
     const payload = await response.json();
 
     expect(response.status).toBe(401);
     expect(payload).toMatchObject({ error: "Unauthorized" });
-    expect(await getMachineData("machine-delete-locked", env)).not.toBeNull();
+    expect(await getMachineData("shared", env)).not.toBeNull();
   });
 
   it("reports effective merged runtime state from admin status", async () => {
@@ -362,15 +390,16 @@ describe("cloud admin register runtime metadata", () => {
 
     await handleAdminRegister(new Request("https://example.com/admin/register", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "X-Cloud-Secret": "super-secret-1234",
+      },
       body: JSON.stringify({
-        machineId: "machine-status",
-        secret: "super-secret-1234",
         runtimeUrl: "https://runtime.example.com/base",
       })
     }), env);
 
-    await saveMachineData("machine-status", {
+    await saveMachineData("shared", {
       providers: {
         conn1: {
           id: "conn1",
@@ -385,7 +414,6 @@ describe("cloud admin register runtime metadata", () => {
       apiKeys: [],
       settings: {},
       meta: {
-        secret: "super-secret-1234",
         runtimeUrl: "https://runtime.example.com/base",
       }
     }, env);
@@ -430,7 +458,7 @@ describe("cloud admin register runtime metadata", () => {
     };
 
     try {
-      const response = await handleAdminStatusJson(new Request("https://example.com/admin/status.json?machineId=machine-status", {
+      const response = await handleAdminStatusJson(new Request("https://example.com/admin/status.json", {
         headers: { "X-Cloud-Secret": "super-secret-1234" }
       }), env);
       const payload = await response.json();

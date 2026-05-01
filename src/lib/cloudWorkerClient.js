@@ -1,5 +1,4 @@
 import crypto from "node:crypto";
-import { getConsistentMachineId } from "@/shared/utils/machineId";
 
 const REQUEST_TIMEOUT_MS = 8_000;
 
@@ -7,10 +6,6 @@ function normalizeUrl(url) {
   return String(url || "").replace(/\/$/, "");
 }
 
-/**
- * Generate a 32-byte hex shared secret used to authenticate the web app to
- * its cloud worker.
- */
 export function generateCloudSecret() {
   return crypto.randomBytes(32).toString("hex");
 }
@@ -50,17 +45,12 @@ export async function probeCloudHealth(workerUrl) {
 }
 
 /**
- * Register this machineId + secret with the worker. The worker rejects the
- * request if the machineId already has a different secret stored — preventing
- * silent hijacking of an existing record.
+ * Validate that the configured shared secret is accepted by the worker and
+ * optionally refresh runtime metadata.
  */
-export async function registerWithWorker(workerUrl, secret, machineId, metadata = {}) {
-  const mid = machineId || (await getConsistentMachineId());
+export async function registerWithWorker(workerUrl, secret, metadata = {}) {
   const url = `${normalizeUrl(workerUrl)}/admin/register`;
-  const payload = {
-    machineId: mid,
-    secret,
-  };
+  const payload = {};
 
   if (metadata.runtimeUrl) payload.runtimeUrl = metadata.runtimeUrl;
   if (Number.isFinite(metadata.cacheTtlSeconds)) {
@@ -69,7 +59,10 @@ export async function registerWithWorker(workerUrl, secret, machineId, metadata 
 
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Cloud-Secret": secret,
+    },
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
@@ -86,13 +79,12 @@ export async function registerWithWorker(workerUrl, secret, machineId, metadata 
 }
 
 /**
- * Fetch the JSON status payload for this machineId from the worker.
+ * Fetch the JSON status payload for this worker.
  * Used by the dashboard to render sync state without exposing the secret to
  * the browser.
  */
-export async function fetchWorkerStatus(workerUrl, secret, machineId) {
-  const mid = machineId || (await getConsistentMachineId());
-  const url = `${normalizeUrl(workerUrl)}/admin/status.json?machineId=${encodeURIComponent(mid)}`;
+export async function fetchWorkerStatus(workerUrl, secret) {
+  const url = `${normalizeUrl(workerUrl)}/admin/status.json`;
 
   const res = await fetch(url, {
     method: "GET",
@@ -113,8 +105,7 @@ export async function fetchWorkerStatus(workerUrl, secret, machineId) {
   return body;
 }
 
-export async function refreshWorkerRuntime(workerUrl, secret, machineId) {
-  const mid = machineId || (await getConsistentMachineId());
+export async function refreshWorkerRuntime(workerUrl, secret) {
   const url = `${normalizeUrl(workerUrl)}/admin/runtime/refresh`;
 
   const res = await fetch(url, {
@@ -123,7 +114,7 @@ export async function refreshWorkerRuntime(workerUrl, secret, machineId) {
       "Content-Type": "application/json",
       "X-Cloud-Secret": secret,
     },
-    body: JSON.stringify({ machineId: mid }),
+    body: JSON.stringify({}),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
 
@@ -140,8 +131,7 @@ export async function refreshWorkerRuntime(workerUrl, secret, machineId) {
   return body || {};
 }
 
-export async function unregisterWorker(workerUrl, secret, machineId) {
-  const mid = machineId || (await getConsistentMachineId());
+export async function unregisterWorker(workerUrl, secret) {
   const url = `${normalizeUrl(workerUrl)}/admin/unregister`;
 
   const res = await fetch(url, {
@@ -150,7 +140,7 @@ export async function unregisterWorker(workerUrl, secret, machineId) {
       "Content-Type": "application/json",
       "X-Cloud-Secret": secret,
     },
-    body: JSON.stringify({ machineId: mid }),
+    body: JSON.stringify({}),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
 
@@ -167,10 +157,8 @@ export async function unregisterWorker(workerUrl, secret, machineId) {
   return body || {};
 }
 
-export async function fetchWorkerUsageEvents(workerUrl, secret, machineId, { cursor = 0, limit = 500 } = {}) {
-  const mid = machineId || (await getConsistentMachineId());
+export async function fetchWorkerUsageEvents(workerUrl, secret, { cursor = 0, limit = 500 } = {}) {
   const params = new URLSearchParams({
-    machineId: mid,
     cursor: String(Number(cursor) || 0),
     limit: String(Number(limit) || 500),
   });
@@ -197,14 +185,11 @@ export async function fetchWorkerUsageEvents(workerUrl, secret, machineId, { cur
 
 /**
  * Build the URL the user can open in a browser tab to view the live worker
- * dashboard. The token is included in the query string because the dashboard
- * is server-rendered HTML and the user is following a click from the trusted
- * 9Router web UI.
+ * dashboard.
  */
-export function buildWorkerDashboardUrl(workerUrl, secret, machineId) {
+export function buildWorkerDashboardUrl(workerUrl, secret) {
   const base = normalizeUrl(workerUrl);
   const params = new URLSearchParams({
-    machineId,
     token: secret,
   });
   return `${base}/admin/status?${params.toString()}`;

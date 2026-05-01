@@ -546,30 +546,16 @@ const worker = {
         return addCorsHeaders(response);
       }
 
-      // New format: /worker/usage/:machineId
-      if (path.startsWith("/worker/usage/") && request.method === "GET") {
-        const machineId = path.split("/")[3];
-        if (!machineId) {
-          return new Response(JSON.stringify({ error: "Missing machineId" }), {
-            status: 400,
-            headers: { "Content-Type": "application/json" }
-          });
-        }
-        const response = await handleUsage(request, env, machineId);
+      // New format: /worker/usage
+      if (path === "/worker/usage" && request.method === "GET") {
+        const response = await handleUsage(request, env);
         log.response(response.status, Date.now() - startTime);
         return addCorsHeaders(response);
       }
 
-      // New format: /worker/health/:machineId
-      if (path.startsWith("/worker/health/") && request.method === "GET") {
-        const machineId = path.split("/")[3];
-        if (!machineId) {
-          return new Response(JSON.stringify({ error: "Missing machineId" }), {
-            status: 400,
-            headers: { "Content-Type": "application/json" }
-          });
-        }
-        const response = await handleHealth(request, env, machineId);
+      // New format: /worker/health
+      if (path === "/worker/health" && request.method === "GET") {
+        const response = await handleHealth(request, env);
         log.response(response.status, Date.now() - startTime);
         return addCorsHeaders(response);
       }

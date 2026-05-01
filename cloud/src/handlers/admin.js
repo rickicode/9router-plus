@@ -2,9 +2,10 @@ import * as log from "../utils/logger.js";
 import { deleteMachineData, getMachineData, saveMachineData, invalidateRuntimeConfig, getRuntimeConfig } from "../services/storage.js";
 import { getState, getUptime } from "../services/state.js";
 import { getAllUsage } from "../services/usage.js";
-import { extractSecret, isSecretValid, constantTimeEqual } from "../utils/secret.js";
+import { getConfiguredSharedSecret, isWorkerSharedSecretValid } from "../utils/secret.js";
 
 const WORKER_VERSION = "0.3.0";
+const WORKER_RECORD_ID = "shared";
 
 const JSON_HEADERS = {
   "Content-Type": "application/json",
@@ -50,11 +51,47 @@ function resolveRegistrationMetaField(bodyValue, existingValue) {
   return bodyValue === null ? existingValue ?? null : bodyValue;
 }
 
+function buildRuntimeRegistration(runtimeUrl, cacheTtlSeconds, existingMeta = {}) {
+  return {
+    ...(existingMeta || {}),
+    runtimeUrl: resolveRegistrationMetaField(runtimeUrl, existingMeta?.runtimeUrl),
+    cacheTtlSeconds: resolveRegistrationMetaField(cacheTtlSeconds, existingMeta?.cacheTtlSeconds),
+  };
+}
+
+function parseRuntimeMetadata(body = {}) {
+  const runtimeUrl = normalizeRuntimeUrl(body?.runtimeUrl);
+  const cacheTtlSeconds = normalizeCacheTtlSeconds(body?.cacheTtlSeconds);
+
+  if (runtimeUrl?.error) {
+    return { error: runtimeUrl.error };
+  }
+  if (cacheTtlSeconds?.error) {
+    return { error: cacheTtlSeconds.error };
+  }
+
+  return { runtimeUrl, cacheTtlSeconds };
+}
+
+async function getWorkerRecord(env) {
+  return getMachineData(WORKER_RECORD_ID, env);
+}
+
+async function saveWorkerRecord(data, env) {
+  return saveMachineData(WORKER_RECORD_ID, data, env);
+}
+
+function isAuthorized(request, env) {
+  return isWorkerSharedSecretValid(request, env);
+}
+
+function unauthorizedResponse() {
+  return jsonResponse({ error: "Unauthorized" }, 401);
+}
+
 /**
  * GET /admin/health
  * Public liveness probe used by the dashboard to render an "online/offline" pill.
- * Intentionally returns no machine-specific data and never reveals whether a
- * given machineId exists.
  */
 export function handleAdminHealth() {
   return jsonResponse({
@@ -67,19 +104,19 @@ export function handleAdminHealth() {
 
 /**
  * POST /admin/register
- * Body: { machineId: string, secret: string }
- *
- * Registers a shared secret for a machineId. Behaviour:
- * - If no record exists yet, stores the secret (first-claim wins).
- * - If a record exists and `meta.secret` is empty (legacy data), claims it
- *   one-time using the presented secret.
- * - If a record exists with a stored secret, the request must present the
- *   same secret to be accepted (idempotent re-register).
- *
- * This replaces the old "bootstrap unauth" behaviour of POST /sync/:machineId,
- * which let any caller seed the data for a fresh machineId.
+ * Verifies that the caller knows the worker-wide shared secret and stores
+ * runtime metadata used to fetch private runtime artifacts.
  */
 export async function handleAdminRegister(request, env) {
+  const configuredSecret = getConfiguredSharedSecret(env);
+  if (!configuredSecret) {
+    return jsonResponse({ error: "Worker shared secret is not configured" }, 503);
+  }
+
+  if (!isAuthorized(request, env)) {
+    return unauthorizedResponse();
+  }
+
   let body;
   try {
     body = await request.json();
@@ -87,129 +124,63 @@ export async function handleAdminRegister(request, env) {
     return jsonResponse({ error: "Invalid JSON body" }, 400);
   }
 
-  const machineId = String(body?.machineId || "").trim();
-  const secret = String(body?.secret || "").trim();
-  const runtimeUrl = normalizeRuntimeUrl(body?.runtimeUrl);
-  const cacheTtlSeconds = normalizeCacheTtlSeconds(body?.cacheTtlSeconds);
-
-  if (!machineId || machineId.length < 3) {
-    return jsonResponse({ error: "Invalid machineId" }, 400);
-  }
-  if (!secret || secret.length < 16) {
-    return jsonResponse({ error: "Secret must be at least 16 characters" }, 400);
-  }
-  if (runtimeUrl?.error) {
-    return jsonResponse({ error: runtimeUrl.error }, 400);
-  }
-  if (cacheTtlSeconds?.error) {
-    return jsonResponse({ error: cacheTtlSeconds.error }, 400);
+  const metadata = parseRuntimeMetadata(body);
+  if (metadata.error) {
+    return jsonResponse({ error: metadata.error }, 400);
   }
 
-  const existing = await getMachineData(machineId, env);
+  const existing = await getWorkerRecord(env);
   const now = new Date().toISOString();
 
-  if (existing) {
-    const storedSecret = existing.meta?.secret;
-    if (storedSecret) {
-      if (!constantTimeEqual(storedSecret, secret)) {
-        log.warn("ADMIN", "Register rejected: secret mismatch", { machineId });
-        return jsonResponse({ error: "Secret mismatch — machine already registered" }, 401);
-      }
-      // Idempotent re-register; refresh registeredAt for visibility
-      const nextRuntimeUrl = resolveRegistrationMetaField(runtimeUrl, existing.meta?.runtimeUrl);
-      const nextCacheTtlSeconds = resolveRegistrationMetaField(cacheTtlSeconds, existing.meta?.cacheTtlSeconds);
-      existing.meta = {
-        ...existing.meta,
-        secret,
-        registeredAt: existing.meta?.registeredAt || now,
-        rotatedAt: now,
-        runtimeUrl: nextRuntimeUrl,
-        cacheTtlSeconds: nextCacheTtlSeconds
-      };
-      await saveMachineData(machineId, existing, env);
-      log.info("ADMIN", "Re-registered (matching secret)", { machineId });
-      return jsonResponse({
-        success: true,
-        rotated: false,
-        registeredAt: existing.meta.registeredAt,
-        runtimeUrl: nextRuntimeUrl,
-        cacheTtlSeconds: nextCacheTtlSeconds,
-        version: WORKER_VERSION
-      });
-    }
-
-    // Legacy data without a secret — claim it one-time.
-    existing.meta = {
-      ...(existing.meta || {}),
-      secret,
-      registeredAt: now,
-      claimedLegacy: true,
-      runtimeUrl,
-      cacheTtlSeconds
-    };
-    await saveMachineData(machineId, existing, env);
-    log.info("ADMIN", "Claimed legacy machine record", { machineId });
-    return jsonResponse({
-      success: true,
-      claimedLegacy: true,
-      registeredAt: now,
-      runtimeUrl,
-      cacheTtlSeconds,
-      version: WORKER_VERSION
-    });
-  }
-
-  // Fresh registration: create an empty record so subsequent /sync calls can
-  // authenticate.
-  const fresh = {
+  const nextData = existing || {
     providers: {},
     modelAliases: {},
     combos: [],
     apiKeys: [],
     settings: {},
-    meta: {
-      secret,
-      registeredAt: now,
-      runtimeUrl,
-      cacheTtlSeconds
-    }
+    meta: {},
   };
-  await saveMachineData(machineId, fresh, env);
-  log.info("ADMIN", "Registered new machine", { machineId });
+
+  nextData.meta = {
+    ...buildRuntimeRegistration(metadata.runtimeUrl, metadata.cacheTtlSeconds, nextData.meta),
+    registeredAt: nextData.meta?.registeredAt || now,
+    rotatedAt: now,
+    sharedSecretConfiguredAt: now,
+  };
+
+  await saveWorkerRecord(nextData, env);
+  log.info("ADMIN", "Worker registered via shared secret");
   return jsonResponse({
     success: true,
-    registeredAt: now,
-    runtimeUrl,
-    cacheTtlSeconds,
-    version: WORKER_VERSION
+    registeredAt: nextData.meta.registeredAt,
+    runtimeUrl: nextData.meta.runtimeUrl || null,
+    cacheTtlSeconds: nextData.meta.cacheTtlSeconds ?? null,
+    version: WORKER_VERSION,
+    authMode: "shared-secret",
   });
 }
 
 /**
  * GET /admin/status.json?token=<secret>
  * Headers may also use X-Cloud-Secret.
- * Required query: machineId
- *
- * Returns the synced view for a single machine: providers, sync stats, usage.
  */
 export async function handleAdminStatusJson(request, env) {
-  const url = new URL(request.url);
-  const machineId = url.searchParams.get("machineId");
-  if (!machineId) return jsonResponse({ error: "Missing machineId" }, 400);
-
-  const data = await getMachineData(machineId, env);
-  if (!data) return jsonResponse({ error: "Machine not registered" }, 404);
-
-  const presented = extractSecret(request);
-  if (!isSecretValid(presented, data)) {
-    return jsonResponse({ error: "Unauthorized" }, 401);
+  if (!isAuthorized(request, env)) {
+    return unauthorizedResponse();
   }
 
-  const runtimeConfig = await getRuntimeConfig(machineId, env, { machineData: data });
-  return jsonResponse(buildStatusPayload(machineId, data, runtimeConfig));
+  const data = await getWorkerRecord(env);
+  if (!data) return jsonResponse({ error: "Worker not registered" }, 404);
+
+  const runtimeConfig = await getRuntimeConfig(WORKER_RECORD_ID, env, { machineData: data });
+  return jsonResponse(buildStatusPayload(data, runtimeConfig));
 }
 
 export async function handleAdminRuntimeRefresh(request, env) {
+  if (!isAuthorized(request, env)) {
+    return unauthorizedResponse();
+  }
+
   let body;
   try {
     body = await request.json();
@@ -217,22 +188,17 @@ export async function handleAdminRuntimeRefresh(request, env) {
     return jsonResponse({ error: "Invalid JSON body" }, 400);
   }
 
-  const machineId = String(body?.machineId || "").trim();
-  if (!machineId) {
-    return jsonResponse({ error: "Invalid machineId" }, 400);
+  const metadata = parseRuntimeMetadata(body);
+  if (metadata.error) {
+    return jsonResponse({ error: metadata.error }, 400);
   }
 
-  const data = await getMachineData(machineId, env);
+  const data = await getWorkerRecord(env);
   if (!data) {
-    return jsonResponse({ error: "Machine not registered" }, 404);
+    return jsonResponse({ error: "Worker not registered" }, 404);
   }
 
-  const presented = extractSecret(request);
-  if (!isSecretValid(presented, data)) {
-    return jsonResponse({ error: "Unauthorized" }, 401);
-  }
-
-  await invalidateRuntimeConfig(machineId, env, {
+  await invalidateRuntimeConfig(WORKER_RECORD_ID, env, {
     registration: data?.meta?.runtimeUrl
       ? {
           runtimeUrl: data.meta.runtimeUrl,
@@ -243,19 +209,19 @@ export async function handleAdminRuntimeRefresh(request, env) {
       : null,
   });
 
-  const runtimeConfig = await getRuntimeConfig(machineId, env, { forceRefresh: true });
+  const runtimeConfig = await getRuntimeConfig(WORKER_RECORD_ID, env, { forceRefresh: true });
 
   const refreshedAt = new Date().toISOString();
   data.meta = {
     ...(data.meta || {}),
+    ...buildRuntimeRegistration(metadata.runtimeUrl, metadata.cacheTtlSeconds, data.meta || {}),
     runtimeRefreshRequestedAt: refreshedAt,
     runtimeArtifactsLoadedAt: runtimeConfig?.generatedAt || refreshedAt,
   };
-  await saveMachineData(machineId, data, env);
+  await saveWorkerRecord(data, env);
 
   return jsonResponse({
     success: true,
-    machineId,
     refreshedAt,
     runtimeGeneratedAt: runtimeConfig?.generatedAt || null,
     credentialsGeneratedAt: runtimeConfig?.credentialsGeneratedAt || null,
@@ -265,80 +231,55 @@ export async function handleAdminRuntimeRefresh(request, env) {
 }
 
 export async function handleAdminUnregister(request, env) {
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonResponse({ error: "Invalid JSON body" }, 400);
+  if (!isAuthorized(request, env)) {
+    return unauthorizedResponse();
   }
 
-  const machineId = String(body?.machineId || "").trim();
-  if (!machineId) {
-    return jsonResponse({ error: "Invalid machineId" }, 400);
-  }
-
-  const data = await getMachineData(machineId, env);
+  const data = await getWorkerRecord(env);
   if (!data) {
-    return jsonResponse({ error: "Machine not registered" }, 404);
+    return jsonResponse({ error: "Worker not registered" }, 404);
   }
 
-  const presented = extractSecret(request);
-  if (!isSecretValid(presented, data)) {
-    return jsonResponse({ error: "Unauthorized" }, 401);
-  }
-
-  await deleteMachineData(machineId, env);
-  log.info("ADMIN", "Unregistered machine", { machineId });
+  await deleteMachineData(WORKER_RECORD_ID, env);
+  log.info("ADMIN", "Worker unregistered");
 
   return jsonResponse({
     success: true,
-    machineId,
     unregisteredAt: new Date().toISOString(),
     version: WORKER_VERSION,
   });
 }
 
 /**
- * GET /admin/status?token=<secret>&machineId=<id>
+ * GET /admin/status?token=<secret>
  * Server-rendered HTML dashboard. Token comes from the URL so the page can be
  * opened directly in a browser tab from the 9Router web UI.
  */
 export async function handleAdminStatusHtml(request, env) {
-  const url = new URL(request.url);
-  const machineId = url.searchParams.get("machineId");
-
-  if (!machineId) {
-    return new Response(renderError("Missing ?machineId in URL"), {
-      status: 400,
-      headers: HTML_HEADERS
-    });
-  }
-
-  const data = await getMachineData(machineId, env);
-  if (!data) {
-    return new Response(renderError("Machine not registered with this worker"), {
-      status: 404,
-      headers: HTML_HEADERS
-    });
-  }
-
-  const presented = extractSecret(request);
-  if (!isSecretValid(presented, data)) {
+  if (!isAuthorized(request, env)) {
     return new Response(renderError("Unauthorized — token missing or incorrect"), {
       status: 401,
       headers: HTML_HEADERS
     });
   }
 
-  const runtimeConfig = await getRuntimeConfig(machineId, env, { machineData: data });
-  const payload = buildStatusPayload(machineId, data, runtimeConfig);
+  const data = await getWorkerRecord(env);
+  if (!data) {
+    return new Response(renderError("Worker is not registered with 9Router yet"), {
+      status: 404,
+      headers: HTML_HEADERS
+    });
+  }
+
+  const runtimeConfig = await getRuntimeConfig(WORKER_RECORD_ID, env, { machineData: data });
+  const payload = buildStatusPayload(data, runtimeConfig);
   return new Response(renderDashboard(payload), {
     status: 200,
     headers: HTML_HEADERS
   });
 }
 
-function buildStatusPayload(machineId, data, runtimeConfig = null) {
+function buildStatusPayload(data, runtimeConfig = null) {
   const state = getState();
   const usage = getAllUsage();
   const effectiveConfig = runtimeConfig || data || {};
@@ -369,7 +310,8 @@ function buildStatusPayload(machineId, data, runtimeConfig = null) {
     ok: true,
     version: WORKER_VERSION,
     uptime: getUptime(),
-    machineId,
+    machineId: null,
+    authMode: "shared-secret",
     registeredAt: meta.registeredAt || null,
     rotatedAt: meta.rotatedAt || null,
     lastSyncAt: meta.lastSyncAt || state.lastSyncAt || null,
@@ -485,7 +427,7 @@ footer{margin-top:2rem;color:#555;font-size:.75rem;text-align:center}
 <header>
   <div>
     <h1>9Router Worker Dashboard</h1>
-    <div class="muted">machineId: <code>${escapeHtml(p.machineId)}</code></div>
+    <div class="muted">auth: <code>shared-secret</code></div>
   </div>
   <div class="muted">v${escapeHtml(p.version)} · uptime ${Math.floor(p.uptime / 60)}m</div>
 </header>

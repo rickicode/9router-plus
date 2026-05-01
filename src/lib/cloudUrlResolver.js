@@ -14,7 +14,7 @@ export async function getActiveCloudEntry() {
 
   return (
     settings.cloudUrls.find(
-      (entry) => entry?.url && entry?.secret
+      (entry) => entry?.url
     ) || null
   );
 }
@@ -30,6 +30,7 @@ export async function getCloudUrl() {
 }
 
 export async function getCloudCredentials() {
+  const settings = await getSettings();
   const entry = await getActiveCloudEntry();
   if (!entry) {
     throw new Error(
@@ -39,6 +40,6 @@ export async function getCloudCredentials() {
   return {
     id: entry.id,
     url: String(entry.url).replace(/\/$/, ""),
-    secret: entry.secret
+    secret: typeof settings.cloudSharedSecret === "string" ? settings.cloudSharedSecret : null
   };
 }

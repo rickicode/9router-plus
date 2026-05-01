@@ -71,11 +71,12 @@ async function refreshRegisteredWorkers(settings) {
   const workers = Array.isArray(settings.cloudUrls) ? settings.cloudUrls : [];
   const metadata = buildWorkerRegistrationMetadata(settings);
   const failures = [];
+  const secret = typeof settings.cloudSharedSecret === "string" ? settings.cloudSharedSecret : "";
 
   for (const worker of workers) {
-    if (!worker?.url || !worker?.secret) continue;
+    if (!worker?.url || !secret) continue;
     try {
-      await registerWithWorker(worker.url, worker.secret, null, metadata);
+      await registerWithWorker(worker.url, secret, metadata);
     } catch (error) {
       const failure = {
         url: worker.url,

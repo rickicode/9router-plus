@@ -1,8 +1,7 @@
 // cloud/src/handlers/usage.js
 import { getAllUsage, getUsageEvents } from "../services/usage.js";
 import { getState } from "../services/state.js";
-import { getMachineData } from "../services/storage.js";
-import { extractSecret, isSecretValid } from "../utils/secret.js";
+import { isWorkerSharedSecretValid } from "../utils/secret.js";
 import * as log from "../utils/logger.js";
 
 function jsonResponse(data, status = 200) {
@@ -15,25 +14,19 @@ function jsonResponse(data, status = 200) {
   });
 }
 
-async function authorizeUsageRequest(request, machineId, env) {
-  const data = await getMachineData(machineId, env);
-  if (!data) {
-    return { ok: false, response: jsonResponse({ error: "Machine not registered" }, 404) };
-  }
-
-  const presented = extractSecret(request);
-  if (!isSecretValid(presented, data)) {
+async function authorizeUsageRequest(request, env) {
+  if (!isWorkerSharedSecretValid(request, env)) {
     return { ok: false, response: jsonResponse({ error: "Unauthorized" }, 401) };
   }
 
-  return { ok: true, data };
+  return { ok: true };
 }
 
 /**
  * GET /worker/usage/:machineId
  * Return usage stats for all connections
  */
-export async function handleUsage(request, env, machineId) {
+export async function handleUsage(request, env) {
   // CORS preflight support
   if (request.method === "OPTIONS") {
     return new Response(null, {
@@ -51,6 +44,9 @@ export async function handleUsage(request, env, machineId) {
       headers: { "Content-Type": "application/json" }
     });
   }
+
+  const auth = await authorizeUsageRequest(request, env);
+  if (!auth.ok) return auth.response;
 
   const state = getState();
   const usage = getAllUsage();
@@ -93,7 +89,7 @@ export async function handleAdminUsageEvents(request, env) {
     return jsonResponse({ error: "Missing machineId" }, 400);
   }
 
-  const auth = await authorizeUsageRequest(request, machineId, env);
+  const auth = await authorizeUsageRequest(request, env);
   if (!auth.ok) return auth.response;
 
   const result = getUsageEvents({
@@ -101,10 +97,9 @@ export async function handleAdminUsageEvents(request, env) {
     limit: url.searchParams.get("limit"),
   });
 
-  log.info("USAGE", `Returned ${result.events.length} buffered events for ${machineId}`);
+  log.info("USAGE", `Returned ${result.events.length} buffered events`);
   return jsonResponse({
     success: true,
-    machineId,
     ...result,
   });
 }

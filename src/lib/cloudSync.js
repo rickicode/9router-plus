@@ -1,4 +1,3 @@
-import { getConsistentMachineId } from "@/shared/utils/machineId";
 import {
   getSettings,
   atomicUpdateSettings,
@@ -107,12 +106,12 @@ async function ensureWorkerRuntimeArtifacts(settings) {
   return publishResult;
 }
 
-async function syncToWorker(entry, machineId) {
+async function syncToWorker(entry, secret) {
   const startedAt = Date.now();
 
   let response;
   try {
-    response = await refreshWorkerRuntime(entry.url, entry.secret, machineId);
+    response = await refreshWorkerRuntime(entry.url, secret);
   } catch (error) {
     const status = error?.status === 401 ? "unauthorized"
       : error?.status === 404 ? "not_registered"
@@ -143,18 +142,21 @@ async function syncToWorker(entry, machineId) {
 }
 
 export async function syncToCloud() {
-  const machineId = await getConsistentMachineId();
   const settings = await getSettings();
   const cloudUrls = Array.isArray(settings.cloudUrls) ? settings.cloudUrls : [];
-  const eligible = cloudUrls.filter((c) => c?.url && c?.secret);
+  const eligible = cloudUrls.filter((c) => c?.url);
+  const secret = typeof settings.cloudSharedSecret === "string" ? settings.cloudSharedSecret : "";
 
   if (eligible.length === 0) {
     throw new Error("No cloud worker configured");
   }
+  if (!secret) {
+    throw new Error("Global cloud shared secret is missing. Regenerate it in Endpoint -> Cloud.");
+  }
 
   const publishResult = await ensureWorkerRuntimeArtifacts(settings);
   const results = await Promise.allSettled(
-    eligible.map((entry) => syncToWorker(entry, machineId))
+    eligible.map((entry) => syncToWorker(entry, secret))
   );
 
   const successes = results.filter((r) => r.status === "fulfilled");
@@ -188,7 +190,10 @@ export async function syncToCloudActive() {
   const settings = await getSettings();
   const entry = await getActiveCloudEntry();
   if (!entry) return null;
-  const machineId = await getConsistentMachineId();
+  const secret = typeof settings.cloudSharedSecret === "string" ? settings.cloudSharedSecret : "";
+  if (!secret) {
+    throw new Error("Global cloud shared secret is missing. Regenerate it in Endpoint -> Cloud.");
+  }
   await ensureWorkerRuntimeArtifacts(settings);
-  return syncToWorker(entry, machineId);
+  return syncToWorker(entry, secret);
 }

@@ -8,7 +8,6 @@ import {
   unregisterWorker,
 } from "@/lib/cloudWorkerClient";
 import { hasValidCloudRouteOrigin } from "@/lib/cloudRequestAuth";
-import { getConsistentMachineId } from "@/shared/utils/machineId";
 
 const VALID_STATUSES = new Set([
   "unknown",
@@ -19,10 +18,15 @@ const VALID_STATUSES = new Set([
   "not_registered",
 ]);
 
+function maskSecret(secret) {
+  if (typeof secret !== "string" || secret.length < 12) return null;
+  return `${secret.slice(0, 6)}...${secret.slice(-4)}`;
+}
+
 function sanitizeForResponse(entry) {
   if (!entry || typeof entry !== "object") return entry;
   const { secret, ...rest } = entry;
-  return { ...rest, hasSecret: typeof secret === "string" && secret.length > 0 };
+  return { ...rest };
 }
 
 function sanitizeListForResponse(entries) {
@@ -77,6 +81,44 @@ async function readCloudUrls() {
   return Array.isArray(settings.cloudUrls) ? settings.cloudUrls : [];
 }
 
+async function ensureGlobalCloudSecret() {
+  const settings = await getSettings();
+  if (typeof settings.cloudSharedSecret === "string" && settings.cloudSharedSecret.length >= 16) {
+    return { settings, secret: settings.cloudSharedSecret, created: false };
+  }
+
+  const secret = generateCloudSecret();
+  const updated = await atomicUpdateSettings((currentSettings) => ({
+    ...currentSettings,
+    cloudSharedSecret: secret,
+  }));
+  return { settings: updated, secret, created: true };
+}
+
+function shouldRevealSecret(request) {
+  try {
+    const includeSecret = request.nextUrl?.searchParams?.get("includeSecret");
+    if (includeSecret != null) return includeSecret === "1";
+  } catch {
+    // ignore nextUrl access differences in tests
+  }
+
+  try {
+    return new URL(request.url).searchParams.get("includeSecret") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function buildCloudSecretPayload(secret, { regeneratedAt = null } = {}) {
+  return {
+    hasGlobalSecret: typeof secret === "string" && secret.length >= 16,
+    cloudSharedSecretMasked: maskSecret(secret),
+    cloudSharedSecret: secret,
+    regeneratedAt,
+  };
+}
+
 function buildWorkerRegistrationMetadata(settings = {}) {
   const runtimeUrl = normalizeUrl(settings.r2RuntimePublicBaseUrl);
   const cacheTtlSeconds = Number.isInteger(settings.r2RuntimeCacheTtlSeconds)
@@ -108,9 +150,15 @@ function getNextId(cloudUrls) {
   return uuidv4();
 }
 
-export async function GET() {
+export async function GET(request) {
   try {
-    return NextResponse.json({ cloudUrls: sanitizeListForResponse(await readCloudUrls()) });
+    const { secret } = await ensureGlobalCloudSecret();
+    return NextResponse.json({
+      cloudUrls: sanitizeListForResponse(await readCloudUrls()),
+      hasGlobalSecret: true,
+      cloudSharedSecretMasked: maskSecret(secret),
+      cloudSharedSecret: shouldRevealSecret(request) ? secret : undefined,
+    });
   } catch (error) {
     return NextResponse.json({ error: error.message || "Failed to load cloud URLs" }, { status: 500 });
   }
@@ -131,6 +179,7 @@ export async function POST(request) {
     }
 
     const url = validateUrl(rawUrl);
+    const { settings, secret } = await ensureGlobalCloudSecret();
 
     // Probe liveness first so we fail fast if the URL is wrong.
     const probe = await probeCloudHealth(url);
@@ -141,14 +190,11 @@ export async function POST(request) {
       );
     }
 
-    // Generate a fresh per-worker secret and register with the worker before
-    // persisting the entry locally. If register fails we never store the URL
-    // — this keeps the local state and the worker state consistent.
-    const secret = generateCloudSecret();
+    // Persist the entry only after the worker confirms that the shared secret
+    // matches the secret configured in its environment.
     let registerResult;
     try {
-      const settings = await getSettings();
-      registerResult = await registerWithWorker(url, secret, null, buildWorkerRegistrationMetadata(settings));
+      registerResult = await registerWithWorker(url, secret, buildWorkerRegistrationMetadata(settings));
     } catch (error) {
       return NextResponse.json(
         { error: `Worker registration failed: ${error.message || "unknown error"}` },
@@ -166,7 +212,6 @@ export async function POST(request) {
         id: getNextId(cloudUrls),
         name: name || new URL(url).hostname,
         url,
-        secret,
         status: "online",
         version: registerResult?.version || probe.version || null,
         latencyMs: probe.latencyMs ?? null,
@@ -186,6 +231,8 @@ export async function POST(request) {
       {
         cloudUrls: sanitizeListForResponse(updated),
         created: sanitizeForResponse(createdEntry),
+        hasGlobalSecret: true,
+        cloudSharedSecretMasked: maskSecret(secret),
       },
       { status: 201 }
     );
@@ -203,6 +250,19 @@ export async function PATCH(request) {
 
     const body = await request.json();
     const { id, status } = body;
+    if (body?.action === "regenerate-secret") {
+      const secret = generateCloudSecret();
+      await atomicUpdateSettings((currentSettings) => ({
+        ...currentSettings,
+        cloudSharedSecret: secret,
+      }));
+      return NextResponse.json({
+        success: true,
+        warning: "Global cloud secret regenerated in 9Router. Update CLOUD_SHARED_SECRET on every worker before syncing again.",
+        ...buildCloudSecretPayload(secret, { regeneratedAt: new Date().toISOString() }),
+      });
+    }
+
     let lastChecked = body?.lastChecked ?? null;
 
     if (lastChecked) {
@@ -259,6 +319,7 @@ export async function DELETE(request) {
     const entry = Array.isArray(settings.cloudUrls)
       ? settings.cloudUrls.find((cloudUrl) => cloudUrl.id === id)
       : null;
+    const secret = typeof settings.cloudSharedSecret === "string" ? settings.cloudSharedSecret : "";
 
     if (!entry) {
       return NextResponse.json({ error: "Cloud URL not found" }, { status: 404 });
@@ -266,10 +327,9 @@ export async function DELETE(request) {
 
     let remoteUnregistered = false;
 
-    if (entry.url && entry.secret) {
-      const machineId = await getConsistentMachineId();
+    if (entry.url && secret) {
       try {
-        await unregisterWorker(entry.url, entry.secret, machineId);
+        await unregisterWorker(entry.url, secret);
         remoteUnregistered = true;
       } catch (error) {
         const remoteMissing = error?.status === 404;

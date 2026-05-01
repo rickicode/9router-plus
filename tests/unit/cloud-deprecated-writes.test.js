@@ -11,6 +11,7 @@ function createEnv() {
   const store = new Map();
 
   return {
+    CLOUD_SHARED_SECRET: TEST_WORKER_SHARED_VALUE,
     R2_DATA: {
       async get(key) {
         if (!store.has(key)) return null;
@@ -61,7 +62,7 @@ describe("deprecated worker-side write paths", () => {
       if (String(url).endsWith("/runtime.json")) {
         return new Response(JSON.stringify({
           generatedAt: "2026-05-01T00:00:00.000Z",
-          credentialsGeneratedAt: "2026-05-01T12:34:56.000Z",
+          credentialsGeneratedAt: "*************:34:56.000Z",
           runtimeConfigGeneratedAt: "2026-05-01T00:00:00.000Z",
           providers: {},
           modelAliases: {},
@@ -81,10 +82,11 @@ describe("deprecated worker-side write paths", () => {
     try {
       await handleAdminRegister(new Request("https://worker.example.com/admin/register", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "X-Cloud-Secret": TEST_WORKER_SHARED_VALUE,
+        },
         body: JSON.stringify({
-          machineId: "machine-1",
-          secret: TEST_WORKER_SHARED_VALUE,
           runtimeUrl: "https://runtime.example.com/base",
         })
       }), env);
@@ -95,12 +97,12 @@ describe("deprecated worker-side write paths", () => {
           "content-type": "application/json",
           "X-Cloud-Secret": TEST_WORKER_SHARED_VALUE,
         },
-        body: JSON.stringify({ machineId: "machine-1" })
+        body: JSON.stringify({})
       }), env);
       const payload = await response.json();
 
       expect(response.status).toBe(200);
-      expect(payload).toMatchObject({ success: true, machineId: "machine-1" });
+      expect(payload).toMatchObject({ success: true });
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -111,15 +113,16 @@ describe("deprecated worker-side write paths", () => {
 
     await handleAdminRegister(new Request("https://worker.example.com/admin/register", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "X-Cloud-Secret": TEST_WORKER_SHARED_VALUE,
+      },
       body: JSON.stringify({
-        machineId: "machine-merged",
-        secret: TEST_WORKER_SHARED_VALUE,
         runtimeUrl: "https://runtime.example.com/base",
       })
     }), env);
 
-    await saveMachineData("machine-merged", {
+    await saveMachineData("shared", {
       providers: {
         "conn-1": {
           id: "conn-1",
@@ -132,12 +135,11 @@ describe("deprecated worker-side write paths", () => {
           nextRetryAt: "2026-04-29T01:00:00.000Z",
         }
       },
-      modelAliases: {},
-      combos: [],
-      apiKeys: [],
+      modelAliases: { smart: "anthropic/claude" },
+      combos: [{ id: "combo-1", models: ["smart"] }],
+      apiKeys: [{ key: "worker-placeholder-key", isActive: true }],
       settings: {},
       meta: {
-        secret: TEST_WORKER_SHARED_VALUE,
         runtimeUrl: "https://runtime.example.com/base",
       }
     }, env);
@@ -181,13 +183,13 @@ describe("deprecated worker-side write paths", () => {
     };
 
     try {
-      const response = await handleAdminStatusJson(new Request("https://worker.example.com/admin/status.json?machineId=machine-merged", {
+      const response = await handleAdminStatusJson(new Request("https://worker.example.com/admin/status.json", {
         headers: { "X-Cloud-Secret": TEST_WORKER_SHARED_VALUE }
       }), env);
       const payload = await response.json();
 
       expect(response.status).toBe(200);
-      expect(payload.counts).toMatchObject({ providers: 1, modelAliases: 1, combos: 1, apiKeys: 1 });
+      expect(payload.counts).toMatchObject({ providers: 1, modelAliases: 0, combos: 0, apiKeys: 0 });
       expect(payload.providers[0]).toMatchObject({
         id: "conn-1",
         routingStatus: "blocked",

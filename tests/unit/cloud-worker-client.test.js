@@ -12,21 +12,19 @@ describe("cloudWorkerClient", () => {
 
     const { registerWithWorker } = await import("@/lib/cloudWorkerClient.js");
 
-    await registerWithWorker("https://worker.example.com/", TEST_WORKER_SHARED_VALUE, "machine-1", {
-      runtimeUrl: "https://public.example.com/machines/machine-1",
+    await registerWithWorker("https://worker.example.com/", TEST_WORKER_SHARED_VALUE, {
+      runtimeUrl: "https://public.example.com/runtime",
       cacheTtlSeconds: 15,
     });
 
     const [, request] = fetchImpl.mock.calls[0];
     expect(JSON.parse(request.body)).toMatchObject({
-      machineId: "machine-1",
-      secret: expect.any(String),
-      runtimeUrl: "https://public.example.com/machines/machine-1",
+      runtimeUrl: "https://public.example.com/runtime",
       cacheTtlSeconds: 15,
     });
   });
 
-  it("refreshWorkerRuntime posts machineId to the admin refresh endpoint", async () => {
+  it("refreshWorkerRuntime posts an empty body to the admin refresh endpoint", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ success: true, refreshedAt: "2026-04-29T00:00:00.000Z" }),
@@ -35,7 +33,7 @@ describe("cloudWorkerClient", () => {
 
     const { refreshWorkerRuntime } = await import("@/lib/cloudWorkerClient.js");
 
-    const result = await refreshWorkerRuntime("https://worker.example.com/", TEST_WORKER_SHARED_VALUE, "machine-1");
+    const result = await refreshWorkerRuntime("https://worker.example.com/", TEST_WORKER_SHARED_VALUE);
 
     expect(result).toEqual({ success: true, refreshedAt: "2026-04-29T00:00:00.000Z" });
     expect(fetchImpl).toHaveBeenCalledWith(
@@ -46,28 +44,28 @@ describe("cloudWorkerClient", () => {
           "Content-Type": "application/json",
           "X-Cloud-Secret": TEST_WORKER_SHARED_VALUE,
         }),
-        body: JSON.stringify({ machineId: "machine-1" }),
+        body: JSON.stringify({}),
       })
     );
   });
 
-  it("unregisterWorker posts machineId to the admin unregister endpoint", async () => {
+  it("unregisterWorker posts an empty body to the admin unregister endpoint", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ success: true, machineId: "machine-1" }),
+      json: async () => ({ success: true }),
     });
     vi.stubGlobal("fetch", fetchImpl);
 
     const { unregisterWorker } = await import("@/lib/cloudWorkerClient.js");
 
-    const result = await unregisterWorker("https://worker.example.com/", TEST_WORKER_SHARED_VALUE, "machine-1");
+    const result = await unregisterWorker("https://worker.example.com/", TEST_WORKER_SHARED_VALUE);
 
-    expect(result).toEqual({ success: true, machineId: "machine-1" });
+    expect(result).toEqual({ success: true });
     const [url, request] = fetchImpl.mock.calls[0];
     expect(url).toBe("https://worker.example.com/admin/unregister");
     expect(request.method).toBe("POST");
     expect(request.headers["Content-Type"] || request.headers.get?.("Content-Type")).toBe("application/json");
     expect(request.headers["X-Cloud-Secret"] || request.headers.get?.("X-Cloud-Secret")).toBe(TEST_WORKER_SHARED_VALUE);
-    expect(request.body).toBe(JSON.stringify({ machineId: "machine-1" }));
+    expect(request.body).toBe(JSON.stringify({}));
   });
 });
