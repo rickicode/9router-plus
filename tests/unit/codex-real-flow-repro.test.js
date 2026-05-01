@@ -131,4 +131,76 @@ describe("OpenCode clipboard image end-to-end repro", () => {
     expect(typeof imgBlock.image_url).toBe("string");
     expect(imgBlock.image_url.startsWith("data:image/")).toBe(true);
   });
+
+  it("uses /compact and disables streaming for non-streaming Codex requests", async () => {
+    const translated = {
+      model: "gpt-5.4",
+      input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
+      _compact: true,
+    };
+
+    const executor = new CodexExecutor();
+    await executor.execute({
+      model: "gpt-5.4",
+      body: translated,
+      stream: false,
+      credentials: {
+        accessToken: "fake-token",
+        accountId: "fake-account",
+        sessionId: "fake-session",
+        token: "fake-token",
+        access_token: "fake-token",
+      },
+    });
+
+    expect(captured.url.endsWith("/compact")).toBe(true);
+    const parsed = JSON.parse(captured.body);
+    expect(parsed.stream).toBeUndefined();
+  });
+
+  it("strips unsupported Responses fields from compact requests", async () => {
+    const translated = {
+      model: "gpt-5.4",
+      input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
+      _compact: true,
+      max_output_tokens: 123,
+      max_completion_tokens: 456,
+      context_management: { type: "auto" },
+      truncation: "auto",
+      service_tier: "default",
+      previous_response_id: "resp_old",
+      stream_options: { include_usage: true },
+      store: true,
+      reasoning: { effort: "medium", summary: "auto" },
+      include: ["reasoning.encrypted_content"],
+      parallel_tool_calls: true,
+    };
+
+    const executor = new CodexExecutor();
+    await executor.execute({
+      model: "gpt-5.4",
+      body: translated,
+      stream: false,
+      credentials: {
+        accessToken: "fake-token",
+        accountId: "fake-account",
+        sessionId: "fake-session",
+        token: "fake-token",
+        access_token: "fake-token",
+      },
+    });
+
+    const parsed = JSON.parse(captured.body);
+    expect(parsed.max_output_tokens).toBeUndefined();
+    expect(parsed.max_completion_tokens).toBeUndefined();
+    expect(parsed.context_management).toBeUndefined();
+    expect(parsed.truncation).toBeUndefined();
+    expect(parsed.service_tier).toBeUndefined();
+    expect(parsed.previous_response_id).toBeUndefined();
+    expect(parsed.stream_options).toBeUndefined();
+    expect(parsed.store).toBeUndefined();
+    expect(parsed.include).toBeUndefined();
+    expect(parsed.reasoning).toBeUndefined();
+    expect(parsed.parallel_tool_calls).toBeUndefined();
+  });
 });

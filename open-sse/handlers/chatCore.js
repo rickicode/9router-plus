@@ -54,7 +54,8 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   }
 
   const clientRequestedStreaming = body.stream === true || sourceFormat === FORMATS.ANTIGRAVITY || sourceFormat === FORMATS.GEMINI || sourceFormat === FORMATS.GEMINI_CLI;
-  const providerRequiresStreaming = provider === "openai" || provider === "codex";
+  const providerRequiresStreaming = provider === "openai";
+  const shouldUseCodexCompact = provider === "codex" && !clientRequestedStreaming;
   let stream = providerRequiresStreaming ? true : (body.stream !== false);
 
   // Check client Accept header preference for non-streaming requests
@@ -63,6 +64,9 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   const clientPrefersJson = acceptHeader.includes("application/json");
   const clientPrefersSSE = acceptHeader.includes("text/event-stream");
   if (clientPrefersJson && !clientPrefersSSE && body.stream !== true) {
+    stream = false;
+  }
+  if (shouldUseCodexCompact) {
     stream = false;
   }
 
@@ -90,6 +94,9 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     toolNameMap = translatedBody._toolNameMap;
     delete translatedBody._toolNameMap;
     translatedBody.model = model;
+    if (shouldUseCodexCompact) {
+      translatedBody._compact = true;
+    }
   }
 
   const executor = getExecutor(provider);

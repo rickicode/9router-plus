@@ -96,11 +96,11 @@ export function parseSSEToOpenAIResponse(rawSSE, fallbackModel) {
 
 /**
  * Handle case: provider forced streaming but client wants JSON.
- * Supports both Codex/Responses API SSE and standard Chat Completions SSE.
+ * Supports Responses API SSE and standard Chat Completions SSE.
  */
 export async function handleForcedSSEToJson({ providerResponse, sourceFormat, provider, model, body, stream, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, trackDone, appendLog }) {
   const contentType = providerResponse.headers.get("content-type") || "";
-  const isSSE = contentType.includes("text/event-stream") || (contentType === "" && provider === "codex");
+  const isSSE = contentType.includes("text/event-stream");
   if (!isSSE) return null; // not handled here
 
   trackDone();
@@ -111,9 +111,9 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, pr
     providerRequest: finalBody || translatedBody || null
   };
 
-  // Codex/Responses API SSE path
-  const isCodexResponsesApi = provider === "codex" || sourceFormat === FORMATS.OPENAI_RESPONSES;
-  if (isCodexResponsesApi) {
+  // Responses API SSE path
+  const isResponsesApi = sourceFormat === FORMATS.OPENAI_RESPONSES;
+  if (isResponsesApi) {
     try {
       const jsonResponse = await convertResponsesStreamToJson(providerResponse.body);
       if (onRequestSuccess) await onRequestSuccess();

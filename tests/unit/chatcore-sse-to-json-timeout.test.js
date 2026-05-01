@@ -19,7 +19,7 @@ describe("handleForcedSSEToJson timeout handling", () => {
   it("returns 504 when Responses API SSE conversion aborts on upstream timeout", async () => {
     const stream = new ReadableStream({
       start(controller) {
-        controller.error(Object.assign(new Error("codex upstream timed out after 45000ms"), {
+        controller.error(Object.assign(new Error("openai upstream timed out after 45000ms"), {
           name: "AbortError",
           code: "UPSTREAM_TIMEOUT",
           timeoutMs: 45000,
@@ -34,7 +34,7 @@ describe("handleForcedSSEToJson timeout handling", () => {
     const result = await handleForcedSSEToJson({
       providerResponse,
       sourceFormat: "openai",
-      provider: "codex",
+      provider: "openai",
       model: "gpt-5.4",
       body: { stream: false },
       stream: false,
@@ -53,7 +53,7 @@ describe("handleForcedSSEToJson timeout handling", () => {
     expect(result.response.status).toBe(504);
     await expect(result.response.json()).resolves.toMatchObject({
       error: expect.objectContaining({
-        message: "codex upstream timed out after 45000ms",
+        message: "openai upstream timed out after 45000ms",
         code: "gateway_timeout",
       }),
     });

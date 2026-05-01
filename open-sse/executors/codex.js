@@ -1,4 +1,4 @@
-import { createHash } from "crypto";
+import { createHash } from "node:crypto";
 import { BaseExecutor } from "./base.js";
 import { PROVIDERS } from "../config/providers.js";
 import { CODEX_DEFAULT_INSTRUCTIONS } from "../config/codexInstructions.js";
@@ -84,6 +84,41 @@ function ensureImageGenerationTool(body, baseModel, credentials) {
     if (t && typeof t === "object" && t.type === "image_generation") return body;
   }
   body.tools.push(tool);
+  return body;
+}
+
+function sanitizeCodexCompactBody(body) {
+  // Keep /compact payload minimal and avoid /responses-only flags.
+  delete body.stream;
+  delete body.store;
+  delete body.include;
+  delete body.reasoning;
+  delete body.reasoning_effort;
+  delete body.parallel_tool_calls;
+
+  delete body.temperature;
+  delete body.top_p;
+  delete body.frequency_penalty;
+  delete body.presence_penalty;
+  delete body.logprobs;
+  delete body.top_logprobs;
+  delete body.n;
+  delete body.seed;
+  delete body.max_tokens;
+  delete body.max_output_tokens;
+  delete body.max_completion_tokens;
+  delete body.user;
+  delete body.prompt_cache_retention;
+  delete body.metadata;
+  delete body.stream_options;
+  delete body.safety_identifier;
+  delete body.previous_response_id;
+  delete body.context_management;
+  delete body.truncation;
+  if (body.service_tier !== undefined && body.service_tier !== "priority") {
+    delete body.service_tier;
+  }
+
   return body;
 }
 
@@ -219,6 +254,7 @@ export class CodexExecutor extends BaseExecutor {
   async execute(args) {
     ensureSessionCleanupInterval();
     cachedMachineId = await ensureMachineId();
+    this._isCompact = !!args?.body?._compact;
     // Fetch remote images before the synchronous transform/execute pipeline
     await this.prefetchImages(args.body);
     // Resolve user-controlled Codex default instructions setting (enabled /
@@ -252,8 +288,12 @@ export class CodexExecutor extends BaseExecutor {
       body.input = [{ type: "message", role: "user", content: [{ type: "input_text", text: "..." }] }];
     }
 
-    // Ensure streaming is enabled (Codex API requires it)
-    body.stream = true;
+    // Codex uses streaming on /responses and plain JSON on /responses/compact.
+    if (this._isCompact) {
+      delete body.stream;
+    } else {
+      body.stream = true;
+    }
 
     // Resolve instructions per user-configurable Codex provider setting
     // (codexInstructions: { enabled, mode } in settings, optional custom .md
@@ -273,7 +313,12 @@ export class CodexExecutor extends BaseExecutor {
       body.instructions = typeof resolved === "string" ? resolved : CODEX_DEFAULT_INSTRUCTIONS;
     }
 
-    // Ensure store is false (Codex requirement).
+    if (this._isCompact) {
+      ensureImageGenerationTool(body, body.model || model, credentials);
+      return sanitizeCodexCompactBody(body);
+    }
+
+    // Codex /responses uses store=false, while /compact rejects the field.
     body.store = false;
 
     // Match CLIProxyAPI: explicitly enable parallel tool calls so the model
@@ -322,12 +367,19 @@ export class CodexExecutor extends BaseExecutor {
     delete body.n;
     delete body.seed;
     delete body.max_tokens;
+    delete body.max_output_tokens;
+    delete body.max_completion_tokens;
     delete body.user; // Cursor sends this but Codex doesn't support it
     delete body.prompt_cache_retention; // Cursor sends this but Codex doesn't support it
     delete body.metadata; // Cursor sends this but Codex doesn't support it
     delete body.stream_options; // Cursor sends this but Codex doesn't support it
     delete body.safety_identifier; // Droid CLI sends this but Codex doesn't support it
     delete body.previous_response_id; // Stateless mode — Codex backend does not retain conversation state
+    delete body.context_management; // Codex compact/responses reject this Responses-only field
+    delete body.truncation; // Codex upstream rejects Responses truncation controls
+    if (body.service_tier !== undefined && body.service_tier !== "priority") {
+      delete body.service_tier;
+    }
 
     // Ensure the image_generation tool is registered on the request. The Codex
     // backend gates multimodal *input* (input_image / input_file) behind this

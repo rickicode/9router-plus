@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createResponsesApiTransformStream } from "../../open-sse/transformer/responsesTransformer.js";
+import { convertResponsesStreamToJson } from "../../open-sse/transformer/streamToJsonConverter.js";
 import { initState } from "../../open-sse/translator/index.js";
 import { FORMATS } from "../../open-sse/translator/formats.js";
 import { openaiToOpenAIResponsesResponse } from "../../open-sse/translator/response/openai-responses.js";
@@ -128,6 +129,25 @@ function expectCompletedOutputToMatchFinalized(events) {
 }
 
 describe("Responses output contract", () => {
+  it("stream-to-json converter reuses finalized response.completed output", async () => {
+    const source = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(
+          'event: response.created\ndata: {"type":"response.created","response":{"id":"resp_test","created_at":123,"output":[]}}\n\n'
+          + 'event: response.output_item.done\ndata: {"type":"response.output_item.done","output_index":3,"item":{"type":"function_call","name":"stale","arguments":"{}"}}\n\n'
+          + 'event: response.completed\ndata: {"type":"response.completed","response":{"id":"resp_test","created_at":123,"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"final"}]}],"usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}}\n\n'
+        ));
+        controller.close();
+      },
+    });
+
+    const jsonResponse = await convertResponsesStreamToJson(source);
+    expect(jsonResponse.output).toEqual([
+      { type: "message", role: "assistant", content: [{ type: "output_text", text: "final" }] },
+    ]);
+    expect(jsonResponse.usage).toEqual({ input_tokens: 1, output_tokens: 2, total_tokens: 3 });
+  });
+
   it("transformer includes finalized message output on response.completed", async () => {
     const events = await collectTransformerEvents([
       sseData(chatChunk({ id: "chatcmpl-msg", index: 0, delta: { content: "Hello from 9router" } })),

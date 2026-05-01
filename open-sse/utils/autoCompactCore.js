@@ -32,13 +32,41 @@ function getMessageItems(body) {
   return { key: null, items: [] };
 }
 
+function extractPlainTextContent(content) {
+  if (typeof content === "string") {
+    return content.trim() ? content : "";
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  const parts = [];
+  for (const item of content) {
+    if (!item || typeof item !== "object") continue;
+
+    if (item.type === "text" && typeof item.text === "string" && item.text.trim()) {
+      parts.push(item.text);
+      continue;
+    }
+
+    if (item.type === "input_text" && typeof item.text === "string" && item.text.trim()) {
+      parts.push(item.text);
+    }
+  }
+
+  return parts.join("\n\n").trim();
+}
+
 function getCurrentUserQuery(items) {
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const message = items[index];
-    if (message?.role === "user" && typeof message.content === "string" && message.content.trim()) {
-      return message.content;
+    if (message?.role !== "user") {
+      continue;
     }
-    if (message?.role === "user") return "";
+
+    const text = extractPlainTextContent(message.content);
+    return text || "";
   }
   return "";
 }
@@ -54,15 +82,21 @@ export function buildAutoCompactPlan(body, settings = {}) {
   const messages = [];
   const entries = [];
   for (const [index, message] of items.entries()) {
-    if (!message || typeof message !== "object" || typeof message.content !== "string" || !message.content) {
-      return { ok: false, reason: "request messages are not all plain text" };
+    if (!message || typeof message !== "object") {
+      return { ok: false, reason: "request messages are not compactable" };
     }
+
+    const textContent = extractPlainTextContent(message.content);
+    if (!textContent) {
+      return { ok: false, reason: "request messages are not compactable" };
+    }
+
     const compactMessage = {
       role: typeof message.role === "string" ? message.role : "user",
-      content: message.content,
+      content: textContent,
     };
     messages.push(compactMessage);
-    entries.push({ index, message: compactMessage });
+    entries.push({ index, message: compactMessage, content: message.content });
   }
 
   const query = getCurrentUserQuery(items);
@@ -84,6 +118,37 @@ export function buildAutoCompactPlan(body, settings = {}) {
   };
 }
 
+function applyCompactedContentShape(originalContent, compactedContent) {
+  if (typeof originalContent === "string") {
+    return compactedContent;
+  }
+
+  if (!Array.isArray(originalContent)) {
+    return compactedContent;
+  }
+
+  let replaced = false;
+  const nextContent = originalContent.map((item) => {
+    if (!item || typeof item !== "object") {
+      return item;
+    }
+
+    if (!replaced && item.type === "text") {
+      replaced = true;
+      return { ...item, text: compactedContent };
+    }
+
+    if (!replaced && item.type === "input_text") {
+      replaced = true;
+      return { ...item, text: compactedContent };
+    }
+
+    return item;
+  });
+
+  return replaced ? nextContent : compactedContent;
+}
+
 export function applyCompactedMessages(body, key, entries, compactedMessages) {
   if (!key || compactedMessages.length !== entries.length) return null;
 
@@ -94,7 +159,7 @@ export function applyCompactedMessages(body, key, entries, compactedMessages) {
     if (typeof compactedContent !== "string") return null;
     nextItems[entry.index] = {
       ...originalItems[entry.index],
-      content: compactedContent,
+      content: applyCompactedContentShape(entry.content, compactedContent),
     };
   }
 

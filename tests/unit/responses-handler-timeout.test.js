@@ -21,7 +21,7 @@ describe("handleResponsesCore timeout handling", () => {
     vi.clearAllMocks();
   });
 
-  it("returns 504 when Codex SSE-to-JSON conversion hits upstream timeout", async () => {
+  it("returns 504 when responses SSE-to-JSON conversion hits upstream timeout", async () => {
     const stream = new ReadableStream({
       start(controller) {
         controller.error(Object.assign(new Error("codex upstream timed out after 45000ms"), {

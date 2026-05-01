@@ -112,6 +112,11 @@ async function maybeAutoCompactBody(body, data, machineId) {
 
   const upstreamUrl = new URL("/v1/compact", `${String(morph.baseUrl).replace(/\/+$/, "")}/`).toString();
   const requestBody = JSON.stringify(plan.payload);
+  log.info("COMPACT", `Auto compact starting for ${plan.messages.length} messages`, {
+    messages: plan.messages.length,
+    tools: Array.isArray(body?.tools) ? body.tools.length : 0,
+    inputFormat: Array.isArray(body?.input),
+  });
   let lastStatus = null;
   let lastError = null;
 
@@ -172,7 +177,12 @@ async function maybeAutoCompactBody(body, data, machineId) {
         startedAt,
         responsePayload: result,
       });
-      log.info("COMPACT", `Auto compacted ${plan.messages.length} messages`);
+      log.info("COMPACT", `Auto compact completed for ${plan.messages.length} messages`, {
+        messages: plan.messages.length,
+        tools: Array.isArray(compactedBody?.tools) ? compactedBody.tools.length : 0,
+        inputFormat: Array.isArray(compactedBody?.input),
+        compressionRatio: plan.payload.compression_ratio,
+      });
       return compactedBody;
     } catch (error) {
       lastError = error;

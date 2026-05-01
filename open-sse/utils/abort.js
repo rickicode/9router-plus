@@ -1,7 +1,9 @@
 export const DEFAULT_UPSTREAM_TIMEOUT_MS = 45_000;
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 120_000;
+export const DEFAULT_COMPACT_UPSTREAM_TIMEOUT_MS = 5 * 60 * 1000;
 export const DEFAULT_CHAT_RUNTIME_SETTINGS = Object.freeze({
   upstreamTimeoutMs: DEFAULT_UPSTREAM_TIMEOUT_MS,
+  compactUpstreamTimeoutMs: DEFAULT_COMPACT_UPSTREAM_TIMEOUT_MS,
   streamIdleTimeoutMs: DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   maxInflight: 2000,
   providerMaxInflight: 600,
@@ -27,6 +29,7 @@ export function normalizeChatRuntimeSettings(settings = {}) {
   const source = settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {};
   return {
     upstreamTimeoutMs: parsePositiveInteger(source.upstreamTimeoutMs, DEFAULT_CHAT_RUNTIME_SETTINGS.upstreamTimeoutMs),
+    compactUpstreamTimeoutMs: parsePositiveInteger(source.compactUpstreamTimeoutMs, DEFAULT_CHAT_RUNTIME_SETTINGS.compactUpstreamTimeoutMs),
     streamIdleTimeoutMs: parsePositiveInteger(source.streamIdleTimeoutMs, DEFAULT_CHAT_RUNTIME_SETTINGS.streamIdleTimeoutMs),
     maxInflight: parsePositiveInteger(source.maxInflight, DEFAULT_CHAT_RUNTIME_SETTINGS.maxInflight),
     providerMaxInflight: parsePositiveInteger(source.providerMaxInflight, DEFAULT_CHAT_RUNTIME_SETTINGS.providerMaxInflight),
@@ -49,6 +52,11 @@ export function getChatRuntimeSettings() {
 export function getUpstreamTimeoutMs() {
   if (runtimeSettingsOverride) return getChatRuntimeSettings().upstreamTimeoutMs;
   return parsePositiveInteger(process.env.CHAT_UPSTREAM_TIMEOUT_MS, DEFAULT_CHAT_RUNTIME_SETTINGS.upstreamTimeoutMs);
+}
+
+export function getCompactUpstreamTimeoutMs() {
+  if (runtimeSettingsOverride) return getChatRuntimeSettings().compactUpstreamTimeoutMs;
+  return parsePositiveInteger(process.env.CHAT_COMPACT_UPSTREAM_TIMEOUT_MS, DEFAULT_CHAT_RUNTIME_SETTINGS.compactUpstreamTimeoutMs);
 }
 
 export function getStreamIdleTimeoutMs() {

@@ -1,6 +1,6 @@
 import { HTTP_STATUS, RETRY_CONFIG, DEFAULT_RETRY_CONFIG, resolveRetryEntry } from "../config/runtimeConfig.js";
 import { resolveOllamaLocalHost } from "../config/providers.js";
-import { createDeadlineSignal, createTimeoutError, getUpstreamTimeoutMs, mergeAbortSignals } from "../utils/abort.js";
+import { createDeadlineSignal, createTimeoutError, getCompactUpstreamTimeoutMs, getUpstreamTimeoutMs, mergeAbortSignals } from "../utils/abort.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
 
 function attachDeadlineToResponseBody(response, deadline) {
@@ -156,12 +156,17 @@ export class BaseExecutor {
     return { status: response.status, message: bodyText || `HTTP ${response.status}` };
   }
 
+  getTimeoutMs(_args) {
+    return this.config?.timeoutMs;
+  }
+
   async execute({ model, body, stream, credentials, signal, log, proxyOptions = null }) {
     const fallbackCount = this.getFallbackCount();
     let lastError = null;
     let lastStatus = 0;
     const retryAttemptsByUrl = {};
-    const timeoutMs = this.config?.timeoutMs || getUpstreamTimeoutMs();
+    const timeoutMs = this.getTimeoutMs({ model, body, stream, credentials, signal, log, proxyOptions })
+      || (body?._compact ? getCompactUpstreamTimeoutMs() : getUpstreamTimeoutMs());
     
     // Merge default retry config with provider-specific config
     const retryConfig = { ...DEFAULT_RETRY_CONFIG, ...this.config.retry };

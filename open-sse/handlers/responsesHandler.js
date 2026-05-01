@@ -54,7 +54,7 @@ export async function handleResponsesCore({ body, modelInfo, credentials, log, o
   const response = result.response;
   const contentType = response.headers.get("Content-Type") || "";
 
-  // Case 1: Client wants non-streaming, but got SSE (provider forced it, e.g., Codex)
+  // Case 1: Client wants non-streaming, but still got SSE from the upstream.
   if (!clientRequestedStreaming && contentType.includes("text/event-stream")) {
     try {
       const jsonResponse = await convertResponsesStreamToJson(response.body);

@@ -1,8 +1,20 @@
 /**
  * Stream-to-JSON Converter
  * Converts Responses API SSE stream to single JSON response
- * Used when client requests non-streaming but provider forces streaming (e.g., Codex)
+ * Used when client requests non-streaming but provider forces streaming.
  */
+
+const EMPTY_RESPONSE = { input_tokens: 0, output_tokens: 0, total_tokens: 0 };
+const EMPTY_MESSAGE_ITEM = { type: "message", content: [], role: "assistant" };
+
+function cloneJsonValue(value, fallback = null) {
+  if (value == null) return fallback;
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return fallback;
+  }
+}
 
 /**
  * Process a single SSE message and update state accordingly.
@@ -29,6 +41,7 @@ function processSSEMessage(msg, state) {
     state.items.set(parsed.output_index ?? 0, parsed.item);
   } else if (eventType === "response.completed") {
     state.status = "completed";
+    state.completedOutput = cloneJsonValue(parsed.response?.output, null);
     if (parsed.response?.usage) {
       state.usage.input_tokens = parsed.response.usage.input_tokens || 0;
       state.usage.output_tokens = parsed.response.usage.output_tokens || 0;
@@ -39,7 +52,18 @@ function processSSEMessage(msg, state) {
   }
 }
 
-const EMPTY_RESPONSE = { input_tokens: 0, output_tokens: 0, total_tokens: 0 };
+function buildOutputFromState(state) {
+  if (Array.isArray(state.completedOutput) && state.completedOutput.length > 0) {
+    return state.completedOutput;
+  }
+
+  const maxIndex = state.items.size > 0 ? Math.max(...state.items.keys()) : -1;
+  const output = [];
+  for (let i = 0; i <= maxIndex; i++) {
+    output.push(state.items.get(i) || EMPTY_MESSAGE_ITEM);
+  }
+  return output;
+}
 
 /**
  * Convert Responses API SSE stream to single JSON response
@@ -60,7 +84,8 @@ export async function convertResponsesStreamToJson(stream) {
     created: Math.floor(Date.now() / 1000),
     status: "in_progress",
     usage: { ...EMPTY_RESPONSE },
-    items: new Map()
+    items: new Map(),
+    completedOutput: null,
   };
 
   try {
@@ -85,19 +110,12 @@ export async function convertResponsesStreamToJson(stream) {
     reader.releaseLock();
   }
 
-  // Build output array from accumulated items (ordered by index)
-  const output = [];
-  const maxIndex = state.items.size > 0 ? Math.max(...state.items.keys()) : -1;
-  for (let i = 0; i <= maxIndex; i++) {
-    output.push(state.items.get(i) || { type: "message", content: [], role: "assistant" });
-  }
-
   return {
     id: state.responseId || `resp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     object: "response",
     created_at: state.created,
     status: state.status || "completed",
-    output,
+    output: buildOutputFromState(state),
     usage: state.usage
   };
 }
