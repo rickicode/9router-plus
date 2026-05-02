@@ -9,13 +9,21 @@ import { refreshTokenByProvider } from "../services/tokenRefresh.js";
 import { parseApiKey, extractBearerToken } from "../utils/apiKey.js";
 import { selectCredential } from "../services/routing.js";
 import { recordUsage, recordUsageEvent } from "../services/usage.js";
-import { getRuntimeConfig, updateRuntimeProviderState } from "../services/storage.js";
+import { getRuntimeConfig, updateRuntimeProviderCredentials, updateRuntimeProviderState } from "../services/storage.js";
 import { applyCompactedMessages, buildAutoCompactPlan } from "open-sse/utils/autoCompactCore.js";
 
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 const refreshLocks = new Map();
-const morphCompactRotationCursors = new Map();
-const morphCompactKeyCooldowns = new Map();
+
+function isProviderRequestValidationError(status, errorText, provider = null) {
+  if (Number(status) !== 400) return false;
+  const normalized = String(errorText || "").toLowerCase();
+  if (!normalized) return false;
+
+  return normalized.includes("content_length_exceeds_threshold")
+    || normalized.includes("input is too long")
+    || (provider === "kiro" && normalized.includes("content length"));
+}
 
 function getMorphCompactKeyId(entry) {
   return typeof entry?.email === "string" && entry.email.trim() ? entry.email.trim() : null;
@@ -300,7 +308,14 @@ async function handleSingleModelChat(body, modelStr, machineId, env, request) {
   let lastError = null;
   let lastStatus = null;
   let retryCount = 0;
-  const MAX_RETRIES = 10;
+  const initialRuntime = await getRuntimeConfig(machineId, env);
+  if (!initialRuntime) {
+    return errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "Runtime config unavailable");
+  }
+  const providerConnectionCount = Object.values(initialRuntime.providers || {}).filter(
+    (conn) => conn.provider === provider && conn.isActive
+  ).length;
+  const MAX_RETRIES = Math.max(10, Math.min(providerConnectionCount, 1000));
 
   while (retryCount < MAX_RETRIES) {
     retryCount++;
@@ -311,7 +326,7 @@ async function handleSingleModelChat(body, modelStr, machineId, env, request) {
     let connection;
     try {
       const apiKey = extractBearerToken(request);
-      connection = selectCredential(data, provider, apiKey || 'default');
+      connection = await selectCredential(data, provider, apiKey || 'default', env);
       if (!connection?.id) {
         log.debug("ROUTING", "selectCredential returned connection without id", {
           provider,
@@ -321,6 +336,19 @@ async function handleSingleModelChat(body, modelStr, machineId, env, request) {
       }
     } catch (error) {
       log.warn("ROUTING", error.message);
+      if (error?.message === `No available credentials for provider: ${provider}`) {
+        const availability = await getProviderCredentials(machineId, provider, env, excludedConnectionIds);
+        if (availability?.allRateLimited) {
+          const retryAfterSec = Math.ceil((new Date(availability.retryAfter).getTime() - Date.now()) / 1000);
+          const msg = `[${provider}/${model}] ${availability.lastError || "Unavailable"} (${availability.retryAfterHuman})`;
+          const status = Number(availability.lastErrorCode) || HTTP_STATUS.SERVICE_UNAVAILABLE;
+          return new Response(
+            JSON.stringify({ error: { message: msg } }),
+            { status, headers: { "Content-Type": "application/json", "Retry-After": String(Math.max(retryAfterSec, 1)) } }
+          );
+        }
+        return errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, error.message);
+      }
       return errorResponse(HTTP_STATUS.BAD_REQUEST, error.message);
     }
 
@@ -399,6 +427,11 @@ async function handleSingleModelChat(body, modelStr, machineId, env, request) {
       return result.response;
     }
 
+    if (isProviderRequestValidationError(result.status, result.error, provider)) {
+      log.warn("CHAT", `Request validation error for ${provider}/${model}; not marking account unavailable`);
+      return errorResponse(result.status || HTTP_STATUS.BAD_REQUEST, result.error || "Bad request");
+    }
+
     const { shouldFallback } = checkFallbackError(result.status, result.error);
 
     if (shouldFallback) {
@@ -424,7 +457,14 @@ async function handleSingleModelChat(body, modelStr, machineId, env, request) {
       lastError = result.error;
       lastStatus = result.status;
       if (retryCount >= MAX_RETRIES) {
-        log.error("CHAT", "Max retries exceeded, all accounts failed");
+        log.error("CHAT", "Max retries exceeded, all accounts failed", {
+          provider,
+          model,
+          attempts: retryCount,
+          maxRetries: MAX_RETRIES,
+          excludedCount: excludedConnectionIds.size,
+          providerConnectionCount,
+        });
         return errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "All accounts unavailable after max retries");
       }
       continue;
@@ -433,7 +473,14 @@ async function handleSingleModelChat(body, modelStr, machineId, env, request) {
     return result.response;
   }
 
-  log.error("CHAT", "Max retries exceeded, all accounts failed");
+  log.error("CHAT", "Max retries exceeded, all accounts failed", {
+    provider,
+    model,
+    attempts: retryCount,
+    maxRetries: MAX_RETRIES,
+    excludedCount: excludedConnectionIds.size,
+    providerConnectionCount,
+  });
   return errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "All accounts unavailable after max retries");
 }
 
@@ -611,14 +658,7 @@ async function clearAccountError(machineId, connectionId, currentCredentials, en
 }
 
 async function updateCredentials(machineId, connectionId, newCredentials, env) {
-  const updated = await updateRuntimeProviderState(machineId, connectionId, (conn) => {
-    conn.accessToken = newCredentials.accessToken;
-    if (newCredentials.refreshToken) conn.refreshToken = newCredentials.refreshToken;
-    if (newCredentials.expiresIn) {
-      conn.expiresAt = new Date(Date.now() + newCredentials.expiresIn * 1000).toISOString();
-      conn.expiresIn = newCredentials.expiresIn;
-    }
-  }, env);
+  const updated = await updateRuntimeProviderCredentials(machineId, connectionId, newCredentials, env);
   if (!updated?.providers?.[connectionId]) return;
 
   log.debug("TOKEN", `credentials updated in runtime cache | ${connectionId}`);

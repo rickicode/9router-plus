@@ -3,8 +3,9 @@ import {
   atomicUpdateSettings,
 } from "./localDb.js";
 import { getActiveCloudEntry } from "./cloudUrlResolver.js";
-import { refreshWorkerRuntime } from "./cloudWorkerClient.js";
+import { pushWorkerRuntimeSync } from "./cloudWorkerClient.js";
 import { publishRuntimeArtifactsFromSettings } from "./r2BackupClient.js";
+import { buildRuntimeArtifact } from "./r2RuntimeArtifacts.js";
 
 function formatConnection(conn) {
   return {
@@ -86,7 +87,7 @@ function hasValidPrivateR2Config(settings = {}) {
 
 async function ensureWorkerRuntimeArtifacts(settings) {
   if (!hasValidPrivateR2Config(settings)) {
-    throw new Error("Cloud sync requires a valid private R2 configuration so the worker runtime artifacts can be uploaded");
+    throw new Error("Cloud sync requires a valid private R2 configuration so backup and bootstrap snapshots can be uploaded");
   }
 
   const publishResult = await publishRuntimeArtifactsFromSettings({ settings });
@@ -99,37 +100,20 @@ async function ensureWorkerRuntimeArtifacts(settings) {
   ];
 
   if (requiredArtifacts.some((artifact) => artifact?.ok !== true)) {
-    const reason = formatPublishFailure(publishResult) || "required runtime artifact upload failed";
+    const reason = formatPublishFailure(publishResult) || "required backup snapshot upload failed";
     throw new Error(`Cloud sync aborted: ${reason}`);
   }
 
   return publishResult;
 }
 
-async function syncToWorker(entry, secret, { skipRefresh = false, publishResult = null } = {}) {
+async function syncToWorker(entry, secret, { publishResult = null } = {}) {
   const startedAt = Date.now();
-
-  if (skipRefresh) {
-    const syncedAt = publishResult?.runtimeUploadSkipped ? (publishResult?.runtimeGeneratedAt || new Date().toISOString()) : new Date().toISOString();
-    const latencyMs = Date.now() - startedAt;
-    await updateCloudUrlEntry(entry.id, {
-      status: "online",
-      lastSyncOk: true,
-      lastSyncAt: syncedAt,
-      lastSyncError: null,
-      latencyMs,
-      lastChecked: new Date().toISOString(),
-    });
-    return {
-      success: true,
-      refreshedAt: syncedAt,
-      skipped: true,
-    };
-  }
 
   let response;
   try {
-    response = await refreshWorkerRuntime(entry.url, secret);
+    const payload = await buildRuntimeArtifact({ generatedAt: new Date().toISOString() });
+    response = await pushWorkerRuntimeSync(entry.url, secret, payload);
   } catch (error) {
     const status = error?.status === 401 ? "unauthorized"
       : error?.status === 404 ? "not_registered"
@@ -142,7 +126,7 @@ async function syncToWorker(entry, secret, { skipRefresh = false, publishResult 
       lastSyncError: message,
       lastChecked: new Date().toISOString(),
     });
-    throw new Error(`Runtime refresh for ${entry.url} failed${error?.status ? ` (${error.status})` : ""}: ${message}`);
+    throw new Error(`Runtime sync for ${entry.url} failed${error?.status ? ` (${error.status})` : ""}: ${message}`);
   }
 
   const latencyMs = Date.now() - startedAt;
@@ -150,13 +134,17 @@ async function syncToWorker(entry, secret, { skipRefresh = false, publishResult 
   await updateCloudUrlEntry(entry.id, {
     status: "online",
     lastSyncOk: true,
-    lastSyncAt: response?.refreshedAt || new Date().toISOString(),
+    lastSyncAt: response?.generatedAt || new Date().toISOString(),
     lastSyncError: null,
     latencyMs,
     lastChecked: new Date().toISOString(),
   });
 
-  return response;
+  return {
+    ...(response || {}),
+    backupArtifactsPublishedAt: publishResult?.runtimeGeneratedAt || null,
+    backupArtifactsUploadSkipped: publishResult?.runtimeUploadSkipped === true,
+  };
 }
 
 export async function syncToCloud() {
@@ -173,10 +161,8 @@ export async function syncToCloud() {
   }
 
   const publishResult = await ensureWorkerRuntimeArtifacts(settings);
-  const shouldRefreshWorkers = publishResult.runtimeUploadSkipped !== true;
   const results = await Promise.allSettled(
     eligible.map((entry) => syncToWorker(entry, secret, {
-      skipRefresh: !shouldRefreshWorkers,
       publishResult,
     }))
   );
@@ -207,6 +193,8 @@ export async function syncToCloud() {
     },
     runtimeUploadSkipped: publishResult.runtimeUploadSkipped === true,
     runtimeArtifactHash: publishResult.artifactHash || null,
+    liveSyncSource: "d1",
+    backupSource: "r2",
   };
 }
 
@@ -220,7 +208,6 @@ export async function syncToCloudActive() {
   }
   const publishResult = await ensureWorkerRuntimeArtifacts(settings);
   return syncToWorker(entry, secret, {
-    skipRefresh: publishResult.runtimeUploadSkipped === true,
     publishResult,
   });
 }

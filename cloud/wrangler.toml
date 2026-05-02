@@ -6,21 +6,17 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 CLOUD_SHARED_SECRET = "30d4c31504619029bfd2727a515f3bf2463fbd2be389826d87005e7b19a9c70a"
 
-[alias]
-"@/lib/usageDb.js" = "./src/stubs/usageDb.js"
+[define]
 "open-sse/config/codexInstructionsResolver.js" = "./src/stubs/codexInstructionsResolver.js"
 "undici" = "./src/stubs/undici.js"
 
-# R2 bucket for all data (providers, settings, usage, backups)
-[[r2_buckets]]
-binding = "R2_DATA"
-bucket_name = "9router"
+[[d1_databases]]
+binding = "DB"
+database_name = "proxy-db"
+database_id = "e88728e3-54f9-48b0-8648-e9a0c4815449"
 
-# Private runtime artifacts written by 9router and read by the Worker.
-[[r2_buckets]]
-binding = "R2_RUNTIME"
-bucket_name = "9router"
-
+# Workers store live runtime routing state in D1.
+# R2 is owned by 9router directly and is not bound into the worker anymore.
 
 # Shared secret is stored in [vars] so standard deploys do not require
 # running `wrangler secret put` for this worker.

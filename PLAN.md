@@ -1,83 +1,83 @@
-# Plan: Cloud Worker communication and runtime credential sync improvements
+# Plan: Cloud Worker D1 runtime sync with R2 backup
 
 ## Context
 
-- 9Router currently communicates with Cloud Worker through several control-plane endpoints: registration, health/status, runtime refresh, usage polling, and usage event sync.
-- The current runtime sync path is structurally good because 9Router publishes runtime artifacts to R2 and then asks the worker to refresh from R2, instead of pushing large payloads directly to the worker.
-- Confirmed runtime loading behavior:
-  - when `R2_RUNTIME` is available in the worker, the worker reads only `runtime/credentials.full.json` and `runtime/runtime.config.json`, then merges them in `cloud/src/services/runtimeConfig.js`
-  - the older public-URL path reads `runtime.json` and optionally overlays `eligible.json`
-- There are still efficiency issues in the communication model:
-  - usage is fetched through two separate channels (`/worker/usage` polling and `/admin/usage/events` cursor sync)
-  - worker status often requires multiple requests (`/admin/health` plus `/admin/status.json`)
-  - periodic sync can republish artifacts and trigger worker refresh even when runtime data has not meaningfully changed
-- Confirmed requirement: `credentials.full.json` should contain only accounts that are both active and currently `eligible`, but for those accounts the credential payload must be complete/full so the worker receives all required secrets/tokens/metadata.
-- Credential publishing currently appears narrower than the requested target only if any required credential fields are dropped during artifact generation; the main validation point is `buildFullCredentialsArtifact(...)` in `src/lib/r2RuntimeArtifacts.js`.
-- There is also a contract mismatch to resolve in the usage-event channel: worker `GET /admin/usage/events` requires `machineId`, but `fetchWorkerUsageEvents(...)` currently sends only `cursor` and `limit`.
+- The current cloud routing failures are best explained by runtime-state drift and cloud-side account-state poisoning, not by missing credential payloads in the published runtime artifact.
+- Confirmed behavior from prior tracing:
+  - `runtime/credentials.full.json` contains only active + `eligible` accounts, but included accounts retain full credential payloads needed by the worker.
+  - the worker currently reads runtime data from R2 artifacts and then mutates in-memory/cloud runtime state during live requests.
+- The user has chosen a new control-plane model:
+  - sync remains one-way from local `9router` to each registered Cloud Worker
+  - Cloud Worker should use D1 as the primary source of truth for runtime credentials/configuration and mutable routing state
+  - R2 must remain enabled for backup/export only on the `9router` side; the worker should not own or require R2 bindings
+- The user also wants cloud observability to improve:
+  - access to worker logs/admin inspection should be available through shared-secret-protected endpoints
+  - admin/status/log access should authenticate with the existing shared secret specifically, not a separate login mechanism
+  - console-visible diagnostics should make it easier to inspect live worker behavior after deploys
+- This change is user-visible because the deployed worker must stop reporting false Codex exhaustion and must expose enough admin/log information to distinguish real provider failures from cloud routing/state bugs.
 
 ## Approach
 
-- Keep the R2-based runtime distribution model, but reduce unnecessary worker round-trips and duplicate observability traffic.
-- Review and tighten the artifact generation path so the credential payload uploaded to R2 fully includes the intended eligible account credential set with all required fields for worker runtime use.
-- Consolidate the worker communication plan around clearer responsibilities:
-  - registration/refresh for control-plane
-  - one primary usage synchronization path for analytics/state sync
-  - optional lightweight status/health access for UI
-- Add change-detection planning so runtime publishes and worker refreshes only happen when artifacts actually change.
+- Move cloud runtime reads for chat/embeddings/routing from R2-backed runtime artifacts to D1-backed runtime tables.
+- Keep sync one-way: local `9router` pushes credentials, API keys, aliases, combos, and settings to each worker; workers do not pull credentials from clients or from local state.
+- Keep R2 as a `9router`-owned backup/export layer only:
+  - publish credential/runtime snapshots to R2 from `9router` for backup and restore
+  - do not bind worker runtime decisions or worker deployment requirements to R2
+- Preserve cloud-owned mutable state separately from publisher-owned credential/config state:
+  - publisher-owned: tokens, metadata, `isActive`, canonical config/settings
+  - cloud-owned runtime state: `nextRetryAt`, `backoffLevel`, `lastUsedAt`, sticky/session hints, temporary health/quota/auth transitions caused by live traffic
+- Add shared-secret-protected admin/log endpoints so the user can inspect worker status and recent console/runtime events directly, using the existing shared secret as the login/auth mechanism.
 
 ## Files to modify
 
-- `src/lib/r2RuntimeArtifacts.js`
-- `src/lib/r2BackupClient.js`
 - `src/lib/cloudSync.js`
 - `src/lib/cloudWorkerClient.js`
-- `src/lib/cloudUsageSync.js`
-- `src/shared/services/cloudUsagePoller.js`
+- `src/lib/r2BackupClient.js`
+- `src/lib/r2RuntimeArtifacts.js`
 - `src/shared/services/cloudSyncScheduler.js`
 - `src/app/api/cloud-urls/[id]/status/route.js`
-- `src/app/api/r2/route.js`
+- `cloud/src/handlers/sync.js`
 - `cloud/src/handlers/admin.js`
-- `cloud/src/handlers/usage.js`
-- possibly worker runtime-loading code under `cloud/src/services/*` once traced in the next pass
+- `cloud/src/handlers/chat.js`
+- `cloud/src/handlers/embeddings.js`
+- `cloud/src/services/storage.js`
+- `cloud/src/services/routing.js`
+- `cloud/wrangler.toml`
+- D1 schema/migration files under `cloud/` if present
 
 ## Reuse
 
-- Worker runtime loading should be reused, with contract adjustments only where needed:
-  - `createRuntimeConfigLoader(...).load(...)` in `cloud/src/services/runtimeConfig.js`
-  - `getRuntimeConfig(...)` and `invalidateRuntimeConfig(...)` in `cloud/src/services/storage.js`
-- Runtime artifact builders already exist and should be reused rather than replaced:
-  - `buildRuntimeArtifact(...)` in `src/lib/r2RuntimeArtifacts.js`
-  - `buildEligibleRuntimeArtifact(...)` in `src/lib/r2RuntimeArtifacts.js`
+- Reuse the existing runtime artifact builders for the `9router`-owned R2 backup path instead of deleting them:
   - `buildFullCredentialsArtifact(...)` in `src/lib/r2RuntimeArtifacts.js`
   - `buildRuntimeConfigArtifact(...)` in `src/lib/r2RuntimeArtifacts.js`
-- Existing publish flow should remain the backbone:
   - `publishRuntimeArtifactsFromSettings(...)` in `src/lib/r2BackupClient.js`
+- Reuse the existing cloud sync/client flow as the control-plane backbone, but change the payload target from “refresh from R2” to “upsert into D1”:
   - `ensureWorkerRuntimeArtifacts(...)` in `src/lib/cloudSync.js`
-- Existing worker client methods should be reused and possibly expanded instead of reworked from scratch:
-  - `registerWithWorker(...)` in `src/lib/cloudWorkerClient.js`
-  - `refreshWorkerRuntime(...)` in `src/lib/cloudWorkerClient.js`
-  - `fetchWorkerStatus(...)` in `src/lib/cloudWorkerClient.js`
-  - `fetchWorkerUsageEvents(...)` in `src/lib/cloudWorkerClient.js`
-- Existing worker admin/status handlers should be reused as the status contract:
+  - worker registration/sync helpers in `src/lib/cloudWorkerClient.js`
+- Reuse cloud request handlers and routing logic, but retarget their reads/writes to D1-backed storage helpers:
+  - `handleSingleModelChat(...)` in `cloud/src/handlers/chat.js`
+  - `handleEmbeddings(...)` in `cloud/src/handlers/embeddings.js`
+  - `selectCredential(...)` in `cloud/src/services/routing.js`
+- Reuse existing shared-secret admin patterns where possible in worker handlers:
   - `handleAdminStatusJson(...)` in `cloud/src/handlers/admin.js`
-  - `handleAdminRuntimeRefresh(...)` in `cloud/src/handlers/admin.js`
-  - `handleUsage(...)` and `handleAdminUsageEvents(...)` in `cloud/src/handlers/usage.js`
+  - existing auth checks in admin/sync routes
 
 ## Steps
 
-- [x] Trace the worker runtime artifact loading path to confirm exactly which R2 artifacts are consumed by the worker and how `credentials.full.json` is used versus `runtime.json` / `eligible.json` / `runtime.config.json`.
-- [x] Verify the intended credential scope by comparing artifact builders with worker runtime readers, especially whether “full credentials” should include all active accounts or only eligible accounts with complete secrets/tokens.
-- [ ] Design a slimmer communication model for 9Router -> Worker status and usage sync, reducing duplicated polling and redundant calls while preserving dashboard visibility and analytics capture.
-- [ ] Resolve the current usage-event API contract mismatch (`machineId` requirement on worker vs client not sending it) and decide whether the event channel stays as the primary sync path.
-- [ ] Plan change-detection for runtime publish/sync so uploads and worker refreshes are skipped when artifacts are unchanged.
-- [ ] Define concrete code changes for artifact generation, worker runtime refresh metadata, status contract, and usage synchronization path.
-- [ ] Define verification scenarios for worker registration, runtime refresh, credential completeness in R2, usage sync correctness, and no-regression routing behavior.
+- [x] Confirm the existing R2 artifact format and worker runtime loader behavior well enough to retire “bad credential artifact shape” as the primary hypothesis.
+- [x] Confirm the new architecture decision: one-way `9router -> cloud` sync, D1 as primary runtime store, R2 retained as backup.
+- [x] Design the D1 schema split between publisher-owned credential/config records and cloud-owned mutable runtime state.
+- [x] Define the sync contract from `9router` to worker: credential/config upsert, deletion/pruning behavior, and when runtime-owned fields are preserved versus overwritten.
+- [x] Define how cloud chat/embeddings/routing/storage will read from D1, update cooldown/backoff/runtime health in D1, and use only short-lived memory caching if still needed.
+- [x] Define the retained R2 backup flow on the `9router` side only, without worker R2 bindings or worker-side restore/bootstrap endpoints.
+- [x] Add shared-secret-protected admin/log access for status inspection and recent worker logs/diagnostics, authenticated with the existing shared secret, so live failures can be investigated without guessing.
+- [ ] Define verification for one-way sync, D1-backed routing correctness, `9router`-owned R2 backup integrity, and admin/log visibility.
 
 ## Verification
 
-- Confirm R2 publishes all expected runtime artifacts successfully, especially `runtime/credentials.full.json`.
-- Inspect the generated credentials artifact and verify it contains only active + `eligible` accounts, and that each included account keeps full credential fields needed by the worker (`accessToken`, `refreshToken`, `apiKey`, `expiresAt`, `providerSpecificData`, and related metadata where applicable).
-- Trigger cloud sync and verify worker refresh succeeds without redundant failures.
-- Verify worker status/dashboard still works and returns expected provider/account counts.
-- Verify usage data still appears correctly after communication changes, with no duplicate ingestion.
-- Verify chat/embedding requests through the worker still route correctly using refreshed credentials.
+- Trigger a one-way sync from local `9router` to a registered worker and verify credentials/config land in D1 correctly.
+- Verify cloud chat/embeddings requests read from D1 and no longer depend on worker R2 runtime artifacts for live routing decisions.
+- Verify runtime mutations from live requests update only the intended cloud-owned fields in D1.
+- Verify R2 backup artifacts are still published by `9router` and remain outside worker deployment requirements.
+- Verify shared-secret-protected admin/status and log inspection endpoints authenticate with the existing shared secret and return useful live worker diagnostics.
+- Re-run direct live worker requests for Codex-backed routes and confirm false `All accounts unavailable after max retries` no longer appears unless supported by real runtime evidence.

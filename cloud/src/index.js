@@ -20,18 +20,10 @@ import {
   handleAdminRegister,
   handleAdminStatusJson,
   handleAdminStatusHtml,
+  handleAdminLogsJson,
   handleAdminRuntimeRefresh,
   handleAdminUnregister
 } from "./handlers/admin.js";
-import {
-  handleSqliteBackupUpload,
-  handleSqliteBackupList,
-  handleSqliteBackupDownload,
-  handleExportData,
-  handleUsageBackup,
-  handleRequestLogBackup,
-  handleR2Info
-} from "./handlers/r2backup.js";
 import { createLandingPageResponse } from "./services/landingPage.js";
 import { cleanupExpiredSessions, limitUsageMapSize, maybeResetUsageEvents } from "./services/state.js";
 import { getRuntimeConfig } from "./services/storage.js";
@@ -400,6 +392,12 @@ const worker = {
         return response;
       }
 
+      if (path === "/admin/logs.json" && request.method === "GET") {
+        const response = await handleAdminLogsJson(request, env);
+        log.response(response.status, Date.now() - startTime);
+        return addCorsHeaders(response);
+      }
+
       if (path === "/admin/runtime/refresh" && request.method === "POST") {
         const response = await handleAdminRuntimeRefresh(request, env);
         log.response(response.status, Date.now() - startTime);
@@ -638,54 +636,7 @@ const worker = {
 
       // ========== R2 BACKUP/RESTORE ENDPOINTS ==========
 
-      // R2 info (storage status)
-      if (path === "/r2/info" && request.method === "GET") {
-        const response = await handleR2Info(request, env);
-        log.response(response.status, Date.now() - startTime);
-        return addCorsHeaders(response);
-      }
-
-      // SQLite backup upload
-      if (path.match(/^\/r2\/backup\/sqlite\/[^/]+$/) && request.method === "POST") {
-        const response = await handleSqliteBackupUpload(request, env);
-        log.response(response.status, Date.now() - startTime);
-        return addCorsHeaders(response);
-      }
-
-      // SQLite backup list
-      if (path === "/r2/backup/sqlite" && request.method === "GET") {
-        const response = await handleSqliteBackupList(request, env);
-        log.response(response.status, Date.now() - startTime);
-        return addCorsHeaders(response);
-      }
-
-      // SQLite backup download
-      if (path === "/r2/backup/sqlite/download" && request.method === "GET") {
-        const response = await handleSqliteBackupDownload(request, env);
-        log.response(response.status, Date.now() - startTime);
-        return addCorsHeaders(response);
-      }
-
-      // Export all data for restore/rollback
-      if (path.match(/^\/r2\/export\/[^/]+$/) && request.method === "GET") {
-        const response = await handleExportData(request, env);
-        log.response(response.status, Date.now() - startTime);
-        return addCorsHeaders(response);
-      }
-
-      // Usage data backup
-      if (path.match(/^\/r2\/usage\/[^/]+$/) && request.method === "POST") {
-        const response = await handleUsageBackup(request, env);
-        log.response(response.status, Date.now() - startTime);
-        return addCorsHeaders(response);
-      }
-
-      // Request log backup
-      if (path.match(/^\/r2\/requests\/[^/]+$/) && request.method === "POST") {
-        const response = await handleRequestLogBackup(request, env);
-        log.response(response.status, Date.now() - startTime);
-        return addCorsHeaders(response);
-      }
+      // removed: worker-side R2 endpoints are deprecated; 9router owns R2 directly
 
       log.warn("ROUTER", "Not found", { path });
       return new Response(JSON.stringify({ error: "Not Found" }), {

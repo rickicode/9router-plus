@@ -1,5 +1,10 @@
 import * as log from "../utils/logger.js";
-import { getMachineData, saveMachineData, deleteMachineData } from "../services/storage.js";
+import {
+  deleteMachineData,
+  getMachineData,
+  getRuntimeConfig,
+  saveRuntimeSyncPayload,
+} from "../services/storage.js";
 import { updateLastSync } from "../services/state.js";
 import { isWorkerSharedSecretValid } from "../utils/secret.js";
 
@@ -10,8 +15,41 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*"
 };
 
-// Removed: WORKER_FIELDS and WORKER_SPECIFIC_FIELDS
-// Now syncing entire provider based on updatedAt (simpler logic)
+function normalizeRuntimeSyncPayload(body = {}) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { error: "Invalid JSON body" };
+  }
+
+  if (!body.providers || typeof body.providers !== "object" || Array.isArray(body.providers)) {
+    return { error: "Missing providers object" };
+  }
+
+  if (body.modelAliases !== undefined && (!body.modelAliases || typeof body.modelAliases !== "object" || Array.isArray(body.modelAliases))) {
+    return { error: "Invalid modelAliases object" };
+  }
+
+  if (body.settings !== undefined && (!body.settings || typeof body.settings !== "object" || Array.isArray(body.settings))) {
+    return { error: "Invalid settings object" };
+  }
+
+  if (body.apiKeys !== undefined && !Array.isArray(body.apiKeys)) {
+    return { error: "Invalid apiKeys array" };
+  }
+
+  if (body.combos !== undefined && !Array.isArray(body.combos)) {
+    return { error: "Invalid combos array" };
+  }
+
+  return {
+    generatedAt: typeof body.generatedAt === "string" && body.generatedAt ? body.generatedAt : new Date().toISOString(),
+    strategy: typeof body.strategy === "string" && body.strategy ? body.strategy : "priority",
+    providers: body.providers,
+    modelAliases: body.modelAliases || {},
+    combos: body.combos || [],
+    apiKeys: body.apiKeys || [],
+    settings: body.settings || {},
+  };
+}
 
 export async function handleSync(request, env, ctx) {
   const url = new URL(request.url);
@@ -33,29 +71,18 @@ export async function handleSync(request, env, ctx) {
     return jsonResponse({ error: "Missing machineId" }, 400);
   }
 
-  // Route by method
   switch (request.method) {
     case "GET":
       return handleGet(request, machineId, env);
     case "POST":
-      return jsonResponse({
-        error: "Sync writes are deprecated for runtime state. Publish private R2 credentials and routing strategy artifacts from 9router-plus, then call /admin/runtime/refresh.",
-        privateR2RuntimeRequired: true
-      }, 410);
+      return handlePost(request, machineId, env);
     case "DELETE":
-      return jsonResponse({
-        error: "Sync deletes are deprecated. Runtime configuration is owned by private R2 artifacts written by 9router-plus.",
-        privateR2RuntimeRequired: true
-      }, 410);
+      return handleDelete(request, machineId, env);
     default:
       return jsonResponse({ error: "Method not allowed" }, 405);
   }
 }
 
-/**
- * Helper: load machine data and verify the presented secret.
- * Returns either { ok: true, data } or { ok: false, response }.
- */
 async function authorize(request, machineId, env, { requireExisting = true } = {}) {
   const data = await getMachineData(WORKER_RECORD_ID, env);
 
@@ -75,32 +102,22 @@ async function authorize(request, machineId, env, { requireExisting = true } = {
   return { ok: true, data };
 }
 
-/**
- * GET /sync/:machineId - Return merged data for Web to update
- */
 async function handleGet(request, machineId, env) {
   const auth = await authorize(request, machineId, env);
   if (!auth.ok) return auth.response;
-  const data = auth.data;
 
-  log.info("SYNC", "Data retrieved", { machineId });
+  const data = await getRuntimeConfig(machineId, env, { forceRefresh: true });
+  log.info("SYNC", "Runtime config retrieved", { machineId });
   return jsonResponse({
     success: true,
-    data
+    machineId,
+    data,
   });
 }
 
-/**
- * POST /sync/:machineId - Merge Web data with Worker data
- * providers stored by ID (supports multiple connections per provider)
- */
 async function handlePost(request, machineId, env) {
-  // Secret-based auth — machine MUST already be registered via /admin/register.
-  // The previous "bootstrap unauth" path has been removed because it allowed
-  // any caller who knew the machineId to seed initial credentials.
   const auth = await authorize(request, machineId, env);
   if (!auth.ok) return auth.response;
-  const data = auth.data;
 
   let body;
   try {
@@ -110,182 +127,52 @@ async function handlePost(request, machineId, env) {
     return jsonResponse({ error: "Invalid JSON body" }, 400);
   }
 
-  // Validate required fields
-  if (!body.providers || !Array.isArray(body.providers)) {
-    log.warn("SYNC", "Missing or invalid providers array", { machineId });
-    return jsonResponse({ error: "Missing providers array" }, 400);
+  const payload = normalizeRuntimeSyncPayload(body);
+  if (payload.error) {
+    log.warn("SYNC", payload.error, { machineId });
+    return jsonResponse({ error: payload.error }, 400);
   }
 
-  // Add settings validation
-  if (body.settings && (typeof body.settings !== 'object' || body.settings === null)) {
-    log.warn("SYNC", "Invalid settings object", { machineId });
-    return jsonResponse({ error: "Invalid settings object" }, 400);
-  }
-
-  const existingData = data;
-
-  // Merge providers by ID
-  const mergedProviders = {};
-  const changes = { updated: [], fromWorker: [] };
-
-  for (const webProvider of body.providers) {
-    const providerId = webProvider.id;
-    if (!providerId) {
-      log.warn("SYNC", "Provider missing id", { provider: webProvider.provider });
-      continue;
-    }
-
-    const workerProvider = existingData.providers[providerId];
-
-    if (workerProvider) {
-      // Merge: token fields from Worker, config fields from Web
-      mergedProviders[providerId] = mergeProvider(webProvider, workerProvider, changes, providerId);
-    } else {
-      // New provider from Web
-      mergedProviders[providerId] = formatProviderData(webProvider);
-      changes.updated.push(providerId);
-    }
-  }
-
-  // Prepare final data - modelAliases, apiKeys, combos always from Web.
-  // `meta` (secret, registeredAt, …) is never overwritten by sync payloads.
-  const now = new Date().toISOString();
-  const previousMeta = existingData.meta || {};
-  const finalData = {
-    providers: mergedProviders,
-    modelAliases: body.modelAliases || existingData.modelAliases || {},
-    combos: body.combos || existingData.combos || [],
-    apiKeys: body.apiKeys || existingData.apiKeys || [],
-    settings: body.settings || existingData.settings || {},
-    meta: {
-      ...previousMeta,
-      lastSyncAt: now,
-      syncCount: (previousMeta.syncCount || 0) + 1
-    },
-    updatedAt: now
-  };
-
-  // Store in R2 + invalidate cache
-  await saveMachineData(machineId, finalData, env);
-
-  // Update state last sync timestamp
+  const syncResult = await saveRuntimeSyncPayload(machineId, payload, env);
   updateLastSync();
 
-  log.info("SYNC", "Data synced successfully", {
+  log.info("SYNC", "Publisher runtime payload synced to D1", {
     machineId,
-    providerCount: Object.keys(mergedProviders).length,
-    changes
+    providerCount: syncResult.providerCount,
+    modelAliasCount: syncResult.modelAliasCount,
+    comboCount: syncResult.comboCount,
+    apiKeyCount: syncResult.apiKeyCount,
   });
 
   return jsonResponse({
     success: true,
-    syncId: `sync_${Date.now()}`,
+    machineId,
+    syncMode: "publisher-to-d1",
+    pruneBehavior: "provider_sync/api_keys/model_aliases/combos/settings replaced from publisher payload",
+    runtimePreservation: "provider_runtime_state preserved for providers still present; deleted for providers pruned from payload",
     receivedAt: new Date().toISOString(),
-    credentialsCount: Object.keys(mergedProviders).length,
-    modelsCount: Object.keys(finalData.modelAliases || {}).length,
-    combosCount: (finalData.combos || []).length
+    generatedAt: syncResult.generatedAt,
+    providerCount: syncResult.providerCount,
+    modelAliasCount: syncResult.modelAliasCount,
+    comboCount: syncResult.comboCount,
+    apiKeyCount: syncResult.apiKeyCount,
   });
 }
 
-/**
- * DELETE /sync/:machineId - Clear all data for this machine.
- * Now requires a valid secret — the previous implementation accepted DELETE
- * from anyone who knew the machineId, which let strangers wipe state.
- */
 async function handleDelete(request, machineId, env) {
   const auth = await authorize(request, machineId, env);
   if (!auth.ok) return auth.response;
 
   await deleteMachineData(machineId, env);
 
-  log.info("SYNC", "Data deleted", { machineId });
+  log.info("SYNC", "Runtime config deleted", { machineId });
   return jsonResponse({
     success: true,
-    message: "Data deleted successfully"
+    machineId,
+    message: "Runtime config deleted successfully"
   });
 }
 
-/**
- * Merge provider data: compare updatedAt to decide which source to use
- * Simple logic: newer wins (sync entire provider)
- */
-function mergeProvider(webProvider, workerProvider, changes, providerId) {
-  const webTime = new Date(webProvider.updatedAt || 0).getTime();
-  const workerTime = new Date(workerProvider.updatedAt || 0).getTime();
-
-  let merged;
-  
-  if (workerTime > webTime) {
-    // Cloud has newer data - use entire Cloud provider
-    merged = formatProviderData(workerProvider);
-    changes.fromWorker.push(providerId);
-  } else {
-    // Server has newer data - use entire Server provider
-    merged = formatProviderData(webProvider);
-    changes.updated.push(providerId);
-  }
-
-  // Always update timestamp
-  merged.updatedAt = new Date().toISOString();
-  return merged;
-}
-
-/**
- * Format provider data for storage
- */
-function formatProviderData(provider) {
-  return {
-    id: provider.id,
-    provider: provider.provider,
-    authType: provider.authType,
-    name: provider.name,
-    displayName: provider.displayName,
-    email: provider.email,
-    priority: provider.priority,
-    globalPriority: provider.globalPriority,
-    defaultModel: provider.defaultModel,
-    accessToken: provider.accessToken,
-    refreshToken: provider.refreshToken,
-    expiresAt: provider.expiresAt,
-    expiresIn: provider.expiresIn,
-    tokenType: provider.tokenType,
-    scope: provider.scope,
-    idToken: provider.idToken,
-    projectId: provider.projectId,
-    apiKey: provider.apiKey,
-    providerSpecificData: provider.providerSpecificData || {},
-    isActive: provider.isActive,
-    routingStatus: provider.routingStatus || "eligible",
-    authState: provider.authState || "ok",
-    healthStatus: provider.healthStatus || "healthy",
-    quotaState: provider.quotaState || "ok",
-    reasonCode: provider.reasonCode || "unknown",
-    reasonDetail: provider.reasonDetail || null,
-    nextRetryAt: provider.nextRetryAt || null,
-    resetAt: provider.resetAt || null,
-    lastCheckedAt: provider.lastCheckedAt || null,
-    createdAt: provider.createdAt,
-    updatedAt: provider.updatedAt || new Date().toISOString()
-  };
-}
-
-/**
- * Update provider status (called when token refresh fails or API errors)
- */
-export function updateProviderStatus(providers, providerId, routingStatus, reasonDetail = null, reasonCode = null) {
-  if (providers[providerId]) {
-    providers[providerId].routingStatus = routingStatus || "eligible";
-    providers[providerId].reasonDetail = reasonDetail;
-    providers[providerId].reasonCode = reasonCode || (reasonDetail ? "usage_request_failed" : "unknown");
-    providers[providerId].lastCheckedAt = new Date().toISOString();
-    providers[providerId].updatedAt = new Date().toISOString();
-  }
-  return providers;
-}
-
-/**
- * Helper to create JSON response
- */
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,

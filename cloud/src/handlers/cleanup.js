@@ -1,52 +1,40 @@
 import * as log from "../utils/logger.js";
-import { listMachines, getMachineData, deleteMachineData } from "../services/storage.js";
+import { deleteMachineData } from "../services/storage.js";
 
 const RETENTION_DAYS = 7;
+const WORKER_RECORD_ID = "shared";
 
 /**
- * Cleanup old machine data from R2
- * Runs daily via cron trigger
+ * Cleanup old worker registry/runtime data from D1.
+ * Runs daily via cron trigger.
  */
 export async function handleCleanup(env) {
   const cutoffDate = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000);
-  
-  log.info("CLEANUP", `Deleting records older than ${cutoffDate.toISOString()}`);
-  
+
+  log.info("CLEANUP", `Deleting worker records older than ${cutoffDate.toISOString()}`);
+
   try {
-    const machineIds = await listMachines(env);
+    // Keep the worker cleanup intentionally narrow: only unregister stale D1 worker state.
+    const registryResult = env?.DB
+      ? await env.DB.prepare(
+          `SELECT updated_at FROM worker_registry WHERE worker_id = ?1`
+        ).bind(WORKER_RECORD_ID).first()
+      : null;
+
     let deleted = 0;
-    
-    for (const machineId of machineIds) {
-      const data = await getMachineData(machineId, env);
-      if (data?.updatedAt) {
-        const updatedAt = new Date(data.updatedAt);
-        if (updatedAt < cutoffDate) {
-          await deleteMachineData(machineId, env);
-          deleted++;
-        }
+    if (registryResult?.updated_at) {
+      const updatedAt = new Date(registryResult.updated_at);
+      if (updatedAt < cutoffDate) {
+        await deleteMachineData(WORKER_RECORD_ID, env);
+        deleted = 1;
       }
     }
-    
-    // Clean old usage/request logs (older than 30 days)
-    const usageCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    let usageDeleted = 0;
-    
-    for (const prefix of ["usage/", "requests/"]) {
-      const listed = await env.R2_DATA.list({ prefix });
-      for (const obj of listed.objects || []) {
-        if (obj.uploaded && obj.uploaded < usageCutoff) {
-          await env.R2_DATA.delete(obj.key);
-          usageDeleted++;
-        }
-      }
-    }
-    
-    log.info("CLEANUP", `Deleted ${deleted} old machine records, ${usageDeleted} old usage/request logs`);
-    
+
+    log.info("CLEANUP", `Deleted ${deleted} stale worker registry records`);
+
     return {
       success: true,
       deleted,
-      usageDeleted,
       cutoffDate: cutoffDate.toISOString()
     };
   } catch (error) {

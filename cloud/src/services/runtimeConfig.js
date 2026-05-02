@@ -1,6 +1,4 @@
 const DEFAULT_CACHE_TTL_MS = 15_000;
-const DEFAULT_FULL_RUNTIME_KEY = "runtime/" + "credentials.full.json";
-const DEFAULT_RUNTIME_CONFIG_KEY = "runtime/runtime.config.json";
 
 function defaultFetchImpl(...args) {
   return fetch(...args);
@@ -23,68 +21,6 @@ export function isValidRuntimeConfig(value) {
 
 function isValidEligibleRuntimeConfig(value) {
   return isPlainObject(value) && isPlainObject(value.providers);
-}
-
-function isValidFullCredentialsArtifact(value) {
-  return isPlainObject(value) && isPlainObject(value.providers);
-}
-
-function isValidRuntimeConfigArtifact(value) {
-  return (
-    isPlainObject(value) &&
-    isPlainObject(value.modelAliases) &&
-    Array.isArray(value.combos) &&
-    Array.isArray(value.apiKeys) &&
-    isPlainObject(value.settings)
-  );
-}
-
-function resolveR2ObjectKey(env, envName, fallback) {
-  const value = typeof env?.[envName] === "string" ? env[envName].trim() : "";
-  return value || fallback;
-}
-
-function getRuntimeBucket(env) {
-  return env?.R2_RUNTIME || null;
-}
-
-async function readR2Json(bucket, key) {
-  const object = await bucket.get(key);
-  if (!object) {
-    throw new Error(`Missing R2 runtime artifact: ${key}`);
-  }
-
-  try {
-    return await object.json();
-  } catch {
-    throw new Error(`Invalid JSON in R2 runtime artifact: ${key}`);
-  }
-}
-
-function mergePrivateRuntimeArtifacts(credentialsArtifact, runtimeConfigArtifact) {
-  const settings = {
-    ...(runtimeConfigArtifact.settings || {}),
-  };
-
-  if (credentialsArtifact.morph) {
-    settings.morph = credentialsArtifact.morph;
-  }
-
-  const credentialApiKeys = Array.isArray(credentialsArtifact.apiKeys)
-    ? credentialsArtifact.apiKeys
-    : null;
-
-  return {
-    generatedAt: credentialsArtifact.generatedAt || runtimeConfigArtifact.generatedAt || new Date().toISOString(),
-    credentialsGeneratedAt: credentialsArtifact.generatedAt || null,
-    runtimeConfigGeneratedAt: runtimeConfigArtifact.generatedAt || null,
-    strategy: runtimeConfigArtifact.strategy || settings.strategy || "priority",
-    providers: credentialsArtifact.providers || {},
-    modelAliases: runtimeConfigArtifact.modelAliases || {},
-    combos: runtimeConfigArtifact.combos || [],
-    apiKeys: credentialApiKeys || runtimeConfigArtifact.apiKeys || [],
-    settings,
-  };
 }
 
 function getRuntimeConfigUrl(runtimeUrl) {
@@ -138,60 +74,9 @@ export function createRuntimeConfigLoader({ fetchImpl = defaultFetchImpl, now = 
       }
 
       cache.delete(`${machineId}:${runtimeUrl}`);
-      for (const key of cache.keys()) {
-        if (key.startsWith(`${machineId}:r2:`)) {
-          cache.delete(key);
-        }
-      }
     },
 
     async load(machineId, registration = {}, options = {}) {
-      const env = options.env || null;
-      const bucket = getRuntimeBucket(env);
-      const fullRuntimeEnvName = ["R2", "RUNTIME", "FULL", "KEY"].join("_");
-      const runtimeConfigEnvName = ["R2", "RUNTIME", "CONFIG", "KEY"].join("_");
-      const fullRuntimeObjectKey = resolveR2ObjectKey(env, fullRuntimeEnvName, DEFAULT_FULL_RUNTIME_KEY);
-      const runtimeConfigKey = resolveR2ObjectKey(env, runtimeConfigEnvName, DEFAULT_RUNTIME_CONFIG_KEY);
-
-      if (bucket) {
-        const cacheKey = `${machineId}:r2:${fullRuntimeObjectKey}:${runtimeConfigKey}`;
-        const ttlMs = Number.isFinite(registration.cacheTtlMs)
-          ? Math.max(0, registration.cacheTtlMs)
-          : DEFAULT_CACHE_TTL_MS;
-        const cacheEntry = cache.get(cacheKey);
-        const currentTime = now();
-
-        if (!options.forceRefresh && cacheEntry && currentTime - cacheEntry.fetchedAt < ttlMs) {
-          return cacheEntry.config;
-        }
-
-        try {
-          const [credentialsPayload, runtimeConfigPayload] = await Promise.all([
-            readR2Json(bucket, fullRuntimeObjectKey),
-            readR2Json(bucket, runtimeConfigKey),
-          ]);
-
-          if (!isValidFullCredentialsArtifact(credentialsPayload)) {
-            throw new Error("Invalid full credentials artifact payload");
-          }
-          if (!isValidRuntimeConfigArtifact(runtimeConfigPayload)) {
-            throw new Error("Invalid runtime config artifact payload");
-          }
-
-          const mergedPayload = mergePrivateRuntimeArtifacts(credentialsPayload, runtimeConfigPayload);
-          cache.set(cacheKey, {
-            config: mergedPayload,
-            fetchedAt: currentTime,
-          });
-          return mergedPayload;
-        } catch (error) {
-          if (cacheEntry) {
-            return cacheEntry.config;
-          }
-          throw error;
-        }
-      }
-
       const runtimeUrl = registration?.runtimeUrl;
       if (!runtimeUrl) {
         return null;
@@ -204,7 +89,7 @@ export function createRuntimeConfigLoader({ fetchImpl = defaultFetchImpl, now = 
       const cacheEntry = cache.get(cacheKey);
       const currentTime = now();
 
-      if (cacheEntry && currentTime - cacheEntry.fetchedAt < ttlMs) {
+      if (!options.forceRefresh && cacheEntry && currentTime - cacheEntry.fetchedAt < ttlMs) {
         return cacheEntry.config;
       }
 
@@ -265,14 +150,12 @@ export function createRuntimeConfigLoader({ fetchImpl = defaultFetchImpl, now = 
         }
       }
 
-      const mergedPayload = mergeEligibleProviders(runtimePayload, eligiblePayload);
-
+      const config = mergeEligibleProviders(runtimePayload, eligiblePayload);
       cache.set(cacheKey, {
-        config: mergedPayload,
-        fetchedAt: currentTime
+        config,
+        fetchedAt: currentTime,
       });
-
-      return mergedPayload;
-    }
+      return config;
+    },
   };
 }

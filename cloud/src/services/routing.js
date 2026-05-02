@@ -2,6 +2,38 @@
 
 import { getState } from "./state.js";
 import * as log from "../utils/logger.js";
+import { isAccountUnavailable } from "open-sse/services/accountFallback.js";
+import { updateRuntimeProviderState } from "./storage.js";
+
+function getStickySelection(candidates, apiKey, nowIso) {
+  if (!apiKey) return null;
+
+  const stickyCandidate = candidates.find((candidate) => {
+    if (!candidate.stickyKeyHash || !candidate.stickyUntil) {
+      return false;
+    }
+    return candidate.stickyKeyHash === apiKey && new Date(candidate.stickyUntil).getTime() > Date.now();
+  });
+
+  if (!stickyCandidate) {
+    return null;
+  }
+
+  log.debug("ROUTING", `Sticky session hit for ${stickyCandidate.provider}: ${stickyCandidate.id}`);
+  return stickyCandidate;
+}
+
+async function setStickySelection(machineData, selected, apiKey, stickyDurationSeconds, env) {
+  if (!apiKey || !selected?.id) {
+    return;
+  }
+
+  const stickyUntil = new Date(Date.now() + (stickyDurationSeconds * 1000)).toISOString();
+  await updateRuntimeProviderState(machineData.machineId || "shared", selected.id, (conn) => {
+    conn.stickyKeyHash = apiKey;
+    conn.stickyUntil = stickyUntil;
+  }, env, { runtimeConfig: machineData });
+}
 
 /**
  * Select credential for provider using round-robin/sticky logic
@@ -10,7 +42,7 @@ import * as log from "../utils/logger.js";
  * @param {string} apiKey - Client API key (for sticky sessions)
  * @returns {Object} Selected credential
  */
-export function selectCredential(machineData, provider, apiKey) {
+export async function selectCredential(machineData, provider, apiKey, env) {
   const settings = machineData.settings || {};
   const routing = settings.routing || {};
   const providerOverride = routing.providerStrategies?.[provider] || settings.providerStrategies?.[provider] || {};
@@ -27,70 +59,59 @@ export function selectCredential(machineData, provider, apiKey) {
     log.warn("ROUTING", `No settings found for ${provider}, using defaults (roundRobin=false, sticky=false)`);
   }
 
-  // 1. Get all eligible credentials for provider
+  // Mirror local 9router behavior: initial candidate selection must honor
+  // canonical account availability, not just the isActive flag.
   const allProviders = Object.values(machineData.providers || {})
-    .filter(p => p.provider === provider);
-  const candidates = allProviders.filter(p => p.isActive);
+    .filter((p) => p.provider === provider);
+  const activeCandidates = allProviders.filter((p) => p.isActive);
+  const candidates = activeCandidates.filter((p) => !isAccountUnavailable(p));
 
   if (candidates.length === 0) {
     if (allProviders.length === 0) {
       throw new Error(`No credentials configured for provider: ${provider}`);
-    } else {
+    }
+    if (activeCandidates.length === 0) {
       throw new Error(`All ${allProviders.length} credentials for ${provider} are inactive`);
     }
+    throw new Error(`No available credentials for provider: ${provider}`);
   }
 
   if (candidates.length === 1) {
-    log.debug("ROUTING", `Single credential for ${provider}`);
+    log.debug("ROUTING", `Single available credential for ${provider}`);
     return candidates[0];
   }
 
   const state = getState();
+  const nowIso = new Date().toISOString();
 
-  // 2. Check sticky session
+  // Sticky affinity is persisted in D1 so it survives isolate churn.
   if (stickyEnabled) {
-    const sticky = state.stickyMap.get(apiKey);
-    if (sticky) {
-      if (sticky.expiresAt > Date.now()) {
-        const found = candidates.find(c => c.id === sticky.connectionId);
-        if (found) {
-          log.debug("ROUTING", `Sticky session for ${provider}: ${found.id}`);
-          return found;
-        }
-      } else {
-        // Clean up expired session
-        state.stickyMap.delete(apiKey);
-        log.debug("ROUTING", `Removed expired sticky session for ${apiKey}`);
-      }
+    const stickyCandidate = getStickySelection(candidates, apiKey, nowIso);
+    if (stickyCandidate) {
+      return stickyCandidate;
     }
   }
 
-  // 3. Apply round-robin
   if (strategy === "round-robin") {
     const key = provider;
     const index = state.roundRobinIndexes.get(key) || 0;
     const selected = candidates[index % candidates.length];
 
-    // Update index with overflow protection
     const nextIndex = (index + 1) % (candidates.length * 1000);
     state.roundRobinIndexes.set(key, nextIndex);
 
     log.debug("ROUTING", `Round-robin for ${provider}: ${selected.id} (index ${index})`);
 
-    // Set sticky if enabled
     if (stickyEnabled) {
-      const expiresAt = Date.now() + (stickyDurationSeconds * 1000);
-      state.stickyMap.set(apiKey, {
-        connectionId: selected.id,
-        expiresAt
-      });
-      log.debug("ROUTING", `Set sticky session until ${new Date(expiresAt).toISOString()}`);
+      await setStickySelection(machineData, selected, apiKey, stickyDurationSeconds, env);
     }
 
     return selected;
   }
 
-  // 4. Default: first available
   log.debug("ROUTING", `Default first credential for ${provider}: ${candidates[0].id}`);
+  if (stickyEnabled) {
+    await setStickySelection(machineData, candidates[0], apiKey, stickyDurationSeconds, env);
+  }
   return candidates[0];
 }
