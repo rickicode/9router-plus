@@ -31,6 +31,54 @@ export function translateNonStreamingResponse(
 	targetFormat,
 	sourceFormat,
 ) {
+	if (sourceFormat === FORMATS.CLAUDE && responseBody?.object === "chat.completion") {
+		const choice = responseBody.choices?.[0] || {};
+		const message = choice.message || {};
+		const content = [];
+
+		if (message.reasoning_content) {
+			content.push({ type: "thinking", thinking: message.reasoning_content });
+		}
+		if (typeof message.content === "string" && message.content.length > 0) {
+			content.push({ type: "text", text: message.content });
+		}
+		if (Array.isArray(message.tool_calls)) {
+			for (const toolCall of message.tool_calls) {
+				let parsedArguments = {};
+				try {
+					parsedArguments = JSON.parse(toolCall?.function?.arguments || "{}");
+				} catch {
+					parsedArguments = {};
+				}
+				content.push({
+					type: "tool_use",
+					id: toolCall.id,
+					name: toolCall.function?.name || "",
+					input: parsedArguments,
+				});
+			}
+		}
+
+		return {
+			id: String(responseBody.id || `msg_${Date.now()}`).replace(/^chatcmpl-/, ""),
+			type: "message",
+			role: "assistant",
+			model: responseBody.model || "claude",
+			content,
+			stop_reason:
+				choice.finish_reason === "tool_calls"
+					? "tool_use"
+					: choice.finish_reason === "length"
+						? "max_tokens"
+						: "end_turn",
+				stop_sequence: null,
+				usage: {
+					input_tokens: responseBody.usage?.prompt_tokens || 0,
+					output_tokens: responseBody.usage?.completion_tokens || 0,
+				},
+			};
+	}
+
 	if (targetFormat === sourceFormat || targetFormat === FORMATS.OPENAI)
 		return responseBody;
 
@@ -283,27 +331,37 @@ export async function handleNonStreamingResponse({
 		? translateNonStreamingResponse(decloakedBody, targetFormat, sourceFormat)
 		: decloakedBody;
 
-	// Fix finish_reason for tool_calls: some providers return non-standard values (e.g. "other")
-	if (translatedResponse?.choices?.[0]) {
-		const choice = translatedResponse.choices[0];
-		const msg = choice.message;
-		const hasToolCalls =
-			Array.isArray(msg?.tool_calls) && msg.tool_calls.length > 0;
-		if (hasToolCalls && choice.finish_reason !== "tool_calls") {
-			choice.finish_reason = "tool_calls";
+	if (sourceFormat !== FORMATS.CLAUDE) {
+		// Fix finish_reason for tool_calls: some providers return non-standard values (e.g. "other")
+		if (translatedResponse?.choices?.[0]) {
+			const choice = translatedResponse.choices[0];
+			const msg = choice.message;
+			const hasToolCalls =
+				Array.isArray(msg?.tool_calls) && msg.tool_calls.length > 0;
+			if (hasToolCalls && choice.finish_reason !== "tool_calls") {
+				choice.finish_reason = "tool_calls";
+			}
 		}
-	}
 
-	// Ensure OpenAI-required fields
-	if (!translatedResponse.object) translatedResponse.object = "chat.completion";
-	if (!translatedResponse.created)
-		translatedResponse.created = Math.floor(Date.now() / 1000);
+		// Ensure OpenAI-required fields
+		if (!translatedResponse.object) translatedResponse.object = "chat.completion";
+		if (!translatedResponse.created)
+			translatedResponse.created = Math.floor(Date.now() / 1000);
 
-	// Strip Azure-specific fields
-	delete translatedResponse.prompt_filter_results;
-	if (translatedResponse?.choices) {
-		for (const choice of translatedResponse.choices)
-			delete choice.content_filter_results;
+		// Strip Azure-specific fields
+		delete translatedResponse.prompt_filter_results;
+		if (translatedResponse?.choices) {
+			for (const choice of translatedResponse.choices)
+				delete choice.content_filter_results;
+		}
+
+		// Strip reasoning_content — some clients (e.g. Firecrawl AI SDK) have JSON parsers that
+		// break on this non-standard field, even though OpenAI allows it in extensions.
+		if (translatedResponse?.choices) {
+			for (const choice of translatedResponse.choices) {
+				if (choice?.message) delete choice.message.reasoning_content;
+			}
+		}
 	}
 
 	if (translatedResponse?.usage) {
@@ -311,14 +369,6 @@ export async function handleNonStreamingResponse({
 			addBufferToUsage(translatedResponse.usage),
 			sourceFormat,
 		);
-	}
-
-	// Strip reasoning_content — some clients (e.g. Firecrawl AI SDK) have JSON parsers that
-	// break on this non-standard field, even though OpenAI allows it in extensions.
-	if (translatedResponse?.choices) {
-		for (const choice of translatedResponse.choices) {
-			if (choice?.message) delete choice.message.reasoning_content;
-		}
 	}
 
 	reqLogger.logConvertedResponse(translatedResponse);
@@ -339,13 +389,17 @@ export async function handleNonStreamingResponse({
 					content:
 						translatedResponse?.choices?.[0]?.message?.content ||
 						translatedResponse?.content ||
+						translatedResponse?.content?.find?.((block) => block?.type === "text")?.text ||
 						null,
 					thinking:
 						translatedResponse?.choices?.[0]?.message?.reasoning_content ||
 						translatedResponse?.reasoning_content ||
+						translatedResponse?.content?.find?.((block) => block?.type === "thinking")?.thinking ||
 						null,
 					finish_reason:
-						translatedResponse?.choices?.[0]?.finish_reason || "unknown",
+						translatedResponse?.choices?.[0]?.finish_reason ||
+						translatedResponse?.stop_reason ||
+						"unknown",
 				},
 				status: "success",
 			},

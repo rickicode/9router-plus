@@ -228,11 +228,12 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       log.info("ROUTING", `${modelStr} → ${provider}/${model}`);
     }
 
-    body = { ...body, model: `${provider}/${model}` };
-
-    if (modelStr !== `${provider}/${model}`) {
-      log.info("ROUTING", `${modelStr} → ${provider}/${model}`);
-    }
+    // Command Code needs the normalized upstream slug, while native full slugs like
+    // moonshotai/Kimi-K2.6 must still pass through unchanged.
+    const routedModel = provider === "commandcode"
+      ? model
+      : (modelInfo.isCommandCode ? modelStr : `${provider}/${model}`);
+    body = { ...body, model: routedModel };
 
     // All accounts unavailable
     if (!credentials || credentials.allRateLimited) {

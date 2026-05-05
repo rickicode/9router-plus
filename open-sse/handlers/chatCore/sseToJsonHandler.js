@@ -13,6 +13,54 @@ import {
 	saveUsageStats,
 } from "./requestDetail.js";
 
+function openAICompletionToClaudeMessage(parsed, fallbackModel) {
+	const choice = parsed?.choices?.[0] || {};
+	const message = choice.message || {};
+	const content = [];
+
+	if (message.reasoning_content) {
+		content.push({ type: "thinking", thinking: message.reasoning_content });
+	}
+	if (typeof message.content === "string" && message.content.length > 0) {
+		content.push({ type: "text", text: message.content });
+	}
+	if (Array.isArray(message.tool_calls)) {
+		for (const toolCall of message.tool_calls) {
+			let input = {};
+			try {
+				input = JSON.parse(toolCall?.function?.arguments || "{}");
+			} catch {
+				input = {};
+			}
+			content.push({
+				type: "tool_use",
+				id: toolCall.id,
+				name: toolCall.function?.name || "",
+				input,
+			});
+		}
+	}
+
+	return {
+		id: String(parsed?.id || `msg_${Date.now()}`).replace(/^chatcmpl-/, ""),
+		type: "message",
+		role: "assistant",
+		model: parsed?.model || fallbackModel || "claude",
+		content,
+		stop_reason:
+			choice.finish_reason === "tool_calls"
+				? "tool_use"
+				: choice.finish_reason === "length"
+					? "max_tokens"
+					: "end_turn",
+		stop_sequence: null,
+		usage: {
+			input_tokens: parsed?.usage?.prompt_tokens || 0,
+			output_tokens: parsed?.usage?.completion_tokens || 0,
+		},
+	};
+}
+
 function textFromResponsesMessageItem(item) {
 	if (!item?.content || !Array.isArray(item.content)) return "";
 	const byType = item.content.find((c) => c.type === "output_text");
@@ -471,9 +519,13 @@ export async function handleForcedSSEToJson({
 			}
 		}
 
+		const finalResponse = sourceFormat === FORMATS.CLAUDE
+			? openAICompletionToClaudeMessage(parsed, model)
+			: parsed;
+
 		return {
 			success: true,
-			response: new Response(JSON.stringify(parsed), {
+			response: new Response(JSON.stringify(finalResponse), {
 				headers: {
 					"Content-Type": "application/json",
 					"Access-Control-Allow-Origin": "*",

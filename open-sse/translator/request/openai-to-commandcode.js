@@ -4,9 +4,11 @@ import { FORMATS } from "../formats.js";
 function normalizeToolChoice(toolChoice) {
   if (!toolChoice) return undefined;
   if (toolChoice === "auto") return undefined;
-  if (toolChoice === "none") return "none";
-  if (toolChoice === "required") return "required";
-  if (typeof toolChoice === "string") return toolChoice;
+  if (toolChoice === "none") return { type: "auto" };
+  if (toolChoice === "required") return { type: "any" };
+  if (typeof toolChoice === "string") {
+    return { type: "tool", name: toolChoice };
+  }
   if (toolChoice?.type === "function") {
     return {
       type: "tool",

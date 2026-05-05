@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import { translateRequest, translateResponse, initState } from "../../open-sse/translator/index.js";
 import { FORMATS } from "../../open-sse/translator/formats.js";
 import { parseCommandCodeSSEToOpenAIResponse } from "../../open-sse/handlers/chatCore/sseToJsonHandler.js";
+import { translateNonStreamingResponse } from "../../open-sse/handlers/chatCore/nonStreamingHandler.js";
 
 describe("commandcode provider", () => {
   it("normalizes OpenAI tools into Command Code request schema", async () => {
@@ -43,6 +44,50 @@ describe("commandcode provider", () => {
     ]);
     expect(translated.params.tool_choice).toEqual({ type: "tool", name: "ping" });
     expect(translated.config.workingDir).toBe("/tmp");
+  });
+
+  it("normalizes Command Code tool_choice control values to objects", async () => {
+    const requiredBody = {
+      model: "deepseek/deepseek-v4-flash",
+      messages: [{ role: "user", content: "Use a tool" }],
+      tools: [{
+        type: "function",
+        function: {
+          name: "ping",
+          description: "Ping tool",
+          parameters: { type: "object", properties: {} },
+        },
+      }],
+      tool_choice: "required",
+    };
+
+    const noneBody = {
+      model: "deepseek/deepseek-v4-flash",
+      messages: [{ role: "user", content: "Do not use a tool" }],
+      tool_choice: "none",
+    };
+
+    const requiredTranslated = await translateRequest(
+      FORMATS.OPENAI,
+      FORMATS.COMMANDCODE,
+      "deepseek/deepseek-v4-flash",
+      structuredClone(requiredBody),
+      false,
+      null,
+      "commandcode",
+    );
+    const noneTranslated = await translateRequest(
+      FORMATS.OPENAI,
+      FORMATS.COMMANDCODE,
+      "deepseek/deepseek-v4-flash",
+      structuredClone(noneBody),
+      false,
+      null,
+      "commandcode",
+    );
+
+    expect(requiredTranslated.params.tool_choice).toEqual({ type: "any" });
+    expect(noneTranslated.params.tool_choice).toEqual({ type: "auto" });
   });
 
   it("preserves backend model slug for non-DeepSeek Command Code models", async () => {
@@ -151,6 +196,66 @@ describe("commandcode provider", () => {
       prompt_tokens: 12,
       completion_tokens: 3,
       total_tokens: 15,
+    });
+  });
+
+  it("converts Claude-compatible non-stream OpenAI-shaped responses back to native Claude messages", () => {
+    const responseBody = {
+      id: "chatcmpl-test123",
+      object: "chat.completion",
+      model: "deepseek/deepseek-v4-flash",
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                id: "call_123",
+                type: "function",
+                function: {
+                  name: "ping",
+                  arguments: "{}",
+                },
+              },
+            ],
+          },
+          finish_reason: "tool_calls",
+        },
+      ],
+      usage: {
+        prompt_tokens: 12,
+        completion_tokens: 3,
+        total_tokens: 15,
+      },
+    };
+
+    const translated = translateNonStreamingResponse(
+      responseBody,
+      FORMATS.OPENAI,
+      FORMATS.CLAUDE,
+    );
+
+    expect(translated).toEqual({
+      id: "test123",
+      type: "message",
+      role: "assistant",
+      model: "deepseek/deepseek-v4-flash",
+      content: [
+        {
+          type: "tool_use",
+          id: "call_123",
+          name: "ping",
+          input: {},
+        },
+      ],
+      stop_reason: "tool_use",
+      stop_sequence: null,
+      usage: {
+        input_tokens: 12,
+        output_tokens: 3,
+      },
     });
   });
 });
