@@ -4,6 +4,7 @@ import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/sha
 import { KiroService } from "@/lib/oauth/services/kiro";
 import { GEMINI_CONFIG } from "@/lib/oauth/constants/oauth";
 import { refreshGoogleToken, updateProviderCredentials, refreshKiroToken } from "@/sse/services/tokenRefresh";
+import { getModelsByProviderId } from "open-sse/config/providerModels.js";
 import { resolveOllamaLocalHost } from "open-sse/config/providers.js";
 
 const GEMINI_CLI_MODELS_URL = "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels";
@@ -44,6 +45,30 @@ const createOpenAIModelsConfig = (url) => ({
   authPrefix: "Bearer ",
   parseResponse: parseOpenAIStyleModels
 });
+
+const parseCommandCodeModels = (data) => {
+  const models = Array.isArray(data?.models)
+    ? data.models
+    : Array.isArray(data?.data)
+      ? data.data
+      : Array.isArray(data)
+        ? data
+        : [];
+
+  return models
+    .map((item) => {
+      if (typeof item === "string") {
+        return { id: item, name: item };
+      }
+      const id = item?.id || item?.model || item?.name;
+      if (!id) return null;
+      return {
+        id,
+        name: item?.display_name || item?.displayName || item?.name || id,
+      };
+    })
+    .filter(Boolean);
+};
 
 const resolveQwenModelsUrl = (connection) => {
   const fallback = "https://portal.qwen.ai/v1/models";
@@ -169,7 +194,19 @@ const PROVIDER_MODELS_CONFIG = {
   nanobanana: createOpenAIModelsConfig("https://api.nanobananaapi.ai/v1/models"),
   chutes: createOpenAIModelsConfig("https://llm.chutes.ai/v1/models"),
   nvidia: createOpenAIModelsConfig("https://integrate.api.nvidia.com/v1/models"),
-  assemblyai: createOpenAIModelsConfig("https://api.assemblyai.com/v1/models")
+  assemblyai: createOpenAIModelsConfig("https://api.assemblyai.com/v1/models"),
+  commandcode: {
+    url: null,
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      "x-command-code-version": "0.25.0",
+    },
+    authHeader: "Authorization",
+    authPrefix: "Bearer ",
+    parseResponse: parseCommandCodeModels,
+    fallbackModels: getModelsByProviderId("commandcode"),
+  }
 };
 
 /**
@@ -424,6 +461,14 @@ export async function GET(request, { params }) {
     if (connection.provider === "qwen") {
       url = resolveQwenModelsUrl(connection);
     }
+    if (connection.provider === "commandcode" && !url) {
+      return NextResponse.json({
+        provider: connection.provider,
+        connectionId: connection.id,
+        models: config.fallbackModels,
+        warning: "Command Code does not expose a public models endpoint; using curated fallback models.",
+      });
+    }
     if (config.authQuery) {
       url += `?${config.authQuery}=${token}`;
     }
@@ -449,6 +494,16 @@ export async function GET(request, { params }) {
     if (!response.ok) {
       const errorText = await response.text();
       console.log(`Error fetching models from ${connection.provider}:`, errorText);
+
+      if (connection.provider === "commandcode" && Array.isArray(config.fallbackModels)) {
+        return NextResponse.json({
+          provider: connection.provider,
+          connectionId: connection.id,
+          models: config.fallbackModels,
+          warning: `Failed to fetch live Command Code models: ${response.status}`,
+        });
+      }
+
       return NextResponse.json(
         { error: `Failed to fetch models: ${response.status}` },
         { status: response.status }
@@ -461,7 +516,7 @@ export async function GET(request, { params }) {
     return NextResponse.json({
       provider: connection.provider,
       connectionId: connection.id,
-      models
+      models: models.length > 0 ? models : (connection.provider === "commandcode" ? config.fallbackModels : models)
     });
   } catch (error) {
     console.log("Error fetching provider models:", error);

@@ -463,6 +463,28 @@ export const PROVIDER_MODELS = {
     { id: "pplx-opus", name: "Claude Opus 4.6 (via Perplexity)" },
     { id: "pplx-nemotron", name: "Nemotron 3 Super (via Perplexity)" },
   ],
+  commandcode: [
+    // Verified upstream and safest default for validation/health checks.
+    { id: "deepseek/deepseek-v4-flash", name: "DeepSeek V4 Flash" },
+    { id: "deepseek/deepseek-v4-pro", name: "DeepSeek V4 Pro" },
+    { id: "moonshotai/Kimi-K2.5", name: "Kimi K2.5" },
+    { id: "moonshotai/Kimi-K2.6", name: "Kimi K2.6" },
+    { id: "zai-org/GLM-5", name: "GLM-5" },
+    { id: "zai-org/GLM-5.1", name: "GLM-5.1" },
+    { id: "MiniMaxAI/MiniMax-M2.5", name: "MiniMax M2.5" },
+    { id: "MiniMaxAI/MiniMax-M2.7", name: "MiniMax M2.7" },
+    { id: "Qwen/Qwen3.6-Plus", name: "Qwen 3.6 Plus" },
+    { id: "Qwen/Qwen3.6-Max-Preview", name: "Qwen 3.6 Max Preview" },
+    { id: "stepfun/Step-3.5-Flash", name: "Step 3.5 Flash" },
+    { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5" },
+    { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" },
+    { id: "claude-opus-4-6", name: "Claude Opus 4.6" },
+    { id: "claude-opus-4-7", name: "Claude Opus 4.7" },
+    { id: "gpt-5.4-mini", name: "GPT-5.4 Mini" },
+    { id: "gpt-5.4", name: "GPT-5.4" },
+    { id: "gpt-5.5", name: "GPT-5.5" },
+    { id: "gpt-5.3-codex", name: "GPT-5.3 Codex" },
+  ],
 
   // TTS entries are loaded from ttsModels.js via buildTtsProviderModels()
   ...buildTtsProviderModels(),

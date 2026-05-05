@@ -603,6 +603,59 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
         const valid = res.status !== 401 && res.status !== 403;
         return { valid, error: valid ? null : "Invalid SSO cookie" };
       }
+      case "commandcode": {
+        const testModel = "deepseek/deepseek-v4-flash";
+        const testMessage = "ping";
+        const res = await fetchWithConnectionProxy("https://api.commandcode.ai/alpha/generate", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${connection.apiKey}`, "Content-Type": "application/json", "x-command-code-version": "0.25.0" },
+          body: JSON.stringify({
+            model: testModel,
+            messages: [{ role: "user", content: testMessage }],
+            memory: "",
+            params: {
+              messages: [{ role: "user", content: testMessage }],
+              model: testModel,
+              provider: testModel.split("/")[0],
+              stream: false,
+              max_tokens: 1,
+            },
+            config: {
+              temperature: 0,
+              workingDir: "/tmp",
+              date: new Date().toISOString().split("T")[0],
+              environment: "linux",
+              structure: [],
+              isGitRepo: false,
+              currentBranch: "",
+              mainBranch: "",
+              gitStatus: "",
+              recentCommits: [],
+            },
+          }),
+        }, effectiveProxy);
+
+        if (res.ok) {
+          return { valid: true, error: null };
+        }
+
+        const errText = await res.text().catch(() => "");
+        let providerMsg = "Command Code request failed";
+        try {
+          const parsed = JSON.parse(errText);
+          providerMsg = parsed?.error?.message || parsed?.message || providerMsg;
+        } catch {
+          if (errText) providerMsg = errText;
+        }
+
+        if (res.status === 401) {
+          return { valid: false, error: "Invalid API key" };
+        }
+        if (res.status === 403) {
+          return { valid: false, error: providerMsg || "API key valid but current plan cannot access the test model" };
+        }
+        return { valid: false, error: providerMsg };
+      }
       case "perplexity-web": {
         let sessionToken = connection.apiKey;
         if (sessionToken.startsWith("__Secure-next-auth.session-token=")) sessionToken = sessionToken.slice("__Secure-next-auth.session-token=".length);
@@ -655,7 +708,8 @@ export async function validateConnectionCredentials(connection) {
 /**
  * Test a single connection by ID, update DB, and return result.
  */
-export async function testSingleConnection(id) {
+export async function testSingleConnection(id, options = {}) {
+  const { persistStatus = true } = options;
   const connection = await getProviderConnectionById(id);
   if (!connection) return { valid: false, error: "Connection not found", latencyMs: 0, testedAt: new Date().toISOString() };
 
@@ -665,17 +719,19 @@ export async function testSingleConnection(id) {
     const proxyResult = await testProxyUrl({ proxyUrl: effectiveProxy.connectionProxyUrl });
     if (!proxyResult.ok) {
       const proxyError = proxyResult.error || `Proxy test failed with status ${proxyResult.status}`;
-      await updateProviderConnection(id, {
-        routingStatus: "blocked",
-        healthStatus: "error",
-        quotaState: "ok",
-        authState: "ok",
-        reasonCode: "health_error",
-        reasonDetail: proxyError,
-        nextRetryAt: null,
-        resetAt: null,
-        lastCheckedAt: new Date().toISOString(),
-      });
+      if (persistStatus) {
+        await updateProviderConnection(id, {
+          routingStatus: "blocked",
+          healthStatus: "error",
+          quotaState: "ok",
+          authState: "ok",
+          reasonCode: "health_error",
+          reasonDetail: proxyError,
+          nextRetryAt: null,
+          resetAt: null,
+          lastCheckedAt: new Date().toISOString(),
+        });
+      }
       return { valid: false, error: proxyError, latencyMs: 0, testedAt: new Date().toISOString() };
     }
   }
@@ -724,7 +780,9 @@ export async function testSingleConnection(id) {
     }
   }
 
-  await updateProviderConnection(id, updateData);
+  if (persistStatus) {
+    await updateProviderConnection(id, updateData);
+  }
 
   return { valid: result.valid, error: result.error, latencyMs, testedAt: new Date().toISOString() };
 }

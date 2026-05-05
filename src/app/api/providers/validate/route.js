@@ -4,6 +4,34 @@ import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/sha
 import { getDefaultModel } from "open-sse/config/providerModels.js";
 import { resolveOllamaLocalHost } from "open-sse/config/providers.js";
 
+const COMMANDCODE_TEST_MODEL = "deepseek/deepseek-v4-flash";
+
+function buildCommandCodeValidationPayload(message = "test") {
+  return {
+    model: COMMANDCODE_TEST_MODEL,
+    messages: [{ role: "user", content: message }],
+    memory: "",
+    params: {
+      messages: [{ role: "user", content: message }],
+      model: COMMANDCODE_TEST_MODEL,
+      provider: COMMANDCODE_TEST_MODEL.split("/")[0],
+      stream: false,
+      max_tokens: 1,
+    },
+    config: {
+      workingDir: "/tmp",
+      date: new Date().toISOString().split("T")[0],
+      environment: "linux",
+      structure: [],
+      isGitRepo: false,
+      currentBranch: "",
+      mainBranch: "",
+      gitStatus: "",
+      recentCommits: [],
+    },
+  };
+}
+
 // POST /api/providers/validate - Validate API key with provider
 export async function POST(request) {
   try {
@@ -264,6 +292,31 @@ export async function POST(request) {
             }),
           });
           isValid = res.status !== 401 && res.status !== 403;
+          break;
+        }
+
+        case "commandcode": {
+          const ccRes = await fetch("https://api.commandcode.ai/alpha/generate", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+              "x-command-code-version": "0.25.0",
+            },
+            body: JSON.stringify(buildCommandCodeValidationPayload()),
+          });
+          isValid = ccRes.ok;
+          if (!isValid) {
+            const errText = await ccRes.text().catch(() => "");
+            let providerMsg = "Invalid API key or unsupported Command Code plan";
+            try {
+              const parsed = JSON.parse(errText);
+              providerMsg = parsed?.error?.message || parsed?.message || providerMsg;
+            } catch {
+              if (errText) providerMsg = errText;
+            }
+            error = providerMsg;
+          }
           break;
         }
 
