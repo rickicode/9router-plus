@@ -91,6 +91,12 @@ context-snapshot.json
 .claude/
 .opencode/
 project-map.md
+progress.md
+task_plan.md
+PLAN.md
+BUG_FIXES_SUMMARY.md
+FINAL_BUG_SCAN.md
+TESTING_NOTES.md
 .pi/agents/supervisor.md
 .pi/taskplane.json
 state.md
