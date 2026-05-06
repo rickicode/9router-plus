@@ -1,8 +1,18 @@
 // Re-export from open-sse with localDb integration
 import { getModelAliases, getComboByName, getProviderNodes } from "@/lib/localDb";
 import { parseModel, resolveModelAliasFromMap, getModelInfoCore } from "open-sse/services/model.js";
+import { AI_PROVIDERS, APIKEY_PROVIDERS, resolveProviderId } from "@/shared/constants/providers.js";
 
 export { parseModel };
+
+// Providers that are known to the system (real provider IDs, not model prefixes)
+const KNOWN_PROVIDER_IDS = new Set([
+  ...Object.keys(AI_PROVIDERS || {}),
+  ...Object.keys(APIKEY_PROVIDERS || {}),
+  "openai", "anthropic", "gemini", "openrouter", "commandcode",
+  "glm", "glm-cn", "kimi", "minimax", "minimax-cn",
+  "volcengine-ark", "alicode", "alicode-intl",
+]);
 
 /**
  * Resolve model alias from localDb
@@ -33,6 +43,13 @@ export async function getModelInfo(modelStr) {
       if (matchedAnthropic) {
         return { provider: matchedAnthropic.id, model: parsed.model };
       }
+
+      // Provider not recognized — likely a Command Code model prefix (e.g. moonshotai, deepseek, glm, qwen)
+      // Keep model as-is (e.g. "moonshotai/Kimi-K2.6") — Command Code API expects full provider/model string
+      if (!KNOWN_PROVIDER_IDS.has(parsed.provider)) {
+        const commandcodeId = resolveProviderId("commandcode") || "commandcode";
+        return { provider: commandcodeId, model: modelStr, isCommandCode: true };
+      }
     }
     return {
       provider: parsed.provider,
@@ -41,11 +58,8 @@ export async function getModelInfo(modelStr) {
   }
 
   // Check if this is a combo name before resolving as alias
-  // This prevents combo names from being incorrectly routed to providers
   const combo = await getComboByName(parsed.model);
   if (combo) {
-    // Return null provider to signal this should be handled as combo
-    // The caller (handleChat) will detect this and handle it as combo
     return { provider: null, model: parsed.model };
   }
 

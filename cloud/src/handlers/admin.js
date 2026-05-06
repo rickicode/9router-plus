@@ -1,10 +1,10 @@
 import { clearAdminLogs, getAdminLogs } from "../services/adminLogs.js";
 import { getState, getUptime } from "../services/state.js";
 import {
-	deleteMachineData,
-	getMachineData,
+	deleteRuntimeData,
 	getRuntimeConfig,
-	saveMachineData,
+	getRuntimeData,
+	saveRuntimeData,
 } from "../services/storage.js";
 import { getAllUsage } from "../services/usage.js";
 import * as log from "../utils/logger.js";
@@ -31,11 +31,11 @@ function jsonResponse(data, status = 200) {
 }
 
 async function getWorkerRecord(env) {
-	return getMachineData(WORKER_RECORD_ID, env);
+	return getRuntimeData(WORKER_RECORD_ID, env);
 }
 
 async function saveWorkerRecord(data, env) {
-	return saveMachineData(WORKER_RECORD_ID, data, env);
+	return saveRuntimeData(WORKER_RECORD_ID, data, env);
 }
 
 function isAuthorized(request, env) {
@@ -174,7 +174,7 @@ export async function handleAdminUnregister(request, env) {
 		return jsonResponse({ error: "Worker not registered" }, 404);
 	}
 
-	await deleteMachineData(WORKER_RECORD_ID, env);
+	await deleteRuntimeData(WORKER_RECORD_ID, env);
 	log.info("ADMIN", "Worker unregistered");
 
 	return jsonResponse({
@@ -260,7 +260,7 @@ function buildStatusPayload(data, runtimeConfig = null) {
 		ok: true,
 		version: WORKER_VERSION,
 		uptime: getUptime(),
-		machineId: null,
+		runtimeId: WORKER_RECORD_ID,
 		authMode: "shared-secret",
 		registeredAt: meta.registeredAt || null,
 		rotatedAt: meta.rotatedAt || null,
@@ -357,7 +357,7 @@ function renderDashboard(p) {
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>9Router Worker — ${escapeHtml(p.machineId)}</title>
+<title>9Router Worker — ${escapeHtml(p.runtimeId)}</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#0a0a0a;color:#e5e5e5;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.5}

@@ -52,6 +52,7 @@ export const OAUTH_PROVIDERS = {
 };
 
 export const APIKEY_PROVIDERS = {
+  commandcode: { id: "commandcode", alias: "ccmd", name: "Command Code", icon: "terminal", color: "#6366F1", textIcon: "CC", website: "https://commandcode.ai", passthroughModels: true, serviceKinds: ["llm"] },
   glm: { id: "glm", alias: "glm", name: "GLM Coding", icon: "code", color: "#2563EB", textIcon: "GL", website: "https://open.bigmodel.cn" },
   "glm-cn": { id: "glm-cn", alias: "glm-cn", name: "GLM (China)", icon: "code", color: "#DC2626", textIcon: "GC", website: "https://open.bigmodel.cn" },
   kimi: { id: "kimi", alias: "kimi", name: "Kimi", icon: "psychology", color: "#1E3A8A", textIcon: "KM", website: "https://kimi.moonshot.cn", serviceKinds: ["llm", "webSearch"] },

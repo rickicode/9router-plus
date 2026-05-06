@@ -176,8 +176,10 @@ export default function CodexInstructionsCard() {
           <h2 className="text-lg font-semibold">Codex Default Instructions</h2>
           <p className="text-sm text-text-muted mt-1">
             Controls the <code className="font-mono">instructions</code> field sent on every Codex request.
-            Disabling sends an empty string and lets the Codex backend use its own default —
-            saves ~{tokenEstimate.toLocaleString()} tokens (~{(data.defaultLength / 1024).toFixed(1)} KB) per request.
+            Default mode sends the built-in agent prompt, custom mode sends your own
+            <code className="font-mono"> codex-instructions.md </code>
+            content, and disabled sends an empty string so the Codex backend can use its own default.
+            This can save ~{tokenEstimate.toLocaleString()} tokens (~{(data.defaultLength / 1024).toFixed(1)} KB) per request.
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -200,7 +202,8 @@ export default function CodexInstructionsCard() {
       {!enabled ? (
         <div className="rounded border border-border p-3 text-sm text-text-muted bg-bg-subtle">
           Sending empty <code className="font-mono">instructions</code>. The Codex backend
-          will use its own server-side default. Re-enable to send a custom or built-in prompt.
+          will use its own server-side default. Use this only if you want raw Codex upstream behavior
+          instead of the configured built-in or custom guardrails.
         </div>
       ) : (
         <div className="space-y-3">
@@ -211,7 +214,7 @@ export default function CodexInstructionsCard() {
               </span>
               {data.mode === "custom" && data.hasCustomFile && (
                 <span className="text-text-muted ml-2">
-                  — {data.customLength.toLocaleString()} chars at <code className="font-mono">{data.filePath}</code>
+                  - {data.customLength.toLocaleString()} chars in <code className="font-mono">{data.filename}</code>
                 </span>
               )}
             </div>
@@ -242,10 +245,16 @@ export default function CodexInstructionsCard() {
             placeholder="Write your custom Codex instructions here…"
           />
 
+          <div className="rounded border border-border p-3 text-xs text-text-muted bg-bg-subtle">
+            Recommended for most users: keep <span className="font-medium">Built-in default</span> enabled.
+            Switch to <span className="font-medium">Custom</span> only when you want to override
+            the provider's default coding-agent behavior for every Codex request.
+          </div>
+
           <div className="flex items-center justify-between gap-2 flex-wrap text-xs text-text-muted">
             <span>
               {draft.length.toLocaleString()} chars
-              {data.mode === "default" && draft === data.defaultContent && " (built-in default — unchanged)"}
+              {data.mode === "default" && draft === data.defaultContent && " (built-in default - unchanged)"}
             </span>
             <div className="flex items-center gap-2">
               <Button

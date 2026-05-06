@@ -21,6 +21,8 @@ const ALIAS_TO_PROVIDER_ID = {
   anthropic: "anthropic",
   gemini: "gemini",
   openrouter: "openrouter",
+  commandcode: "commandcode",
+  ccmd: "commandcode",
   glm: "glm",
   kimi: "kimi",
   minimax: "minimax",
@@ -175,6 +177,7 @@ function inferProviderFromModelName(modelName) {
   if (m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4"))
     return "openai";
   if (m.startsWith("deepseek-")) return "openrouter";
+  if (m.includes("/")) return "commandcode";
   // Default fallback
   return "openai";
 }

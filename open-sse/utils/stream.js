@@ -1,9 +1,25 @@
-import { translateResponse, initState } from "../translator/index.js";
+import {
+	appendRequestLog,
+	trackPendingRequest,
+} from "../runtime/usagePersistence.js";
 import { FORMATS } from "../translator/formats.js";
-import { trackPendingRequest, appendRequestLog } from "@/lib/usageDb.js";
-import { extractUsage, hasValidUsage, estimateUsage, logUsage, addBufferToUsage, filterUsageForFormat, COLORS } from "./usageTracking.js";
-import { parseSSELine, hasValuableContent, fixInvalidId, formatSSE } from "./streamHelpers.js";
+import { initState, translateResponse } from "../translator/index.js";
 import { decloakToolNames } from "./claudeCloaking.js";
+import {
+	fixInvalidId,
+	formatSSE,
+	hasValuableContent,
+	parseSSELine,
+} from "./streamHelpers.js";
+import {
+	addBufferToUsage,
+	COLORS,
+	estimateUsage,
+	extractUsage,
+	filterUsageForFormat,
+	hasValidUsage,
+	logUsage,
+} from "./usageTracking.js";
 
 export { COLORS, formatSSE };
 
@@ -19,32 +35,35 @@ const sharedEncoder = new TextEncoder();
 // and downstream stages can stay format-agnostic. See claudeCloaking.js
 // for the full "exec_ide" symptom writeup.
 function decloakSSELine(line, toolNameMap) {
-  if (!line.startsWith("data:") || !line.includes("tool_use")) return line;
+	if (!line.startsWith("data:") || !line.includes("tool_use")) return line;
 
-  // Fast path: skip lines that definitely don't have tool_use blocks.
-  // This avoids expensive JSON parse/walk on text deltas, thinking, metadata, etc.
-  if (!line.includes('"type":"tool_use"') && !line.includes('"type":"content_block_start"')) {
-    return line;
-  }
+	// Fast path: skip lines that definitely don't have tool_use blocks.
+	// This avoids expensive JSON parse/walk on text deltas, thinking, metadata, etc.
+	if (
+		!line.includes('"type":"tool_use"') &&
+		!line.includes('"type":"content_block_start"')
+	) {
+		return line;
+	}
 
-  const payload = line.slice(5).trim();
-  if (!payload || payload === "[DONE]") return line;
-  try {
-    const parsed = JSON.parse(payload);
-    const decloaked = decloakToolNames(parsed, toolNameMap);
-    if (decloaked === parsed) return line;
-    return "data: " + JSON.stringify(decloaked);
-  } catch {
-    return line;
-  }
+	const payload = line.slice(5).trim();
+	if (!payload || payload === "[DONE]") return line;
+	try {
+		const parsed = JSON.parse(payload);
+		const decloaked = decloakToolNames(parsed, toolNameMap);
+		if (decloaked === parsed) return line;
+		return "data: " + JSON.stringify(decloaked);
+	} catch {
+		return line;
+	}
 }
 
 /**
  * Stream modes
  */
 const STREAM_MODE = {
-  TRANSLATE: "translate",    // Full translation between formats
-  PASSTHROUGH: "passthrough" // No translation, normalize output, extract usage
+	TRANSLATE: "translate", // Full translation between formats
+	PASSTHROUGH: "passthrough", // No translation, normalize output, extract usage
 };
 
 /**
@@ -62,423 +81,528 @@ const STREAM_MODE = {
  * @param {string} options.apiKey - API key for usage tracking
  */
 export function createSSEStream(options = {}) {
-  const {
-    mode = STREAM_MODE.TRANSLATE,
-    targetFormat,
-    sourceFormat,
-    provider = null,
-    reqLogger = null,
-    toolNameMap = null,
-    model = null,
-    connectionId = null,
-    body = null,
-    onStreamComplete = null,
-    apiKey = null
-  } = options;
+	const {
+		mode = STREAM_MODE.TRANSLATE,
+		targetFormat,
+		sourceFormat,
+		provider = null,
+		reqLogger = null,
+		toolNameMap = null,
+		model = null,
+		connectionId = null,
+		body = null,
+		onStreamComplete = null,
+		apiKey = null,
+	} = options;
 
-  let buffer = "";
-  let usage = null;
+	let buffer = "";
+	let usage = null;
 
-  // Per-stream decoder with stream:true to correctly handle multi-byte chars split across chunks
-  const decoder = new TextDecoder("utf-8", { fatal: false });
+	// Per-stream decoder with stream:true to correctly handle multi-byte chars split across chunks
+	const decoder = new TextDecoder("utf-8", { fatal: false });
 
-  const state = mode === STREAM_MODE.TRANSLATE ? { ...initState(sourceFormat), provider, toolNameMap, model } : null;
+	const state =
+		mode === STREAM_MODE.TRANSLATE
+			? { ...initState(sourceFormat), provider, toolNameMap, model }
+			: null;
 
-  let totalContentLength = 0;
-  let accumulatedContent = "";
-  let accumulatedThinking = "";
-  let ttftAt = null;
+	let totalContentLength = 0;
+	let accumulatedContent = "";
+	let accumulatedThinking = "";
+	let ttftAt = null;
 
-  // Single-point guarantee: if cloaking was applied on the request path,
-  // every raw provider-SSE line is decloaked before it hits the buffer-
-  // consuming for-loop (or flush). Since cloakClaudeTools() only fires
-  // when provider === "claude", a populated toolNameMap implies Claude-
-  // shape bytes on the wire — we don't need a sourceFormat check. Doing
-  // the work on the INPUT side means the translator always sees real
-  // tool names, so passthrough AND every translate target (OpenAI,
-  // Gemini, etc.) are covered by the same line of code without knowing
-  // their output tool shapes. See claudeCloaking.js for the full
-  // "exec_ide" symptom writeup.
-  const shouldDecloak = toolNameMap?.size > 0;
+	// Single-point guarantee: if cloaking was applied on the request path,
+	// every raw provider-SSE line is decloaked before it hits the buffer-
+	// consuming for-loop (or flush). Since cloakClaudeTools() only fires
+	// when provider === "claude", a populated toolNameMap implies Claude-
+	// shape bytes on the wire — we don't need a sourceFormat check. Doing
+	// the work on the INPUT side means the translator always sees real
+	// tool names, so passthrough AND every translate target (OpenAI,
+	// Gemini, etc.) are covered by the same line of code without knowing
+	// their output tool shapes. See claudeCloaking.js for the full
+	// "exec_ide" symptom writeup.
+	const shouldDecloak = toolNameMap?.size > 0;
 
-  function emit(output, controller) {
-    reqLogger?.appendConvertedChunk?.(output);
-    controller.enqueue(sharedEncoder.encode(output));
-  }
+	function emit(output, controller) {
+		reqLogger?.appendConvertedChunk?.(output);
+		controller.enqueue(sharedEncoder.encode(output));
+	}
 
-  return new TransformStream({
-    async transform(chunk, controller) {
-      try {
-        if (!ttftAt) {
-          ttftAt = Date.now();
-        }
-        const text = decoder.decode(chunk, { stream: true });
-        buffer += text;
-        reqLogger?.appendProviderChunk?.(text);
+	return new TransformStream({
+		async transform(chunk, controller) {
+			try {
+				if (!ttftAt) {
+					ttftAt = Date.now();
+				}
+				const text = decoder.decode(chunk, { stream: true });
+				buffer += text;
+				reqLogger?.appendProviderChunk?.(text);
 
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
+				const lines = buffer.split("\n");
+				buffer = lines.pop() || "";
 
-      if (shouldDecloak) {
-        for (let i = 0; i < lines.length; i++) {
-          lines[i] = decloakSSELine(lines[i], toolNameMap);
-        }
-      }
+				if (shouldDecloak) {
+					for (let i = 0; i < lines.length; i++) {
+						lines[i] = decloakSSELine(lines[i], toolNameMap);
+					}
+				}
 
-      for (const line of lines) {
-        const trimmed = line.trim();
+				for (const line of lines) {
+					const trimmed = line.trim();
 
-        // Passthrough mode: normalize and forward
-        if (mode === STREAM_MODE.PASSTHROUGH) {
-          let output;
-          let injectedUsage = false;
+					// Passthrough mode: normalize and forward
+					if (mode === STREAM_MODE.PASSTHROUGH) {
+						let output;
+						let injectedUsage = false;
 
-          if (trimmed.startsWith("data:") && trimmed.slice(5).trim() !== "[DONE]") {
-            try {
-              const parsed = JSON.parse(trimmed.slice(5).trim());
+						if (
+							trimmed.startsWith("data:") &&
+							trimmed.slice(5).trim() !== "[DONE]"
+						) {
+							try {
+								const parsed = JSON.parse(trimmed.slice(5).trim());
 
-              if (parsed === null || parsed === undefined) {
-                continue;
-              }
+								if (parsed === null || parsed === undefined) {
+									continue;
+								}
 
-              const idFixed = fixInvalidId(parsed);
+								const idFixed = fixInvalidId(parsed);
 
-              // Ensure OpenAI-required fields are present on streaming chunks (Letta compat)
-              let fieldsInjected = false;
-              if (parsed.choices !== undefined) {
-                if (!parsed.object) { parsed.object = "chat.completion.chunk"; fieldsInjected = true; }
-                if (!parsed.created) { parsed.created = Math.floor(Date.now() / 1000); fieldsInjected = true; }
-              }
+								// Ensure OpenAI-required fields are present on streaming chunks (Letta compat)
+								let fieldsInjected = false;
+								if (parsed.choices !== undefined) {
+									if (!parsed.object) {
+										parsed.object = "chat.completion.chunk";
+										fieldsInjected = true;
+									}
+									if (!parsed.created) {
+										parsed.created = Math.floor(Date.now() / 1000);
+										fieldsInjected = true;
+									}
+								}
 
-              // Strip Azure-specific non-standard fields from streaming chunks
-              if (parsed.prompt_filter_results !== undefined) {
-                delete parsed.prompt_filter_results;
-                fieldsInjected = true;
-              }
-              if (parsed?.choices) {
-                for (const choice of parsed.choices) {
-                  if (choice.content_filter_results !== undefined) {
-                    delete choice.content_filter_results;
-                    fieldsInjected = true;
-                  }
-                }
-              }
+								// Strip Azure-specific non-standard fields from streaming chunks
+								if (parsed.prompt_filter_results !== undefined) {
+									delete parsed.prompt_filter_results;
+									fieldsInjected = true;
+								}
+								if (parsed?.choices) {
+									for (const choice of parsed.choices) {
+										if (choice.content_filter_results !== undefined) {
+											delete choice.content_filter_results;
+											fieldsInjected = true;
+										}
+									}
+								}
 
-              if (!hasValuableContent(parsed, FORMATS.OPENAI)) {
-                continue;
-              }
+								if (!hasValuableContent(parsed, FORMATS.OPENAI)) {
+									continue;
+								}
 
-              const delta = parsed.choices?.[0]?.delta;
-              const content = delta?.content;
-              const reasoning = delta?.reasoning_content;
-              if (content && typeof content === "string") {
-                totalContentLength += content.length;
-                accumulatedContent += content;
-              }
-              if (reasoning && typeof reasoning === "string") {
-                totalContentLength += reasoning.length;
-                accumulatedThinking += reasoning;
-              }
+								const delta = parsed.choices?.[0]?.delta;
+								const content = delta?.content;
+								const reasoning = delta?.reasoning_content;
+								if (content && typeof content === "string") {
+									totalContentLength += content.length;
+									accumulatedContent += content;
+								}
+								if (reasoning && typeof reasoning === "string") {
+									totalContentLength += reasoning.length;
+									accumulatedThinking += reasoning;
+								}
 
-              const extracted = extractUsage(parsed);
-              if (extracted) {
-                usage = extracted;
-              }
+								const extracted = extractUsage(parsed);
+								if (extracted) {
+									usage = extracted;
+								}
 
-              const isFinishChunk = parsed.choices?.[0]?.finish_reason;
-              if (isFinishChunk && !hasValidUsage(parsed.usage)) {
-                const estimated = estimateUsage(body, totalContentLength, FORMATS.OPENAI);
-                parsed.usage = filterUsageForFormat(estimated, FORMATS.OPENAI);
-                output = `data: ${JSON.stringify(parsed)}\n`;
-                usage = estimated;
-                injectedUsage = true;
-              } else if (isFinishChunk && usage) {
-                const buffered = addBufferToUsage(usage);
-                parsed.usage = filterUsageForFormat(buffered, FORMATS.OPENAI);
-                output = `data: ${JSON.stringify(parsed)}\n`;
-                injectedUsage = true;
-              } else if (idFixed || fieldsInjected) {
-                output = `data: ${JSON.stringify(parsed)}\n`;
-                injectedUsage = true;
-              }
-            } catch { }
-          }
+								const isFinishChunk = parsed.choices?.[0]?.finish_reason;
+								if (isFinishChunk && !hasValidUsage(parsed.usage)) {
+									const estimated = estimateUsage(
+										body,
+										totalContentLength,
+										FORMATS.OPENAI,
+									);
+									parsed.usage = filterUsageForFormat(
+										estimated,
+										FORMATS.OPENAI,
+									);
+									output = `data: ${JSON.stringify(parsed)}\n`;
+									usage = estimated;
+									injectedUsage = true;
+								} else if (isFinishChunk && usage) {
+									const buffered = addBufferToUsage(usage);
+									parsed.usage = filterUsageForFormat(buffered, FORMATS.OPENAI);
+									output = `data: ${JSON.stringify(parsed)}\n`;
+									injectedUsage = true;
+								} else if (idFixed || fieldsInjected) {
+									output = `data: ${JSON.stringify(parsed)}\n`;
+									injectedUsage = true;
+								}
+							} catch {}
+						}
 
-          if (!injectedUsage) {
-            if (line.startsWith("data:") && !line.startsWith("data: ")) {
-              output = "data: " + line.slice(5) + "\n";
-            } else {
-              output = line + "\n";
-            }
-          }
+						if (!injectedUsage) {
+							if (line.startsWith("data:") && !line.startsWith("data: ")) {
+								output = "data: " + line.slice(5) + "\n";
+							} else {
+								output = line + "\n";
+							}
+						}
 
-          emit(output, controller);
-          continue;
-        }
+						emit(output, controller);
+						continue;
+					}
 
-        // Translate mode
-        if (!trimmed) continue;
+					// Translate mode
+					if (!trimmed) continue;
 
-        const parsed = parseSSELine(trimmed, targetFormat);
-        if (!parsed) continue;
+					const parsed = parseSSELine(trimmed, targetFormat);
+					if (!parsed) continue;
 
-        // For Ollama: done=true is the final chunk with finish_reason/usage, must translate
-        // For other formats: done=true is the [DONE] sentinel, skip
-        if (parsed && parsed.done && targetFormat !== FORMATS.OLLAMA) {
-          const output = "data: [DONE]\n\n";
-          emit(output, controller);
-          continue;
-        }
+					// For Ollama: done=true is the final chunk with finish_reason/usage, must translate
+					// For other formats: done=true is the [DONE] sentinel, skip
+					if (parsed && parsed.done && targetFormat !== FORMATS.OLLAMA) {
+						const output = "data: [DONE]\n\n";
+						emit(output, controller);
+						continue;
+					}
 
-        // Claude format - content
-        if (parsed.delta?.text) {
-          totalContentLength += parsed.delta.text.length;
-          accumulatedContent += parsed.delta.text;
-        }
-        // Claude format - thinking
-        if (parsed.delta?.thinking) {
-          totalContentLength += parsed.delta.thinking.length;
-          accumulatedThinking += parsed.delta.thinking;
-        }
-        
-        // OpenAI format - content
-        if (parsed.choices?.[0]?.delta?.content) {
-          totalContentLength += parsed.choices[0].delta.content.length;
-          accumulatedContent += parsed.choices[0].delta.content;
-        }
-        // OpenAI format - reasoning
-        if (parsed.choices?.[0]?.delta?.reasoning_content) {
-          totalContentLength += parsed.choices[0].delta.reasoning_content.length;
-          accumulatedThinking += parsed.choices[0].delta.reasoning_content;
-        }
-        
-        // Gemini format
-        if (parsed.candidates?.[0]?.content?.parts) {
-          for (const part of parsed.candidates[0].content.parts) {
-            if (part.text && typeof part.text === "string") {
-              totalContentLength += part.text.length;
-              // Check if this is thinking content
-              if (part.thought === true) {
-                accumulatedThinking += part.text;
-              } else {
-                accumulatedContent += part.text;
-              }
-            }
-          }
-        }
+					// Claude format - content
+					if (parsed.delta?.text) {
+						totalContentLength += parsed.delta.text.length;
+						accumulatedContent += parsed.delta.text;
+					}
+					// Claude format - thinking
+					if (parsed.delta?.thinking) {
+						totalContentLength += parsed.delta.thinking.length;
+						accumulatedThinking += parsed.delta.thinking;
+					}
 
-        // Extract usage
-        const extracted = extractUsage(parsed);
-        if (extracted) state.usage = extracted; // Keep original usage for logging
+					// OpenAI format - content
+					if (parsed.choices?.[0]?.delta?.content) {
+						totalContentLength += parsed.choices[0].delta.content.length;
+						accumulatedContent += parsed.choices[0].delta.content;
+					}
+					// OpenAI format - reasoning
+					if (parsed.choices?.[0]?.delta?.reasoning_content) {
+						totalContentLength +=
+							parsed.choices[0].delta.reasoning_content.length;
+						accumulatedThinking += parsed.choices[0].delta.reasoning_content;
+					}
 
-        // Translate: targetFormat -> openai -> sourceFormat
-        const translated = await translateResponse(targetFormat, sourceFormat, parsed, state);
+					// Gemini format
+					if (parsed.candidates?.[0]?.content?.parts) {
+						for (const part of parsed.candidates[0].content.parts) {
+							if (part.text && typeof part.text === "string") {
+								totalContentLength += part.text.length;
+								// Check if this is thinking content
+								if (part.thought === true) {
+									accumulatedThinking += part.text;
+								} else {
+									accumulatedContent += part.text;
+								}
+							}
+						}
+					}
 
-        // Log OpenAI intermediate chunks (if available)
-        if (translated?._openaiIntermediate) {
-          for (const item of translated._openaiIntermediate) {
-            const openaiOutput = formatSSE(item, FORMATS.OPENAI);
-            reqLogger?.appendOpenAIChunk?.(openaiOutput);
-          }
-        }
+					// Extract usage
+					const extracted = extractUsage(parsed);
+					if (extracted) state.usage = extracted; // Keep original usage for logging
 
-        if (translated?.length > 0) {
-          for (const item of translated) {
-            // Filter empty chunks
-            if (!hasValuableContent(item, sourceFormat)) {
-              continue; // Skip this empty chunk
-            }
+					// Translate: targetFormat -> openai -> sourceFormat
+					const translated = await translateResponse(
+						targetFormat,
+						sourceFormat,
+						parsed,
+						state,
+					);
 
-            // Inject estimated usage if finish chunk has no valid usage
-            const isFinishChunk = item.type === "message_delta" || item.choices?.[0]?.finish_reason;
-            if (state.finishReason && isFinishChunk && !hasValidUsage(item.usage) && totalContentLength > 0) {
-              const estimated = estimateUsage(body, totalContentLength, sourceFormat);
-              item.usage = filterUsageForFormat(estimated, sourceFormat); // Filter + already has buffer
-              state.usage = estimated;
-            } else if (state.finishReason && isFinishChunk && state.usage) {
-              // Add buffer and filter usage for client (but keep original in state.usage for logging)
-              const buffered = addBufferToUsage(state.usage);
-              item.usage = filterUsageForFormat(buffered, sourceFormat);
-            }
+					// Log OpenAI intermediate chunks (if available)
+					if (translated?._openaiIntermediate) {
+						for (const item of translated._openaiIntermediate) {
+							const openaiOutput = formatSSE(item, FORMATS.OPENAI);
+							reqLogger?.appendOpenAIChunk?.(openaiOutput);
+						}
+					}
 
-            const output = formatSSE(item, sourceFormat);
-            emit(output, controller);
-          }
-        }
-      }
-      } catch (error) {
-        console.error("[Stream] Transform error:", error);
-        // Emit error event to client
-        const errorChunk = sourceFormat === FORMATS.OPENAI 
-          ? { error: { message: error.message, type: "translation_error" } }
-          : { type: "error", error: { message: error.message } };
-        emit(formatSSE(errorChunk, sourceFormat), controller);
-        controller.error(error);
-      }
-    },
+					if (translated?.length > 0) {
+						for (const item of translated) {
+							// Filter empty chunks
+							if (!hasValuableContent(item, sourceFormat)) {
+								continue; // Skip this empty chunk
+							}
 
-    async flush(controller) {
-      trackPendingRequest(model, provider, connectionId, false);
-      try {
-        const remaining = decoder.decode();
-        if (remaining) buffer += remaining;
+							// Inject estimated usage if finish chunk has no valid usage
+							const isFinishChunk =
+								item.type === "message_delta" ||
+								item.choices?.[0]?.finish_reason;
+							if (
+								state.finishReason &&
+								isFinishChunk &&
+								!hasValidUsage(item.usage) &&
+								totalContentLength > 0
+							) {
+								const estimated = estimateUsage(
+									body,
+									totalContentLength,
+									sourceFormat,
+								);
+								item.usage = filterUsageForFormat(estimated, sourceFormat); // Filter + already has buffer
+								state.usage = estimated;
+							} else if (state.finishReason && isFinishChunk && state.usage) {
+								// Add buffer and filter usage for client (but keep original in state.usage for logging)
+								const buffered = addBufferToUsage(state.usage);
+								item.usage = filterUsageForFormat(buffered, sourceFormat);
+							}
 
-        if (mode === STREAM_MODE.PASSTHROUGH) {
-          if (buffer) {
-            const decloaked = shouldDecloak ? decloakSSELine(buffer, toolNameMap) : buffer;
-            let output = null;
-            const trimmedBuffer = decloaked.trim();
+							const output = formatSSE(item, sourceFormat);
+							emit(output, controller);
+						}
+					}
+				}
+			} catch (error) {
+				console.error("[Stream] Transform error:", error);
+				// Emit error event to client
+				const errorChunk =
+					sourceFormat === FORMATS.OPENAI
+						? { error: { message: error.message, type: "translation_error" } }
+						: { type: "error", error: { message: error.message } };
+				emit(formatSSE(errorChunk, sourceFormat), controller);
+				controller.error(error);
+			}
+		},
 
-            if (trimmedBuffer.startsWith("data:")) {
-              const dataStr = trimmedBuffer.slice(5).trim();
-              if (dataStr !== "[DONE]") {
-                try {
-                  const parsed = JSON.parse(dataStr);
-                  if (parsed !== null && parsed !== undefined) {
-                    output = decloaked;
-                    if (decloaked.startsWith("data:") && !decloaked.startsWith("data: ")) {
-                      output = "data: " + decloaked.slice(5);
-                    }
-                  }
-                } catch {
-                  output = decloaked;
-                  if (decloaked.startsWith("data:") && !decloaked.startsWith("data: ")) {
-                    output = "data: " + decloaked.slice(5);
-                  }
-                }
-              }
-            } else {
-              output = decloaked;
-            }
+		async flush(controller) {
+			trackPendingRequest(model, provider, connectionId, false);
+			try {
+				const remaining = decoder.decode();
+				if (remaining) buffer += remaining;
 
-            if (output) {
-              emit(output, controller);
-            }
-          }
+				if (mode === STREAM_MODE.PASSTHROUGH) {
+					if (buffer) {
+						const decloaked = shouldDecloak
+							? decloakSSELine(buffer, toolNameMap)
+							: buffer;
+						let output = null;
+						const trimmedBuffer = decloaked.trim();
 
-          if (!hasValidUsage(usage) && totalContentLength > 0) {
-            usage = estimateUsage(body, totalContentLength, FORMATS.OPENAI);
-          }
+						if (trimmedBuffer.startsWith("data:")) {
+							const dataStr = trimmedBuffer.slice(5).trim();
+							if (dataStr !== "[DONE]") {
+								try {
+									const parsed = JSON.parse(dataStr);
+									if (parsed !== null && parsed !== undefined) {
+										output = decloaked;
+										if (
+											decloaked.startsWith("data:") &&
+											!decloaked.startsWith("data: ")
+										) {
+											output = "data: " + decloaked.slice(5);
+										}
+									}
+								} catch {
+									output = decloaked;
+									if (
+										decloaked.startsWith("data:") &&
+										!decloaked.startsWith("data: ")
+									) {
+										output = "data: " + decloaked.slice(5);
+									}
+								}
+							}
+						} else {
+							output = decloaked;
+						}
 
-          if (hasValidUsage(usage)) {
-            logUsage(provider, usage, model, connectionId, apiKey);
-          } else {
-            appendRequestLog({ model, provider, connectionId, tokens: null, status: "200 OK" }).catch(() => { });
-          }
-          
-          // IMPORTANT: In passthrough mode we still must terminate the SSE stream.
-          // Some clients (e.g. OpenClaw) expect the OpenAI-style sentinel:
-          //   data: [DONE]\n\n
-          // Without it they can hang until timeout and trigger failover.
-          emit("data: [DONE]\n\n", controller);
+						if (output) {
+							emit(output, controller);
+						}
+					}
 
-          if (onStreamComplete) {
-            onStreamComplete({
-              content: accumulatedContent,
-              thinking: accumulatedThinking
-            }, usage, ttftAt);
-          }
-          return;
-        }
+					if (!hasValidUsage(usage) && totalContentLength > 0) {
+						usage = estimateUsage(body, totalContentLength, FORMATS.OPENAI);
+					}
 
-        if (buffer.trim()) {
-          const decloaked = shouldDecloak ? decloakSSELine(buffer, toolNameMap) : buffer;
-          const parsed = parseSSELine(decloaked.trim());
-          if (parsed && !parsed.done) {
-            const translated = await translateResponse(targetFormat, sourceFormat, parsed, state);
+					if (hasValidUsage(usage)) {
+						logUsage(provider, usage, model, connectionId, apiKey);
+					} else {
+						appendRequestLog({
+							model,
+							provider,
+							connectionId,
+							tokens: null,
+							status: "200 OK",
+						}).catch(() => {});
+					}
 
-            if (translated?._openaiIntermediate) {
-              for (const item of translated._openaiIntermediate) {
-                const openaiOutput = formatSSE(item, FORMATS.OPENAI);
-                reqLogger?.appendOpenAIChunk?.(openaiOutput);
-              }
-            }
+					// IMPORTANT: In passthrough mode we still must terminate the SSE stream.
+					// Some clients (e.g. OpenClaw) expect the OpenAI-style sentinel:
+					//   data: [DONE]\n\n
+					// Without it they can hang until timeout and trigger failover.
+					emit("data: [DONE]\n\n", controller);
 
-            if (translated?.length > 0) {
-              for (const item of translated) {
-                emit(formatSSE(item, sourceFormat), controller);
-              }
-            }
-          }
-        }
+					if (onStreamComplete) {
+						onStreamComplete(
+							{
+								content: accumulatedContent,
+								thinking: accumulatedThinking,
+							},
+							usage,
+							ttftAt,
+						);
+					}
+					return;
+				}
 
-        const flushed = await translateResponse(targetFormat, sourceFormat, null, state);
+				if (buffer.trim()) {
+					const decloaked = shouldDecloak
+						? decloakSSELine(buffer, toolNameMap)
+						: buffer;
+					const parsed = parseSSELine(decloaked.trim());
+					if (parsed && !parsed.done) {
+						const translated = await translateResponse(
+							targetFormat,
+							sourceFormat,
+							parsed,
+							state,
+						);
 
-        if (flushed?._openaiIntermediate) {
-          for (const item of flushed._openaiIntermediate) {
-            const openaiOutput = formatSSE(item, FORMATS.OPENAI);
-            reqLogger?.appendOpenAIChunk?.(openaiOutput);
-          }
-        }
+						if (translated?._openaiIntermediate) {
+							for (const item of translated._openaiIntermediate) {
+								const openaiOutput = formatSSE(item, FORMATS.OPENAI);
+								reqLogger?.appendOpenAIChunk?.(openaiOutput);
+							}
+						}
 
-        if (flushed?.length > 0) {
-          for (const item of flushed) {
-            emit(formatSSE(item, sourceFormat), controller);
-          }
-        }
+						if (translated?.length > 0) {
+							for (const item of translated) {
+								emit(formatSSE(item, sourceFormat), controller);
+							}
+						}
+					}
+				}
 
-        emit("data: [DONE]\n\n", controller);
+				const flushed = await translateResponse(
+					targetFormat,
+					sourceFormat,
+					null,
+					state,
+				);
 
-        if (!hasValidUsage(state?.usage) && totalContentLength > 0) {
-          state.usage = estimateUsage(body, totalContentLength, sourceFormat);
-        }
+				if (flushed?._openaiIntermediate) {
+					for (const item of flushed._openaiIntermediate) {
+						const openaiOutput = formatSSE(item, FORMATS.OPENAI);
+						reqLogger?.appendOpenAIChunk?.(openaiOutput);
+					}
+				}
 
-        if (hasValidUsage(state?.usage)) {
-          logUsage(state.provider || targetFormat, state.usage, model, connectionId, apiKey);
-        } else {
-          appendRequestLog({ model, provider, connectionId, tokens: null, status: "200 OK" }).catch(() => { });
-        }
-        
-        if (onStreamComplete) {
-          onStreamComplete({
-            content: accumulatedContent,
-            thinking: accumulatedThinking
-          }, state?.usage, ttftAt);
-        }
-      } catch (error) {
-        console.error("[Stream] Flush error:", error);
-        // Emit error to client if possible
-        try {
-          const errorChunk = sourceFormat === FORMATS.OPENAI 
-            ? { error: { message: error.message, type: "flush_error" } }
-            : { type: "error", error: { message: error.message } };
-          emit(formatSSE(errorChunk, sourceFormat), controller);
-        } catch (emitError) {
-          // If emit fails, just log - stream is likely already closed
-          console.error("[Stream] Failed to emit flush error:", emitError);
-        }
-      }
-    }
-  });
+				if (flushed?.length > 0) {
+					for (const item of flushed) {
+						emit(formatSSE(item, sourceFormat), controller);
+					}
+				}
+
+				emit("data: [DONE]\n\n", controller);
+
+				if (!hasValidUsage(state?.usage) && totalContentLength > 0) {
+					state.usage = estimateUsage(body, totalContentLength, sourceFormat);
+				}
+
+				if (hasValidUsage(state?.usage)) {
+					logUsage(
+						state.provider || targetFormat,
+						state.usage,
+						model,
+						connectionId,
+						apiKey,
+					);
+				} else {
+					appendRequestLog({
+						model,
+						provider,
+						connectionId,
+						tokens: null,
+						status: "200 OK",
+					}).catch(() => {});
+				}
+
+				if (onStreamComplete) {
+					onStreamComplete(
+						{
+							content: accumulatedContent,
+							thinking: accumulatedThinking,
+						},
+						state?.usage,
+						ttftAt,
+					);
+				}
+			} catch (error) {
+				console.error("[Stream] Flush error:", error);
+				// Emit error to client if possible
+				try {
+					const errorChunk =
+						sourceFormat === FORMATS.OPENAI
+							? { error: { message: error.message, type: "flush_error" } }
+							: { type: "error", error: { message: error.message } };
+					emit(formatSSE(errorChunk, sourceFormat), controller);
+				} catch (emitError) {
+					// If emit fails, just log - stream is likely already closed
+					console.error("[Stream] Failed to emit flush error:", emitError);
+				}
+			}
+		},
+	});
 }
 
-export function createSSETransformStreamWithLogger(targetFormat, sourceFormat, provider = null, reqLogger = null, toolNameMap = null, model = null, connectionId = null, body = null, onStreamComplete = null, apiKey = null) {
-  return createSSEStream({
-    mode: STREAM_MODE.TRANSLATE,
-    targetFormat,
-    sourceFormat,
-    provider,
-    reqLogger,
-    toolNameMap,
-    model,
-    connectionId,
-    body,
-    onStreamComplete,
-    apiKey
-  });
+export function createSSETransformStreamWithLogger(
+	targetFormat,
+	sourceFormat,
+	provider = null,
+	reqLogger = null,
+	toolNameMap = null,
+	model = null,
+	connectionId = null,
+	body = null,
+	onStreamComplete = null,
+	apiKey = null,
+) {
+	return createSSEStream({
+		mode: STREAM_MODE.TRANSLATE,
+		targetFormat,
+		sourceFormat,
+		provider,
+		reqLogger,
+		toolNameMap,
+		model,
+		connectionId,
+		body,
+		onStreamComplete,
+		apiKey,
+	});
 }
 
-export function createPassthroughStreamWithLogger(provider = null, reqLogger = null, model = null, connectionId = null, body = null, onStreamComplete = null, apiKey = null, sourceFormat = null, toolNameMap = null) {
-  return createSSEStream({
-    mode: STREAM_MODE.PASSTHROUGH,
-    sourceFormat,
-    provider,
-    reqLogger,
-    toolNameMap,
-    model,
-    connectionId,
-    body,
-    onStreamComplete,
-    apiKey
-  });
+export function createPassthroughStreamWithLogger(
+	provider = null,
+	reqLogger = null,
+	model = null,
+	connectionId = null,
+	body = null,
+	onStreamComplete = null,
+	apiKey = null,
+	sourceFormat = null,
+	toolNameMap = null,
+) {
+	return createSSEStream({
+		mode: STREAM_MODE.PASSTHROUGH,
+		sourceFormat,
+		provider,
+		reqLogger,
+		toolNameMap,
+		model,
+		connectionId,
+		body,
+		onStreamComplete,
+		apiKey,
+	});
 }

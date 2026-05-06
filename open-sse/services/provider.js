@@ -165,6 +165,8 @@ export function buildProviderUrl(provider, model, stream = true, options = {}) {
   const config = getProviderConfig(provider);
 
   switch (provider) {
+    case "commandcode":
+      return config.baseUrl;
     case "claude":
       return `${config.baseUrl}?beta=true`;
 
@@ -232,6 +234,9 @@ export function buildProviderHeaders(provider, credentials, stream = true, body 
     }
   } else {
     switch (provider) {
+      case "commandcode":
+        headers["Authorization"] = `Bearer ${credentials.apiKey || credentials.accessToken}`;
+        break;
       case "gemini":
         if (credentials.apiKey) {
           headers["x-goog-api-key"] = credentials.apiKey;
@@ -321,6 +326,9 @@ export function buildProviderHeaders(provider, credentials, stream = true, body 
 
 // Get target format for provider
 export function getTargetFormat(provider) {
+  if (provider === "commandcode") {
+    return "commandcode";
+  }
   if (isOpenAICompatible(provider)) {
     return getOpenAICompatibleType(provider) === "responses" ? "openai-responses" : "openai";
   }

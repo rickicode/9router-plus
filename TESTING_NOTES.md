@@ -3,9 +3,9 @@
 ## Manual Testing Performed
 
 ### Worker Endpoints
-- ✅ POST /sync/:machineId - accepts settings field
-- ✅ GET /worker/usage/:machineId - returns usage stats
-- ✅ GET /worker/health/:machineId - returns health status
+- ✅ POST /sync/shared - accepts settings field
+- ✅ GET /worker/usage - returns usage stats
+- ✅ GET /worker/health - returns health status
 
 ### Routing Logic
 - ✅ Round-robin: Verified index increments per request

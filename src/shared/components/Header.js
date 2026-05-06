@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useMemo, useEffect } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 import PropTypes from "prop-types";
 import ProviderIcon from "@/shared/components/ProviderIcon";
@@ -16,18 +16,6 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
 
   const pageInfo = useMemo(() => getDashboardPageInfo(pathname), [pathname]);
   const { title, description, icon, breadcrumbs } = pageInfo;
-
-  // Sync document.title with page title for browser tab
-  useEffect(() => {
-    if (title) {
-      const translatedTitle = translate(title);
-      document.title = `${translatedTitle} - 9Router`;
-    } else if (breadcrumbs.length > 0) {
-      const lastCrumb = breadcrumbs[breadcrumbs.length - 1];
-      const translatedTitle = translate(lastCrumb.label);
-      document.title = `${translatedTitle} - 9Router`;
-    }
-  }, [title, breadcrumbs]);
 
   const handleLogout = async () => {
     try {

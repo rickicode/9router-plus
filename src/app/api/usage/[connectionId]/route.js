@@ -9,12 +9,16 @@ export async function GET(request, { params }) {
     const includeMetadata = runConnectionTest || searchParams.get("meta") === "1";
 
     return await runDedupedUsageRefreshJob(connectionId, async () => {
-      const result = await refreshConnectionUsage(connectionId, { runConnectionTest });
+      const result = await refreshConnectionUsage(connectionId, {
+        runConnectionTest,
+        skipTransientConnectivityErrors: true,
+      });
       if (includeMetadata) {
         return Response.json({
           usage: result.usage,
           testResult: result.testResult,
           skipped: result.skipped,
+          skipReason: result.skipReason || null,
         });
       }
 

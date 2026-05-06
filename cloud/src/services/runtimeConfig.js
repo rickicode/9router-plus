@@ -62,27 +62,27 @@ export function createRuntimeConfigLoader({ fetchImpl = defaultFetchImpl, now = 
   const cache = new Map();
 
   return {
-    invalidate(machineId, registration = {}) {
+    invalidate(runtimeId, registration = {}) {
       const runtimeUrl = registration?.runtimeUrl;
       if (!runtimeUrl) {
         for (const key of cache.keys()) {
-          if (key.startsWith(`${machineId}:`)) {
+          if (key.startsWith(`${runtimeId}:`)) {
             cache.delete(key);
           }
         }
         return;
       }
 
-      cache.delete(`${machineId}:${runtimeUrl}`);
+      cache.delete(`${runtimeId}:${runtimeUrl}`);
     },
 
-    async load(machineId, registration = {}, options = {}) {
+    async load(runtimeId, registration = {}, options = {}) {
       const runtimeUrl = registration?.runtimeUrl;
       if (!runtimeUrl) {
         return null;
       }
 
-      const cacheKey = `${machineId}:${runtimeUrl}`;
+      const cacheKey = `${runtimeId}:${runtimeUrl}`;
       const ttlMs = Number.isFinite(registration.cacheTtlMs)
         ? Math.max(0, registration.cacheTtlMs)
         : DEFAULT_CACHE_TTL_MS;

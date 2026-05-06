@@ -177,8 +177,9 @@ export function parseSSEToOpenAIResponse(rawSSE, fallbackModel) {
 export async function parseCommandCodeSSEToOpenAIResponse(rawSSE, fallbackModel) {
 	const state = { ...initState(FORMATS.OPENAI), model: fallbackModel || "unknown" };
 	const chunks = [];
+	const rawLines = Array.isArray(rawSSE) ? rawSSE : String(rawSSE || "").split("\n");
 
-	for (const line of String(rawSSE || "").split("\n")) {
+	for (const line of rawLines) {
 		const trimmed = line.trim();
 		if (!trimmed) continue;
 		let parsed = null;
@@ -237,15 +238,30 @@ export async function parseCommandCodeSSEToOpenAIResponse(rawSSE, fallbackModel)
 				}
 				const existing = toolCallMap.get(idx);
 				if (tc.id) existing.id = tc.id;
-				if (tc.function?.name) existing.function.name += tc.function.name;
-				if (tc.function?.arguments) existing.function.arguments += tc.function.arguments;
+				if (tc.function?.name) {
+					const nextName = tc.function.name;
+					existing.function.name = nextName.startsWith(existing.function.name)
+						? nextName
+						: `${existing.function.name}${nextName}`;
+				}
+				if (tc.function?.arguments) {
+					const nextArgs = tc.function.arguments;
+					existing.function.arguments = nextArgs.startsWith(existing.function.arguments)
+						? nextArgs
+						: `${existing.function.arguments}${nextArgs}`;
+				}
 			}
 		}
 	}
 
+	const combinedContent = contentParts.join("");
+	const trimmedContent = combinedContent.trim();
+	const pseudoToolMarkupOnly = toolCallMap.size > 0
+		&& trimmedContent.length > 0
+		&& /^<tool_calls?>[\s\S]*<\/tool_calls?>$/i.test(trimmedContent);
 	const message = {
 		role: "assistant",
-		content: contentParts.join("") || (toolCallMap.size > 0 ? null : ""),
+		content: pseudoToolMarkupOnly ? null : (combinedContent || (toolCallMap.size > 0 ? null : "")),
 	};
 	if (reasoningParts.length > 0) message.reasoning_content = reasoningParts.join("");
 	if (toolCallMap.size > 0) {

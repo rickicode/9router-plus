@@ -106,6 +106,40 @@ describe("usage request status sync", () => {
     } catch {}
   });
 
+  it("does not persist status recovery when token refresh succeeds but background refresh skips transient connectivity errors", async () => {
+    mockConnections.push({
+      id: "conn-refresh-skip",
+      provider: "codex",
+      authType: "oauth",
+      accessToken: "stale-token",
+      refreshToken: "refresh-token",
+      usageSnapshot: JSON.stringify({ provider: "codex", message: "previous snapshot" }),
+      routingStatus: "blocked",
+      authState: "ok",
+    });
+
+    needsRefresh.mockImplementation(() => true);
+    refreshCredentials.mockResolvedValueOnce({
+      accessToken: "fresh-token",
+      refreshToken: "fresh-refresh-token",
+      expiresIn: 3600,
+    });
+    getUsageForProvider.mockRejectedValueOnce(new Error("fetch failed"));
+
+    const { refreshConnectionUsage } = await import("../../src/lib/connectionUsageRefresh.js");
+    const result = await refreshConnectionUsage("conn-refresh-skip", {
+      skipTransientConnectivityErrors: true,
+    });
+
+    expect(result).toMatchObject({ skipped: true, skipReason: "transient_connectivity_error" });
+    expect(updateProviderConnection).toHaveBeenCalledWith("conn-refresh-skip", expect.objectContaining({
+      accessToken: "fresh-token",
+      refreshToken: "fresh-refresh-token",
+      expiresAt: expect.any(String),
+    }));
+    expect(writeConnectionHotState).not.toHaveBeenCalled();
+  });
+
   it("marks the connection active after successful usage fetch", async () => {
     mockConnections.push({
       id: "conn-1",
@@ -1063,7 +1097,7 @@ describe("usage request status sync", () => {
     expect(updateProviderConnection).not.toHaveBeenCalled();
   });
 
-  it("does not persist transient upstream timeouts into account status", async () => {
+  it("retries transient upstream timeouts 3 times and skips without persisting account status", async () => {
     mockConnections.push({
       id: "conn-usage-timeout",
       provider: "codex",
@@ -1085,28 +1119,25 @@ describe("usage request status sync", () => {
       .mockRejectedValueOnce(Object.assign(
         new Error("codex upstream timed out after 45000ms"),
         { status: 504, code: "UPSTREAM_TIMEOUT" },
+      ))
+      .mockRejectedValueOnce(Object.assign(
+        new Error("codex upstream timed out after 45000ms"),
+        { status: 504, code: "UPSTREAM_TIMEOUT" },
       ));
 
     const { GET } = await import("../../src/app/api/usage/[connectionId]/route.js");
-    const response = await GET(new Request("http://localhost/api/usage/conn-usage-timeout"), {
+    const response = await GET(new Request("http://localhost/api/usage/conn-usage-timeout?test=1"), {
       params: Promise.resolve({ connectionId: "conn-usage-timeout" }),
     });
+    const body = await response.json();
 
-    expect(response.status).toBe(504);
-    expect(getUsageForProvider).toHaveBeenCalledTimes(2);
-    expect(writeConnectionHotState).toHaveBeenCalledWith(expect.objectContaining({
-      connectionId: "conn-usage-timeout",
-      provider: "codex",
-      patch: expect.objectContaining({
-        lastCheckedAt: expect.any(String),
-        usageSnapshot: expect.stringContaining("Usage check temporarily unavailable. Retrying..."),
-      }),
-    }));
-
-    const [[{ patch }]] = writeConnectionHotState.mock.calls.slice(-1);
-    expect(patch).not.toHaveProperty("routingStatus", "blocked");
-    expect(patch).not.toHaveProperty("reasonDetail", "codex upstream timed out after 45000ms");
-    expect(patch).not.toHaveProperty("reasonCode", "usage_request_failed");
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      skipped: true,
+      skipReason: "transient_connectivity_error",
+    });
+    expect(getUsageForProvider).toHaveBeenCalledTimes(3);
+    expect(writeConnectionHotState).not.toHaveBeenCalled();
   });
 
   it("recovers successfully when a transient usage timeout succeeds on retry", async () => {
@@ -1154,6 +1185,40 @@ describe("usage request status sync", () => {
         usageSnapshot: expect.any(String),
       }),
     }));
+  });
+
+  it("retries generic transient fetch failures 3 times and skips without persisting account status", async () => {
+    mockConnections.push({
+      id: "conn-usage-fetch-failed",
+      provider: "codex",
+      authType: "oauth",
+      accessToken: "token",
+      refreshToken: "refresh",
+      routingStatus: "eligible",
+      authState: "ok",
+      reasonCode: "unknown",
+      reasonDetail: null,
+      testStatus: "active",
+    });
+
+    getUsageForProvider
+      .mockRejectedValueOnce(new Error("fetch failed"))
+      .mockRejectedValueOnce(new Error("fetch failed"))
+      .mockRejectedValueOnce(new Error("fetch failed"));
+
+    const { GET } = await import("../../src/app/api/usage/[connectionId]/route.js");
+    const response = await GET(new Request("http://localhost/api/usage/conn-usage-fetch-failed?test=1"), {
+      params: Promise.resolve({ connectionId: "conn-usage-fetch-failed" }),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      skipped: true,
+      skipReason: "transient_connectivity_error",
+    });
+    expect(getUsageForProvider).toHaveBeenCalledTimes(3);
+    expect(writeConnectionHotState).not.toHaveBeenCalled();
   });
 
   it("persists a fallback usage snapshot for generic usage failures", async () => {

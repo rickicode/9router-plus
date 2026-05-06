@@ -17,6 +17,41 @@ import {
 } from "@/lib/usageStatus.js";
 
 const TRANSIENT_USAGE_RETRY_DELAY_MS = 750;
+const TRANSIENT_USAGE_MAX_ATTEMPTS = 3;
+const USAGE_FETCH_TIMEOUT_MS = 3000;
+const TRANSIENT_CONNECTIVITY_ERROR_PATTERNS = [
+  "unable to connect",
+  "is the computer able to access the url",
+  "fetch failed",
+  "network error",
+  "network request failed",
+  "econnrefused",
+  "enotfound",
+  "eai_again",
+  "etimedout",
+  "socket hang up",
+  "connection refused",
+  "dns lookup failed",
+];
+const AUTH_RELATED_ERROR_PATTERNS = [
+  "token invalid",
+  "invalid token",
+  "token expired",
+  "expired",
+  "refresh failed",
+  "re-authorize",
+  "reauthorize",
+  "unauthorized",
+  "unauthenticated",
+  "access denied",
+  "invalid grant",
+  "revoked",
+  "oauth",
+  "access token",
+  "invalid api key",
+  "invalid session cookie",
+  "no access token",
+];
 
 function createHttpError(message, status = 500, extra = {}) {
   return Object.assign(new Error(message), { status, ...extra });
@@ -24,6 +59,62 @@ function createHttpError(message, status = 500, extra = {}) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function createUsageFetchTimeoutError(timeoutMs = USAGE_FETCH_TIMEOUT_MS) {
+  const error = new Error(`usage fetch timed out after ${timeoutMs}ms`);
+  error.name = "AbortError";
+  error.status = 504;
+  error.code = "UPSTREAM_TIMEOUT";
+  error.timeoutMs = timeoutMs;
+  return error;
+}
+
+async function withUsageFetchTimeout(task, timeoutMs = USAGE_FETCH_TIMEOUT_MS) {
+  return await new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => reject(createUsageFetchTimeoutError(timeoutMs)), timeoutMs);
+
+    Promise.resolve()
+      .then(task)
+      .then(resolve, reject)
+      .finally(() => clearTimeout(timeoutId));
+  });
+}
+
+function isTransientConnectivityError(error) {
+  const message = typeof error === "string"
+    ? error
+    : error?.message || error?.error || error?.cause?.message || "";
+  const code = String(error?.code || error?.cause?.code || "").toUpperCase();
+  const normalizedMessage = String(message).toLowerCase();
+
+  if (AUTH_RELATED_ERROR_PATTERNS.some((pattern) => normalizedMessage.includes(pattern))) {
+    return false;
+  }
+
+  return code === "ECONNREFUSED"
+    || code === "ENOTFOUND"
+    || code === "EAI_AGAIN"
+    || code === "ETIMEDOUT"
+    || code === "ECONNRESET"
+    || TRANSIENT_CONNECTIVITY_ERROR_PATTERNS.some((pattern) => normalizedMessage.includes(pattern));
+}
+
+function shouldSkipTransientUsageError(error) {
+  return isTransientConnectivityError(error)
+    || isTransientUpstreamTimeoutError(error, {
+      statusCode: error?.status,
+      errorCode: error?.code || error?.errorCode,
+    });
+}
+
+function getUsageRetryLogLabel(connection = {}) {
+  return connection?.email
+    || connection?.displayName
+    || connection?.connectionName
+    || connection?.name
+    || connection?.id
+    || "unknown";
 }
 
 function getOperationalUsageSnapshot(connection, message, extra = {}) {
@@ -40,7 +131,8 @@ function getOperationalUsageSnapshot(connection, message, extra = {}) {
   };
 }
 
-async function refreshAndUpdateCredentials(connection, force = false) {
+async function refreshAndUpdateCredentials(connection, force = false, options = {}) {
+  const { persistStatus = true } = options;
   const executor = getExecutor(connection.provider);
   const credentials = {
     accessToken: connection.accessToken,
@@ -92,7 +184,7 @@ async function refreshAndUpdateCredentials(connection, force = false) {
   }
   const updatedConnection = { ...connection, ...updateData };
 
-  if (force || refreshResult.accessToken || refreshResult.refreshToken) {
+  if (persistStatus && (force || refreshResult.accessToken || refreshResult.refreshToken)) {
     await syncUsageStatus(updatedConnection, getLiveRequestRecoveryPatch({
       lastCheckedAt: now,
       usageSnapshot: updatedConnection?.usageSnapshot,
@@ -103,7 +195,7 @@ async function refreshAndUpdateCredentials(connection, force = false) {
 }
 
 async function runConnectionTestOrThrow(connectionId) {
-  const testResult = await testSingleConnection(connectionId);
+  const testResult = await testSingleConnection(connectionId, { persistStatus: false });
 
   if (testResult?.error === "Connection not found") {
     throw createHttpError("Connection not found", 404, { testResult, phase: "test" });
@@ -141,30 +233,46 @@ async function resolveGlobalExhaustedThreshold(value) {
 }
 
 async function fetchUsageWithTransientRetry(connection) {
-  try {
-    return await getUsageForProvider(connection);
-  } catch (usageError) {
-    if (!isTransientUpstreamTimeoutError(usageError, {
-      statusCode: usageError?.status,
-      errorCode: usageError?.code || usageError?.errorCode,
-    })) {
-      throw usageError;
-    }
+  let lastError = null;
 
-    await sleep(TRANSIENT_USAGE_RETRY_DELAY_MS);
-    return await getUsageForProvider(connection);
+  for (let attempt = 1; attempt <= TRANSIENT_USAGE_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await withUsageFetchTimeout(() => getUsageForProvider(connection));
+    } catch (usageError) {
+      lastError = usageError;
+      const isRetryable = shouldSkipTransientUsageError(usageError);
+      const logLabel = `${connection?.provider || "provider"}:${getUsageRetryLogLabel(connection)}`;
+
+      if (!isRetryable || attempt >= TRANSIENT_USAGE_MAX_ATTEMPTS) {
+        if (isRetryable) {
+          console.warn(
+            `[UsageRefresh] transient usage fetch failed after ${attempt}/${TRANSIENT_USAGE_MAX_ATTEMPTS} attempts for ${logLabel}: ${usageError.message}`
+          );
+        }
+        throw usageError;
+      }
+
+      console.warn(
+        `[UsageRefresh] transient usage fetch failed on attempt ${attempt}/${TRANSIENT_USAGE_MAX_ATTEMPTS} for ${logLabel}; retrying in ${TRANSIENT_USAGE_RETRY_DELAY_MS * attempt}ms: ${usageError.message}`
+      );
+      await sleep(TRANSIENT_USAGE_RETRY_DELAY_MS * attempt);
+    }
   }
+
+  throw lastError || new Error("Usage fetch failed");
 }
 
 export async function refreshConnectionUsage(connectionId, options = {}) {
   const {
     runConnectionTest = false,
     globalExhaustedThreshold,
+    skipTransientConnectivityErrors = false,
   } = options;
 
   let connection;
   let testResult = null;
   let authExpiredUsageError = null;
+  const shouldPersistRefreshStatus = !skipTransientConnectivityErrors;
 
   try {
     const loaded = await loadUsageConnection(connectionId);
@@ -182,7 +290,9 @@ export async function refreshConnectionUsage(connectionId, options = {}) {
     }
 
     try {
-      const result = await refreshAndUpdateCredentials(connection, !runConnectionTest);
+      const result = await refreshAndUpdateCredentials(connection, !runConnectionTest, {
+        persistStatus: shouldPersistRefreshStatus,
+      });
       connection = result.connection;
     } catch (refreshError) {
       const lastCheckedAt = new Date().toISOString();
@@ -227,7 +337,9 @@ export async function refreshConnectionUsage(connectionId, options = {}) {
     if (isAuthExpiredMessage(usage) && connection.refreshToken) {
       let retryResult;
       try {
-        retryResult = await refreshAndUpdateCredentials(connection, true);
+        retryResult = await refreshAndUpdateCredentials(connection, true, {
+          persistStatus: shouldPersistRefreshStatus,
+        });
         connection = retryResult.connection;
       } catch (retryError) {
         const lastCheckedAt = new Date().toISOString();
@@ -264,7 +376,7 @@ export async function refreshConnectionUsage(connectionId, options = {}) {
       }
 
       try {
-        usage = await getUsageForProvider(connection);
+        usage = await withUsageFetchTimeout(() => getUsageForProvider(connection));
       } catch (usageRetryError) {
         usageRetryError.reasonDetail = authExpiredUsageError?.message
           ? `${usageRetryError.message}; original usage error: ${authExpiredUsageError.message}`
@@ -291,6 +403,10 @@ export async function refreshConnectionUsage(connectionId, options = {}) {
       error.testResult = testResult;
     }
     if (!connection?.id || error?.statusSynced) throw error;
+
+    if (skipTransientConnectivityErrors && shouldSkipTransientUsageError(error)) {
+      return { connection, usage: null, testResult, skipped: true, skipReason: "transient_connectivity_error" };
+    }
 
     const lastCheckedAt = new Date().toISOString();
     if (isTransientUpstreamTimeoutError(error, {

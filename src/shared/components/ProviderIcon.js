@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import PropTypes from "prop-types";
 
 export default function ProviderIcon({
@@ -12,8 +13,17 @@ export default function ProviderIcon({
   fallbackColor,
 }) {
   const [errored, setErrored] = useState(false);
+  const [actualSrc, setActualSrc] = useState(src);
 
-  if (!src || errored) {
+  function handleError() {
+    if (src?.endsWith(".png") && !actualSrc?.endsWith(".svg")) {
+      setActualSrc(src.replace(/\.png$/, ".svg"));
+    } else {
+      setErrored(true);
+    }
+  }
+
+  if (!actualSrc || errored) {
     return (
       <span
         className={`inline-flex items-center justify-center font-bold rounded-lg ${className}`.trim()}
@@ -30,13 +40,13 @@ export default function ProviderIcon({
   }
 
   return (
-    <img
-      src={src}
-      alt={alt}
+    <Image
+      src={actualSrc}
+      alt={alt || ""}
       width={size}
       height={size}
       className={className}
-      onError={() => setErrored(true)}
+      onError={handleError}
     />
   );
 }

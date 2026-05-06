@@ -6,10 +6,6 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 CLOUD_SHARED_SECRET = "30d4c31504619029bfd2727a515f3bf2463fbd2be389826d87005e7b19a9c70a"
 
-[define]
-"open-sse/config/codexInstructionsResolver.js" = "./src/stubs/codexInstructionsResolver.js"
-"undici" = "./src/stubs/undici.js"
-
 [[d1_databases]]
 binding = "DB"
 database_name = "proxy-db"

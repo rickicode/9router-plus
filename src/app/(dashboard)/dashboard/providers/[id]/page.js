@@ -20,6 +20,7 @@ import AddApiKeyModal from "./AddApiKeyModal";
 import EditCompatibleNodeModal from "./EditCompatibleNodeModal";
 import AddCustomModelModal from "./AddCustomModelModal";
 import CodexInstructionsCard from "./CodexInstructionsCard";
+import CommandCodeInstructionsCard from "./CommandCodeInstructionsCard";
 
 export default function ProviderDetailPage() {
   const params = useParams();
@@ -1242,8 +1243,9 @@ export default function ProviderDetailPage() {
         </Card>
       )}
 
-      {/* Codex provider: default instructions config */}
+      {/* Provider default instructions config */}
       {providerId === "codex" && <CodexInstructionsCard />}
+      {providerId === "commandcode" && <CommandCodeInstructionsCard />}
 
       {/* Models */}
       <Card>

@@ -23,8 +23,8 @@ async function authorizeUsageRequest(request, env) {
 }
 
 /**
- * GET /worker/usage/:machineId
- * Return usage stats for all connections
+ * GET /worker/usage
+ * Return usage stats for all connections in the shared runtime.
  */
 export async function handleUsage(request, env) {
   // CORS preflight support
@@ -84,10 +84,6 @@ export async function handleAdminUsageEvents(request, env) {
   }
 
   const url = new URL(request.url);
-  const machineId = String(url.searchParams.get("machineId") || "").trim();
-  if (!machineId) {
-    return jsonResponse({ error: "Missing machineId" }, 400);
-  }
 
   const auth = await authorizeUsageRequest(request, env);
   if (!auth.ok) return auth.response;

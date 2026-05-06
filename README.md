@@ -24,6 +24,9 @@
 | **Core Routing** | ✅ Smart fallback | ✅ Smart fallback |
 | **Providers** | 40+ providers | 40+ providers |
 | **Translation Layer** | OpenAI ↔ Claude | ✅ OpenAI ↔ Claude ↔ Gemini |
+| **Morph Proxy** | ❌ | ✅ Full `morphllm` namespace (apply, compact, embeddings, rerank, warpgrep) |
+| **Morph Key Rotation** | ❌ | ✅ Round-robin key failover + auto-exhausted detection |
+| **Morph Usage Dashboard** | ❌ | ✅ Credits tracking, capability breakdown, auto-compact stats |
 | **Tab-Based UI** | ❌ | ✅ Main/Cloud tabs |
 | **Security Hardening** | Basic | ✅ 12 critical bug fixes + SSRF protection |
 | **Real-Time Monitoring** | Basic | ✅ Live status + logs viewer |
@@ -36,6 +39,7 @@
 - 🔒 **Security First** - Fixed 12 critical bugs, added SSRF protection
 - 📊 **Real-Time Monitoring** - Live status updates and log streaming
 - 📱 **Responsive** - Optimized for all screen sizes
+- 🔀 **Morph Proxy** - Built-in proxy ke Morph API (`api.morphllm.com`) dengan namespace `morphllm`, round-robin key rotation, usage tracking, dan dedicated dashboard
 
 ---
 

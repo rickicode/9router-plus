@@ -1,8 +1,8 @@
 /**
  * API Key utilities for Worker
  * Supports both formats:
- * - New: sk-{machineId}-{keyId}-{crc8}
- * - Old: sk-{random8}
+ * - Scoped: sk-{runtimeScope}-{keyId}-{crc8}
+ * - Legacy: sk-{random8}
  */
 
 const API_KEY_SECRET = "endpoint-proxy-api-key-secret";
@@ -10,10 +10,10 @@ const API_KEY_SECRET = "endpoint-proxy-api-key-secret";
 /**
  * Generate CRC (8-char HMAC) using Web Crypto API
  */
-async function generateCrc(machineId, keyId) {
+async function generateCrc(runtimeScope, keyId) {
   const encoder = new TextEncoder();
   const keyData = encoder.encode(API_KEY_SECRET);
-  const data = encoder.encode(machineId + keyId);
+  const data = encoder.encode(runtimeScope + keyId);
   
   const key = await crypto.subtle.importKey(
     "raw",
@@ -31,29 +31,29 @@ async function generateCrc(machineId, keyId) {
 }
 
 /**
- * Parse API key and extract machineId + keyId
+ * Parse API key and extract runtimeScope + keyId.
  * @param {string} apiKey
- * @returns {Promise<{ machineId: string, keyId: string, isNewFormat: boolean } | null>}
+ * @returns {Promise<{ runtimeScope: string | null, keyId: string, isNewFormat: boolean } | null>}
  */
 export async function parseApiKey(apiKey) {
   if (!apiKey || !apiKey.startsWith("sk-")) return null;
 
   const parts = apiKey.split("-");
   
-  // New format: sk-{machineId}-{keyId}-{crc8} = 4 parts
+  // Scoped format: sk-{runtimeScope}-{keyId}-{crc8} = 4 parts
   if (parts.length === 4) {
-    const [, machineId, keyId, crc] = parts;
+    const [, runtimeScope, keyId, crc] = parts;
     
     // Verify CRC
-    const expectedCrc = await generateCrc(machineId, keyId);
+    const expectedCrc = await generateCrc(runtimeScope, keyId);
     if (crc !== expectedCrc) return null;
     
-    return { machineId, keyId, isNewFormat: true };
+    return { runtimeScope, keyId, isNewFormat: true };
   }
   
-  // Old format: sk-{random8} = 2 parts
+  // Legacy format: sk-{random8} = 2 parts
   if (parts.length === 2) {
-    return { machineId: null, keyId: parts[1], isNewFormat: false };
+    return { runtimeScope: null, keyId: parts[1], isNewFormat: false };
   }
   
   return null;

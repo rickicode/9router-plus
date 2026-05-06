@@ -285,20 +285,20 @@ sequenceDiagram
     UI->>Sync: POST action=enable
     Sync->>DB: set cloudEnabled=true
     Sync->>DB: ensure API key exists
-    Sync->>Cloud: POST /sync/{machineId} (providers/aliases/combos/keys)
+    Sync->>Cloud: POST /sync/shared (providers/aliases/combos/keys)
     Cloud-->>Sync: sync result
-    Sync->>Cloud: GET /{machineId}/v1/verify
+    Sync->>Cloud: GET /v1/verify
     Sync-->>UI: enabled + verification status
 
     UI->>Sync: POST action=sync
-    Sync->>Cloud: POST /sync/{machineId}
+    Sync->>Cloud: POST /sync/shared
     Cloud-->>Sync: remote data
     Sync->>DB: update newer local tokens/status
     Sync-->>UI: synced
 
     UI->>Sync: POST action=disable
     Sync->>DB: set cloudEnabled=false
-    Sync->>Cloud: DELETE /sync/{machineId}
+    Sync->>Cloud: DELETE /sync/shared
     Sync->>Claude: switch ANTHROPIC_BASE_URL back to local (if needed)
     Sync-->>UI: disabled
 ```
@@ -361,7 +361,7 @@ erDiagram
       string id
       string name
       string key
-      string machineId
+      string runtimeScope
       boolean isActive
     }
 
@@ -526,7 +526,7 @@ Runtime visibility sources:
 - Initial password fallback (`INITIAL_PASSWORD`, default `123456`) must be overridden in real deployments
 - API key HMAC secret (`API_KEY_SECRET`) secures generated local API key format
 - Provider secrets (API keys/tokens) are persisted in local DB and should be protected at filesystem level
-- Cloud sync endpoints rely on API key auth + machine id semantics
+- Cloud sync endpoints rely on shared-secret auth + shared-runtime semantics
 
 ## Environment and Runtime Matrix
 

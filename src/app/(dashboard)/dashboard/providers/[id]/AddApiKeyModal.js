@@ -248,9 +248,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
           </p>
         )}
 
-        <p className="text-xs text-text-muted">
-          Legacy manual proxy fields are still accepted by API for backward compatibility.
-        </p>
+
 
         <div className="flex gap-2">
           <Button onClick={handleSubmit} fullWidth disabled={saving || (!isOllamaLocal && (!formData.name || !formData.apiKey)) || (isAzure && (!azureData.azureEndpoint || !azureData.deployment || !azureData.organization))}>

@@ -1,5 +1,5 @@
 import * as log from "../utils/logger.js";
-import { deleteMachineData } from "../services/storage.js";
+import { deleteRuntimeData } from "../services/storage.js";
 
 const RETENTION_DAYS = 7;
 const WORKER_RECORD_ID = "shared";
@@ -25,7 +25,7 @@ export async function handleCleanup(env) {
     if (registryResult?.updated_at) {
       const updatedAt = new Date(registryResult.updated_at);
       if (updatedAt < cutoffDate) {
-        await deleteMachineData(WORKER_RECORD_ID, env);
+        await deleteRuntimeData(WORKER_RECORD_ID, env);
         deleted = 1;
       }
     }

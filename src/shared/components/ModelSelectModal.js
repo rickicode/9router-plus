@@ -92,15 +92,31 @@ export default function ModelSelectModal({
       const isCustomProvider = isOpenAICompatibleProvider(providerId) || isAnthropicCompatibleProvider(providerId);
 
       if (providerInfo.passthroughModels) {
+        const hardcodedModels = getModelsByProviderId(providerId);
+        const hardcodedIds = new Set(hardcodedModels.map((m) => m.id));
         const aliasModels = Object.entries(modelAliases)
           .filter(([, fullModel]) => fullModel.startsWith(`${alias}/`))
           .map(([aliasName, fullModel]) => ({
             id: fullModel.replace(`${alias}/`, ""),
             name: aliasName,
             value: fullModel,
+            isCustom: !hardcodedIds.has(fullModel.replace(`${alias}/`, "")),
           }));
 
-        if (aliasModels.length > 0) {
+        const modelsById = new Map();
+        for (const model of hardcodedModels) {
+          modelsById.set(model.id, {
+            id: model.id,
+            name: model.name,
+            value: `${alias}/${model.id}`,
+          });
+        }
+        for (const model of aliasModels) {
+          modelsById.set(model.id, model);
+        }
+
+        const modelsToShow = Array.from(modelsById.values());
+        if (modelsToShow.length > 0) {
           const matchedNode = providerNodes.find(node => node.id === providerId);
           const displayName = matchedNode?.name || providerInfo.name;
 
@@ -108,7 +124,7 @@ export default function ModelSelectModal({
             name: displayName,
             alias: alias,
             color: providerInfo.color,
-            models: aliasModels,
+            models: modelsToShow,
           };
         }
       } else if (isCustomProvider) {

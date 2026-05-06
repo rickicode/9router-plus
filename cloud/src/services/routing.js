@@ -23,45 +23,45 @@ function getStickySelection(candidates, apiKey, nowIso) {
   return stickyCandidate;
 }
 
-async function setStickySelection(machineData, selected, apiKey, stickyDurationSeconds, env) {
+async function setStickySelection(runtimeConfig, selected, apiKey, stickyDurationSeconds, env) {
   if (!apiKey || !selected?.id) {
     return;
   }
 
   const stickyUntil = new Date(Date.now() + (stickyDurationSeconds * 1000)).toISOString();
-  await updateRuntimeProviderState(machineData.machineId || "shared", selected.id, (conn) => {
+  await updateRuntimeProviderState(runtimeConfig.runtimeId || "shared", selected.id, (conn) => {
     conn.stickyKeyHash = apiKey;
     conn.stickyUntil = stickyUntil;
-  }, env, { runtimeConfig: machineData });
+  }, env, { runtimeConfig });
 }
 
 /**
- * Select credential for provider using round-robin/sticky logic
- * @param {Object} machineData - Machine data from R2
+ * Select credential for provider using round-robin/sticky logic.
+ * @param {Object} runtimeConfig - Shared runtime config/state snapshot
  * @param {string} provider - Provider name
  * @param {string} apiKey - Client API key (for sticky sessions)
  * @returns {Object} Selected credential
  */
-export async function selectCredential(machineData, provider, apiKey, env) {
-  const settings = machineData.settings || {};
+export async function selectCredential(runtimeConfig, provider, apiKey, env) {
+  const settings = runtimeConfig.settings || {};
   const routing = settings.routing || {};
   const providerOverride = routing.providerStrategies?.[provider] || settings.providerStrategies?.[provider] || {};
   const strategy = providerOverride.strategy
     || providerOverride.fallbackStrategy
-    || machineData.strategy
+    || runtimeConfig.strategy
     || routing.strategy
     || (settings.roundRobin ? "round-robin" : "fill-first");
   const stickyEnabled = routing.sticky?.enabled ?? settings.sticky;
   const stickyDurationSeconds = routing.sticky?.durationSeconds ?? settings.stickyDuration ?? 300;
 
   // Warn if settings are missing
-  if (!machineData.settings) {
+  if (!runtimeConfig.settings) {
     log.warn("ROUTING", `No settings found for ${provider}, using defaults (roundRobin=false, sticky=false)`);
   }
 
   // Mirror local 9router behavior: initial candidate selection must honor
   // canonical account availability, not just the isActive flag.
-  const allProviders = Object.values(machineData.providers || {})
+  const allProviders = Object.values(runtimeConfig.providers || {})
     .filter((p) => p.provider === provider);
   const activeCandidates = allProviders.filter((p) => p.isActive);
   const candidates = activeCandidates.filter((p) => !isAccountUnavailable(p));
@@ -103,7 +103,7 @@ export async function selectCredential(machineData, provider, apiKey, env) {
     log.debug("ROUTING", `Round-robin for ${provider}: ${selected.id} (index ${index})`);
 
     if (stickyEnabled) {
-      await setStickySelection(machineData, selected, apiKey, stickyDurationSeconds, env);
+      await setStickySelection(runtimeConfig, selected, apiKey, stickyDurationSeconds, env);
     }
 
     return selected;
@@ -111,7 +111,7 @@ export async function selectCredential(machineData, provider, apiKey, env) {
 
   log.debug("ROUTING", `Default first credential for ${provider}: ${candidates[0].id}`);
   if (stickyEnabled) {
-    await setStickySelection(machineData, candidates[0], apiKey, stickyDurationSeconds, env);
+    await setStickySelection(runtimeConfig, candidates[0], apiKey, stickyDurationSeconds, env);
   }
   return candidates[0];
 }

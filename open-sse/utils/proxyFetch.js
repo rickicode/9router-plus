@@ -27,6 +27,38 @@ function normalizeString(value) {
   return String(value).trim();
 }
 
+function getErrorCode(error) {
+  return error?.cause?.code || error?.code || "";
+}
+
+function formatDiagnosticError(prefix, error, extra = {}) {
+  const details = [];
+  const code = getErrorCode(error);
+  const phase = normalizeString(extra.phase);
+  const targetUrl = normalizeString(extra.targetUrl);
+  const proxyUrl = normalizeString(extra.proxyUrl);
+  const baseMessage = error?.message || String(error);
+
+  if (phase) details.push(`phase=${phase}`);
+  if (code) details.push(`code=${code}`);
+  if (proxyUrl) details.push(`proxy=${proxyUrl}`);
+  if (targetUrl) {
+    try {
+      const parsed = new URL(targetUrl);
+      details.push(`host=${parsed.hostname}`);
+    } catch {}
+  }
+
+  const message = `${prefix}: ${baseMessage}${details.length > 0 ? ` [${details.join(" ")}]` : ""}`;
+  const diagnostic = new Error(message);
+  diagnostic.cause = error;
+  if (code) diagnostic.code = code;
+  if (phase) diagnostic.phase = phase;
+  if (targetUrl) diagnostic.targetUrl = targetUrl;
+  if (proxyUrl) diagnostic.proxyUrl = proxyUrl;
+  return diagnostic;
+}
+
 /**
  * Resolve real IP using Google DNS (bypass system DNS)
  */
@@ -241,7 +273,15 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
       "x-relay-target": `${parsed.protocol}//${parsed.host}`,
       "x-relay-path": `${parsed.pathname}${parsed.search}`,
     };
-    return originalFetch(vercelRelayUrl, { ...options, headers: relayHeaders });
+    try {
+      return await originalFetch(vercelRelayUrl, { ...options, headers: relayHeaders });
+    } catch (error) {
+      throw formatDiagnosticError("Relay request failed", error, {
+        phase: "relay",
+        targetUrl,
+        proxyUrl: vercelRelayUrl,
+      });
+    }
   }
 
   const connectionProxyUrl = resolveConnectionProxyUrl(targetUrl, proxyOptions);
@@ -257,7 +297,11 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
         return await originalFetch(url, { ...options, dispatcher });
       } catch (proxyError) {
         if (proxyOptions?.strictProxy === true) {
-          throw new Error(`[ProxyFetch] Proxy required but failed (strictProxy=true): ${proxyError.message}`);
+          throw formatDiagnosticError("Proxy required but failed", proxyError, {
+            phase: "proxy-strict-mitm-bypass",
+            targetUrl,
+            proxyUrl,
+          });
         }
         console.warn(`[ProxyFetch] Proxy failed, falling back to direct bypass: ${proxyError.message}`);
       }
@@ -279,14 +323,33 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
     } catch (proxyError) {
       // If strictProxy is enabled, fail hard instead of falling back to direct
       if (proxyOptions?.strictProxy === true) {
-        throw new Error(`[ProxyFetch] Proxy required but failed (strictProxy=true): ${proxyError.message}`);
+        throw formatDiagnosticError("Proxy required but failed", proxyError, {
+          phase: "proxy-strict",
+          targetUrl,
+          proxyUrl,
+        });
       }
       console.warn(`[ProxyFetch] Proxy failed, falling back to direct: ${proxyError.message}`);
-      return originalFetch(url, options);
+      try {
+        return await originalFetch(url, options);
+      } catch (directError) {
+        throw formatDiagnosticError("Proxy failed and direct fallback also failed", directError, {
+          phase: "proxy-fallback-direct",
+          targetUrl,
+          proxyUrl,
+        });
+      }
     }
   }
 
-  return originalFetch(url, options);
+  try {
+    return await originalFetch(url, options);
+  } catch (error) {
+    throw formatDiagnosticError("Direct fetch failed", error, {
+      phase: shouldBypassMitmDns(targetUrl) ? "direct-after-mitm-bypass" : "direct",
+      targetUrl,
+    });
+  }
 }
 
 /**

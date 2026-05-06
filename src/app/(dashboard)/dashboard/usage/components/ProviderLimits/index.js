@@ -522,6 +522,10 @@ export default function ProviderLimits() {
         throw new Error(data.error || "Failed to refresh usage");
       }
 
+      if (data.skipped && data.skipReason === "transient_connectivity_error") {
+        return;
+      }
+
       const testResult = data.testResult || {
         connectionId,
         valid: true,

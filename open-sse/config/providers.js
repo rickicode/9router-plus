@@ -359,6 +359,13 @@ export const PROVIDERS = {
     format: "perplexity-web",
     authType: "cookie"
   },
+  commandcode: {
+    baseUrl: "https://api.commandcode.ai/alpha/generate",
+    format: "commandcode",
+    headers: {
+      "x-command-code-version": "0.25.0"
+    }
+  },
 };
 
 export const OLLAMA_LOCAL_DEFAULT_HOST = "http://localhost:11434";

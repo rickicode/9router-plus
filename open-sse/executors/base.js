@@ -176,6 +176,29 @@ export class BaseExecutor {
       const transformedBody = this.transformRequest(model, body, stream, credentials);
       const headers = this.buildHeaders(credentials, stream);
 
+      // DEBUG: Log Command Code payload
+      if (this.provider === "commandcode" && process.env.DEBUG_COMMANDCODE === "true") {
+        const fs = await import("fs");
+        const path = await import("path");
+        const captureDir = path.join(process.cwd(), ".commandcode-captures");
+        if (!fs.existsSync(captureDir)) {
+          fs.mkdirSync(captureDir, { recursive: true });
+        }
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const filename = `${timestamp}-9router-request.json`;
+        const filepath = path.join(captureDir, filename);
+        const captureData = {
+          timestamp: new Date().toISOString(),
+          provider: this.provider,
+          model,
+          url,
+          headers: { ...headers, authorization: "[REDACTED]" },
+          body: transformedBody,
+        };
+        fs.writeFileSync(filepath, JSON.stringify(captureData, null, 2));
+        console.log(`\n📝 Command Code request captured: ${filename}\n`);
+      }
+
       if (!retryAttemptsByUrl[urlIndex]) retryAttemptsByUrl[urlIndex] = 0;
 
       try {

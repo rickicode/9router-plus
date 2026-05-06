@@ -252,6 +252,7 @@ export class UsageScheduler {
 
             const result = await refreshConnectionUsage(connection.id, {
               runConnectionTest: isFullRefresh,
+              skipTransientConnectivityErrors: true,
             });
 
             if (result.skipped) {
@@ -262,9 +263,13 @@ export class UsageScheduler {
               this.currentRun.progress.successCount++;
             }
 
+            const statusLabel = result.skipReason
+              ? "unchanged"
+              : (result.connection?.routingStatus || "unknown");
+
             this.logger.log?.(
               `[UsageWorker] ✓ ${progressLabel} ${accountLabel} | ` +
-              `reason=${reason} | status=${result.connection?.routingStatus || 'unknown'}`
+              `reason=${reason} | status=${statusLabel}${result.skipReason ? ` | skipped=${result.skipReason}` : ""}`
             );
 
             return result;

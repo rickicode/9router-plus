@@ -40,8 +40,14 @@ function hasD1(env) {
 	return !!env?.DB;
 }
 
-function runtimeCacheKey(machineId) {
-	return `runtime:${machineId}`;
+function requireD1(env, operation = "runtime storage operation") {
+	if (!hasD1(env)) {
+		throw new Error(`D1 binding is required for ${operation}`);
+	}
+}
+
+function runtimeCacheKey(runtimeId) {
+	return `runtime:${runtimeId}`;
 }
 
 function d1Bool(value, fallback = false) {
@@ -135,7 +141,7 @@ async function getD1WorkerRegistry(env) {
 	return row || null;
 }
 
-async function getD1RuntimeConfig(machineId, env) {
+async function getD1RuntimeConfig(runtimeId, env) {
 	const providerRows = await env.DB.prepare(
 		`SELECT s.*, r.routing_status_override, r.health_status_override, r.quota_state_override,
             r.auth_state_override, r.reason_code_override, r.reason_detail_override,
@@ -146,7 +152,7 @@ async function getD1RuntimeConfig(machineId, env) {
          ON r.machine_id = s.machine_id AND r.provider_id = s.provider_id
       WHERE s.machine_id = ?1`,
 	)
-		.bind(machineId)
+		.bind(runtimeId)
 		.all();
 
 	const apiKeyRows = await env.DB.prepare(
@@ -154,19 +160,19 @@ async function getD1RuntimeConfig(machineId, env) {
        FROM runtime_api_keys
       WHERE machine_id = ?1`,
 	)
-		.bind(machineId)
+		.bind(runtimeId)
 		.all();
 
 	const aliasRows = await env.DB.prepare(
 		`SELECT alias, target FROM runtime_model_aliases WHERE machine_id = ?1`,
 	)
-		.bind(machineId)
+		.bind(runtimeId)
 		.all();
 
 	const comboRows = await env.DB.prepare(
 		`SELECT combo_id, payload_json FROM runtime_combos WHERE machine_id = ?1`,
 	)
-		.bind(machineId)
+		.bind(runtimeId)
 		.all();
 
 	const settingsRow = await env.DB.prepare(
@@ -174,7 +180,7 @@ async function getD1RuntimeConfig(machineId, env) {
        FROM runtime_settings
       WHERE machine_id = ?1`,
 	)
-		.bind(machineId)
+		.bind(runtimeId)
 		.first();
 
 	const providers = {};
@@ -221,9 +227,9 @@ async function getD1RuntimeConfig(machineId, env) {
 	};
 }
 
-async function cacheD1RuntimeConfig(machineId, env) {
-	const data = await getD1RuntimeConfig(machineId, env);
-	requestCache.set(runtimeCacheKey(machineId), { data, timestamp: Date.now() });
+async function cacheD1RuntimeConfig(runtimeId, env) {
+	const data = await getD1RuntimeConfig(runtimeId, env);
+	requestCache.set(runtimeCacheKey(runtimeId), { data, timestamp: Date.now() });
 	cleanupCache();
 	return data;
 }
@@ -231,14 +237,6 @@ async function cacheD1RuntimeConfig(machineId, env) {
 /**
  * R2 key helpers
  */
-function machineKey(machineId) {
-	return `machines/${machineId}.json`;
-}
-
-function settingsKey(machineId) {
-	return `settings/${machineId}.json`;
-}
-
 function cloneRecord(value) {
 	if (value === undefined) return undefined;
 	return structuredClone(value);
@@ -365,7 +363,7 @@ function buildCredentialUpdatePatch(newCredentials = {}) {
 }
 
 async function persistD1ProviderCredentials(
-	machineId,
+	runtimeId,
 	connectionId,
 	patch,
 	env,
@@ -398,42 +396,42 @@ async function persistD1ProviderCredentials(
 }
 
 async function deleteD1RuntimeData(
-	machineId,
+	runtimeId,
 	env,
 	{ preserveRegistry = false } = {},
 ) {
 	const statements = [
 		env.DB.prepare(
 			`DELETE FROM provider_runtime_state WHERE machine_id = ?1`,
-		).bind(machineId),
+		).bind(runtimeId),
 		env.DB.prepare(`DELETE FROM provider_sync WHERE machine_id = ?1`).bind(
-			machineId,
+			runtimeId,
 		),
 		env.DB.prepare(`DELETE FROM runtime_api_keys WHERE machine_id = ?1`).bind(
-			machineId,
+			runtimeId,
 		),
 		env.DB.prepare(
 			`DELETE FROM runtime_model_aliases WHERE machine_id = ?1`,
-		).bind(machineId),
+		).bind(runtimeId),
 		env.DB.prepare(`DELETE FROM runtime_combos WHERE machine_id = ?1`).bind(
-			machineId,
+			runtimeId,
 		),
 		env.DB.prepare(`DELETE FROM runtime_settings WHERE machine_id = ?1`).bind(
-			machineId,
+			runtimeId,
 		),
 	];
 
-	if (!preserveRegistry && machineId === WORKER_RECORD_ID) {
+	if (!preserveRegistry && runtimeId === WORKER_RECORD_ID) {
 		statements.push(
 			env.DB.prepare(`DELETE FROM worker_registry WHERE worker_id = ?1`).bind(
-				machineId,
+				runtimeId,
 			),
 		);
 	}
 
 	await env.DB.batch(statements);
-	requestCache.delete(machineId);
-	requestCache.delete(runtimeCacheKey(machineId));
+	requestCache.delete(runtimeId);
+	requestCache.delete(runtimeCacheKey(runtimeId));
 }
 
 export async function saveRuntimeSyncPayload(machineId, payload, env) {
@@ -461,7 +459,7 @@ export async function saveRuntimeSyncPayload(machineId, payload, env) {
 		),
 		env.DB.prepare(
 			`DELETE FROM runtime_model_aliases WHERE machine_id = ?1`,
-		).bind(machineId),
+		).bind(runtimeId),
 		env.DB.prepare(`DELETE FROM runtime_combos WHERE machine_id = ?1`).bind(
 			machineId,
 		),
@@ -483,7 +481,7 @@ export async function saveRuntimeSyncPayload(machineId, payload, env) {
 		statements.push(
 			env.DB.prepare(
 				`DELETE FROM provider_runtime_state WHERE machine_id = ?1`,
-			).bind(machineId),
+			).bind(runtimeId),
 			env.DB.prepare(`DELETE FROM provider_sync WHERE machine_id = ?1`).bind(
 				machineId,
 			),
@@ -630,7 +628,7 @@ export async function saveRuntimeSyncPayload(machineId, payload, env) {
 
 	await env.DB.batch(statements);
 	requestCache.delete(machineId);
-	requestCache.delete(runtimeCacheKey(machineId));
+	requestCache.delete(runtimeCacheKey(runtimeId));
 
 	return {
 		generatedAt: syncUpdatedAt,
@@ -662,11 +660,13 @@ function mergeProviderMaps(runtimeProviders = {}, localProviders = {}) {
  * @param {Object} env
  * @returns {Promise<Object|null>}
  */
-export async function getMachineData(machineId, env) {
-	if (hasD1(env) && machineId === WORKER_RECORD_ID) {
+export async function getRuntimeData(runtimeId, env) {
+	requireD1(env, "runtime reads");
+
+	if (runtimeId === WORKER_RECORD_ID) {
 		const registry = await getD1WorkerRegistry(env);
 		if (!registry) {
-			log.debug("STORAGE", `Worker registry not found: ${machineId}`);
+			log.debug("STORAGE", `Worker registry not found: ${runtimeId}`);
 			return null;
 		}
 		return {
@@ -684,34 +684,24 @@ export async function getMachineData(machineId, env) {
 		};
 	}
 
-	const cached = requestCache.get(machineId);
+	const cached = requestCache.get(runtimeCacheKey(runtimeId));
 	if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
 		return cached.data;
 	}
 
-	const key = machineKey(machineId);
-	const obj = await withTimeout(env.R2_DATA.get(key), 5000, "getMachineData");
-
-	if (!obj) {
-		log.debug("STORAGE", `Not found: ${machineId}`);
-		return null;
-	}
-
-	const data = await obj.json();
-	requestCache.set(machineId, { data, timestamp: Date.now() });
-	cleanupCache();
-	log.debug("STORAGE", `Retrieved: ${machineId}`);
+	const data = await cacheD1RuntimeConfig(runtimeId, env);
+	log.debug("STORAGE", `Retrieved: ${runtimeId}`);
 	return data;
 }
 
 /**
- * Get runtime registration metadata for a machine.
- * @param {string} machineId
+ * Get runtime registration metadata for a runtime.
+ * @param {string} runtimeId
  * @param {Object} env
  * @returns {Promise<Object|null>}
  */
-export async function getRuntimeRegistration(machineId, env) {
-	const data = await getMachineData(machineId, env);
+export async function getRuntimeRegistration(runtimeId, env) {
+	const data = await getRuntimeData(runtimeId, env);
 	const meta = data?.meta;
 
 	if (!meta?.runtimeUrl) {
@@ -732,61 +722,35 @@ export async function getRuntimeRegistration(machineId, env) {
 }
 
 /**
- * Get remote runtime config for a machine registration.
- * @param {string} machineId
+ * Get remote runtime config for a runtime registration.
+ * @param {string} runtimeId
  * @param {Object} env
  * @param {Object} options
  * @returns {Promise<Object|null>}
  */
-export async function getRuntimeConfig(machineId, env, options = {}) {
-	if (hasD1(env)) {
-		const cached = requestCache.get(runtimeCacheKey(machineId));
-		if (
-			!options.forceRefresh &&
-			cached &&
-			Date.now() - cached.timestamp < CACHE_TTL_MS
-		) {
-			return cached.data;
-		}
-		return cacheD1RuntimeConfig(machineId, env);
+export async function getRuntimeConfig(runtimeId, env, options = {}) {
+	requireD1(env, "runtime config reads");
+
+	const cached = requestCache.get(runtimeCacheKey(runtimeId));
+	if (
+		!options.forceRefresh &&
+		cached &&
+		Date.now() - cached.timestamp < CACHE_TTL_MS
+	) {
+		return cached.data;
 	}
-
-	const registration = (await getRuntimeRegistration(machineId, env)) || {};
-
-	const loader = options.runtimeConfigLoader || runtimeConfigLoader;
-	const runtimeConfig = await loader.load(machineId, registration, {
-		env,
-		forceRefresh: options.forceRefresh === true,
-	});
-
-	if (!runtimeConfig) {
-		return runtimeConfig;
-	}
-
-	const machineData =
-		options.machineData || (await getMachineData(machineId, env));
-	if (!machineData) {
-		return runtimeConfig;
-	}
-
-	return {
-		...runtimeConfig,
-		providers: mergeProviderMaps(
-			runtimeConfig?.providers,
-			machineData?.providers,
-		),
-	};
+	return cacheD1RuntimeConfig(runtimeId, env);
 }
 
-export async function ensureMachineProviderState(
-	machineId,
+export async function ensureRuntimeProviderState(
+	runtimeId,
 	connectionId,
 	env,
 	options = {},
 ) {
 	const runtimeConfig =
 		options.runtimeConfig ||
-		(await getRuntimeConfig(machineId, env, {
+		(await getRuntimeConfig(runtimeId, env, {
 			runtimeConfigLoader: options.runtimeConfigLoader,
 		}));
 
@@ -798,7 +762,7 @@ export async function ensureMachineProviderState(
 }
 
 export async function updateRuntimeProviderState(
-	machineId,
+	runtimeId,
 	connectionId,
 	updater,
 	env,
@@ -809,7 +773,7 @@ export async function updateRuntimeProviderState(
 	}
 
 	const runtimeConfig =
-		options.runtimeConfig || (await getRuntimeConfig(machineId, env, options));
+		options.runtimeConfig || (await getRuntimeConfig(runtimeId, env, options));
 	const provider = runtimeConfig?.providers?.[connectionId];
 	if (!provider) {
 		return null;
@@ -864,7 +828,7 @@ export async function updateRuntimeProviderState(
 			)
 			.run();
 
-		requestCache.set(runtimeCacheKey(machineId), {
+		requestCache.set(runtimeCacheKey(runtimeId), {
 			data: runtimeConfig,
 			timestamp: Date.now(),
 		});
@@ -886,7 +850,7 @@ export async function updateRuntimeProviderCredentials(
 	}
 
 	const runtimeConfig =
-		options.runtimeConfig || (await getRuntimeConfig(machineId, env, options));
+		options.runtimeConfig || (await getRuntimeConfig(runtimeId, env, options));
 	const provider = runtimeConfig?.providers?.[connectionId];
 	if (!provider) {
 		return null;
@@ -902,7 +866,7 @@ export async function updateRuntimeProviderCredentials(
 
 	if (hasD1(env)) {
 		await persistD1ProviderCredentials(machineId, connectionId, patch, env);
-		requestCache.set(runtimeCacheKey(machineId), {
+		requestCache.set(runtimeCacheKey(runtimeId), {
 			data: runtimeConfig,
 			timestamp: Date.now(),
 		});
@@ -911,7 +875,7 @@ export async function updateRuntimeProviderCredentials(
 	}
 
 	return updateRuntimeProviderState(
-		machineId,
+		runtimeId,
 		connectionId,
 		(conn) => {
 			Object.assign(conn, patch);
@@ -924,38 +888,33 @@ export async function updateRuntimeProviderCredentials(
 	);
 }
 
-export async function invalidateRuntimeConfig(machineId, env, options = {}) {
-	if (hasD1(env)) {
-		requestCache.delete(runtimeCacheKey(machineId));
-		return true;
-	}
-
-	const registration =
-		options.registration || (await getRuntimeRegistration(machineId, env));
-	const loader = options.runtimeConfigLoader || runtimeConfigLoader;
-
-	if (typeof loader.invalidate !== "function") {
-		return false;
-	}
-
-	loader.invalidate(machineId, registration || {});
+export async function invalidateRuntimeConfig(runtimeId, env, options = {}) {
+	requireD1(env, "runtime config invalidation");
+	requestCache.delete(runtimeCacheKey(runtimeId));
 	return true;
 }
 
 /**
- * Save machine data to R2
- * @param {string} machineId
+ * Save runtime data to D1-backed cloud storage.
+ * @param {string} runtimeId
  * @param {Object} data
  * @param {Object} env
  */
-export async function saveMachineData(machineId, data, env) {
+export async function saveRuntimeData(runtimeId, data, env) {
+	requireD1(env, "runtime writes");
+
 	const now = new Date().toISOString();
 	data.updatedAt = now;
 
-	if (hasD1(env) && machineId === WORKER_RECORD_ID) {
-		const meta = data?.meta || {};
-		await env.DB.prepare(
-			`INSERT INTO worker_registry (
+	if (runtimeId !== WORKER_RECORD_ID) {
+		throw new Error(
+			"Direct runtime writes are deprecated. Publish runtime state through /sync/shared.",
+		);
+	}
+
+	const meta = data?.meta || {};
+	await env.DB.prepare(
+		`INSERT INTO worker_registry (
           worker_id, runtime_url, cache_ttl_seconds, registered_at, rotated_at,
           shared_secret_configured_at, runtime_refresh_requested_at,
           runtime_artifacts_loaded_at, updated_at
@@ -969,79 +928,50 @@ export async function saveMachineData(machineId, data, env) {
           runtime_refresh_requested_at = excluded.runtime_refresh_requested_at,
           runtime_artifacts_loaded_at = excluded.runtime_artifacts_loaded_at,
           updated_at = excluded.updated_at`,
+	)
+		.bind(
+			runtimeId,
+			null,
+			null,
+			meta.registeredAt || null,
+			meta.rotatedAt || null,
+			meta.sharedSecretConfiguredAt || null,
+			null,
+			null,
+			now,
 		)
-			.bind(
-				machineId,
-				null,
-				null,
-				meta.registeredAt || null,
-				meta.rotatedAt || null,
-				meta.sharedSecretConfiguredAt || null,
-				null,
-				null,
-				now,
-			)
-			.run();
+		.run();
 
-		requestCache.set(machineId, { data, timestamp: Date.now() });
-		cleanupCache();
-		log.debug("STORAGE", `Saved worker registry: ${machineId}`);
-		return;
-	}
-
-	const key = machineKey(machineId);
-	await withTimeout(
-		env.R2_DATA.put(key, JSON.stringify(data), {
-			httpMetadata: { contentType: "application/json" },
-			customMetadata: { machineId, updatedAt: now },
-		}),
-		5000,
-		"saveMachineData",
-	);
-
-	// Update cache after save
-	requestCache.set(machineId, { data, timestamp: Date.now() });
-	log.debug("STORAGE", `Saved: ${machineId}`);
+	requestCache.set(runtimeId, { data, timestamp: Date.now() });
+	cleanupCache();
+	log.debug("STORAGE", `Saved worker registry: ${runtimeId}`);
 }
 
 /**
- * Delete machine data from R2
- * @param {string} machineId
+ * Delete runtime data from D1-backed cloud storage.
+ * @param {string} runtimeId
  * @param {Object} env
  */
-export async function deleteMachineData(machineId, env) {
-	if (hasD1(env)) {
-		await deleteD1RuntimeData(machineId, env, { preserveRegistry: false });
-		log.debug("STORAGE", `Deleted D1 runtime data: ${machineId}`);
-		return;
-	}
-
-	const key = machineKey(machineId);
-	await env.R2_DATA.delete(key);
-
-	// Clear cache after delete
-	requestCache.delete(machineId);
-	log.debug("STORAGE", `Deleted: ${machineId}`);
+export async function deleteRuntimeData(runtimeId, env) {
+	requireD1(env, "runtime deletes");
+	await deleteD1RuntimeData(runtimeId, env, { preserveRegistry: false });
+	log.debug("STORAGE", `Deleted D1 runtime data: ${runtimeId}`);
 }
 
 /**
- * Update specific fields in machine data (for token refresh, rate limit, etc.)
- * @param {string} machineId
+ * Update specific fields in runtime provider state.
+ * @param {string} runtimeId
  * @param {string} connectionId
  * @param {Object} updates
  * @param {Object} env
  */
-export async function updateMachineProvider(
-	machineId,
-	connectionId,
-	updates,
-	env,
-) {
-	const data = await getMachineData(machineId, env);
-	if (!data?.providers?.[connectionId]) return;
-
-	Object.assign(data.providers[connectionId], updates);
-	data.providers[connectionId].updatedAt = new Date().toISOString();
-
-	await saveMachineData(machineId, data, env);
+export async function updateRuntimeProvider(runtimeId, connectionId, updates, env) {
+	return updateRuntimeProviderState(
+		runtimeId,
+		connectionId,
+		(provider) => {
+			Object.assign(provider, updates);
+		},
+		env,
+	);
 }

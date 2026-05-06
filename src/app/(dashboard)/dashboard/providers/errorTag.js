@@ -19,6 +19,15 @@ export function getConnectionErrorTag(connection) {
   if (normalizedReason.includes("unauthorized") || normalizedReason.includes("invalid") || normalizedReason.includes("revoked")) return "AUTH";
   if (normalizedReason.includes("quota") || normalizedReason.includes("rate limit")) return "429";
   if (normalizedReason.includes("unavailable") || normalizedReason.includes("unhealthy") || normalizedReason.includes("timeout")) return "5XX";
+  if (
+    normalizedReason.includes("proxy required but failed")
+    || normalizedReason.includes("proxy failed and direct fallback also failed")
+    || normalizedReason.includes("direct fetch failed")
+    || normalizedReason.includes("relay request failed")
+    || normalizedReason.includes("phase=proxy")
+    || normalizedReason.includes("phase=direct")
+    || normalizedReason.includes("phase=relay")
+  ) return "NET";
   if (normalizedReason.includes("runtime") || normalizedReason.includes("not installed")) return "RUNTIME";
 
   if (routingStatus === "blocked") return "AUTH";

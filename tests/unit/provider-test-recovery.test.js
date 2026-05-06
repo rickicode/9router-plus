@@ -117,6 +117,49 @@ describe("provider test recovery", () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200 })));
   });
 
+  it("does not persist proxy/network failure when persistStatus is false", async () => {
+    connectionById.set("conn-proxy-fail", {
+      id: "conn-proxy-fail",
+      provider: "github",
+      authType: "oauth",
+      accessToken: "token",
+      providerSpecificData: {},
+    });
+
+    resolveConnectionProxyConfig.mockResolvedValueOnce({
+      connectionProxyEnabled: true,
+      connectionProxyUrl: "http://127.0.0.1:8080",
+      connectionNoProxy: "",
+      proxyPoolId: null,
+      vercelRelayUrl: "",
+    });
+    testProxyUrl.mockResolvedValueOnce({ ok: false, error: "fetch failed" });
+
+    const { testSingleConnection } = await import("../../src/app/api/providers/[id]/test/testUtils.js");
+    const result = await testSingleConnection("conn-proxy-fail", { persistStatus: false });
+
+    expect(result).toMatchObject({ valid: false, error: "fetch failed" });
+    expect(updateProviderConnection).not.toHaveBeenCalled();
+  });
+
+  it("does not persist successful test status when persistStatus is false", async () => {
+    connectionById.set("conn-no-persist-success", {
+      id: "conn-no-persist-success",
+      provider: "openai-compatible",
+      authType: "apikey",
+      apiKey: "secret",
+      providerSpecificData: { baseUrl: "https://example.test/v1" },
+      routingStatus: "blocked",
+      authState: "ok",
+    });
+
+    const { testSingleConnection } = await import("../../src/app/api/providers/[id]/test/testUtils.js");
+    const result = await testSingleConnection("conn-no-persist-success", { persistStatus: false });
+
+    expect(result.valid).toBe(true);
+    expect(updateProviderConnection).not.toHaveBeenCalled();
+  });
+
   it("clears centralized blocked state on successful connection test", async () => {
     connectionById.set("conn-test", {
       id: "conn-test",

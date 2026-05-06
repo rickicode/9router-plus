@@ -3,6 +3,7 @@ import { getProviderNodeById } from "@/models";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 import { getDefaultModel } from "open-sse/config/providerModels.js";
 import { resolveOllamaLocalHost } from "open-sse/config/providers.js";
+import { proxyAwareFetch } from "open-sse/utils/proxyFetch.js";
 
 const COMMANDCODE_TEST_MODEL = "deepseek/deepseek-v4-flash";
 
@@ -296,7 +297,7 @@ export async function POST(request) {
         }
 
         case "commandcode": {
-          const ccRes = await fetch("https://api.commandcode.ai/alpha/generate", {
+          const ccRes = await proxyAwareFetch("https://api.commandcode.ai/alpha/generate", {
             method: "POST",
             headers: {
               "Authorization": `Bearer ${apiKey}`,

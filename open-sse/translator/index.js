@@ -1,4 +1,3 @@
-import { FORMATS } from "./formats.js";
 import { ensureToolCallIds, fixMissingToolResponses } from "./helpers/toolCallHelper.js";
 import { prepareClaudeRequest } from "./helpers/claudeHelper.js";
 import { cloakClaudeTools } from "../utils/claudeCloaking.js";
@@ -6,6 +5,7 @@ import { filterToOpenAIFormat } from "./helpers/openaiHelper.js";
 import { normalizeThinkingConfig } from "../services/provider.js";
 import { AntigravityExecutor } from "../executors/antigravity.js";
 import { normalizeOpenAIResponsesInPlace } from "./helpers/responsesApiHelper.js";
+import { FORMATS } from "./formats.js";
 
 // Registry for translators
 const requestRegistry = new Map();
@@ -59,6 +59,7 @@ async function ensureInitialized() {
         import("./request/openai-to-kiro.js"),
         import("./request/openai-to-cursor.js"),
         import("./request/openai-to-ollama.js"),
+        import("./request/openai-to-commandcode.js"),
         // Response translators
         import("./response/claude-to-openai.js"),
         import("./response/openai-to-claude.js"),
@@ -67,7 +68,8 @@ async function ensureInitialized() {
         import("./response/openai-responses.js"),
         import("./response/kiro-to-openai.js"),
         import("./response/cursor-to-openai.js"),
-        import("./response/ollama-to-openai.js")
+        import("./response/ollama-to-openai.js"),
+        import("./response/commandcode-to-openai.js")
       ]),
       new Promise((_, reject) =>
         setTimeout(() => reject(new Error("Translator initialization timeout (30s)")), 30000)
@@ -76,6 +78,7 @@ async function ensureInitialized() {
 
     translatorInitState = "ready";
     translatorInitError = null;
+
   } catch (error) {
     const wrappedError = new Error(`Failed to initialize translators: ${error.message}`);
     console.error("[Translator] Initialization failed:", error);
@@ -273,7 +276,7 @@ export function initState(sourceFormat) {
     usage: null,
     contentBlockIndex: -1
   };
-
+  
   // Add openai-responses specific fields
   if (sourceFormat === FORMATS.OPENAI_RESPONSES) {
     return {

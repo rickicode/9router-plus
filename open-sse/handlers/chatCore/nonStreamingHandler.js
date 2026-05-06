@@ -31,6 +31,49 @@ export function translateNonStreamingResponse(
 	targetFormat,
 	sourceFormat,
 ) {
+	if (sourceFormat === FORMATS.COMMANDCODE && targetFormat === FORMATS.OPENAI && responseBody?.type === "message") {
+		let textContent = "";
+		const toolCalls = [];
+		for (const block of responseBody.content || []) {
+			if (block?.type === "text" && typeof block.text === "string") {
+				textContent += block.text;
+			} else if (block?.type === "tool_use") {
+				toolCalls.push({
+					id: block.id || `call_${Date.now()}_${toolCalls.length}`,
+					type: "function",
+					function: {
+						name: block.name || "",
+						arguments: JSON.stringify(block.input || {}),
+					},
+				});
+			}
+		}
+
+		const message = {
+			role: "assistant",
+			content: textContent || (toolCalls.length > 0 ? null : ""),
+		};
+		if (toolCalls.length > 0) message.tool_calls = toolCalls;
+
+		let finishReason = responseBody.stop_reason || "stop";
+		if (finishReason === "end_turn") finishReason = "stop";
+		if (finishReason === "tool_use") finishReason = "tool_calls";
+
+		const usage = responseBody.usage || {};
+		return {
+			id: `chatcmpl-${responseBody.id || Date.now()}`,
+			object: "chat.completion",
+			created: Math.floor(Date.now() / 1000),
+			model: responseBody.model || "commandcode",
+			choices: [{ index: 0, message, finish_reason: finishReason }],
+			usage: {
+				prompt_tokens: usage.input_tokens || 0,
+				completion_tokens: usage.output_tokens || 0,
+				total_tokens: (usage.input_tokens || 0) + (usage.output_tokens || 0),
+			},
+		};
+	}
+
 	if (sourceFormat === FORMATS.CLAUDE && responseBody?.object === "chat.completion") {
 		const choice = responseBody.choices?.[0] || {};
 		const message = choice.message || {};
@@ -308,6 +351,13 @@ export async function handleNonStreamingResponse({
 		providerResponse.headers,
 		responseBody,
 	);
+	if (provider === "commandcode") {
+		console.error("[commandcode-debug] raw non-stream response", JSON.stringify({
+			status: providerResponse.status,
+			contentType,
+			responseBody,
+		}));
+	}
 	if (onRequestSuccess) await onRequestSuccess();
 
 	const usage = extractUsageFromResponse(responseBody);
@@ -330,6 +380,13 @@ export async function handleNonStreamingResponse({
 	const translatedResponse = needsTranslation(targetFormat, sourceFormat)
 		? translateNonStreamingResponse(decloakedBody, targetFormat, sourceFormat)
 		: decloakedBody;
+	if (provider === "commandcode") {
+		console.error("[commandcode-debug] translated non-stream response", JSON.stringify({
+			targetFormat,
+			sourceFormat,
+			translatedResponse,
+		}));
+	}
 
 	if (sourceFormat !== FORMATS.CLAUDE) {
 		// Fix finish_reason for tool_calls: some providers return non-standard values (e.g. "other")
