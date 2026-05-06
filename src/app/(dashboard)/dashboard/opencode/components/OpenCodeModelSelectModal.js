@@ -169,7 +169,7 @@ export default function OpenCodeModelSelectModal({
   ) : null;
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title={title} size="md" className="p-4! bg-[#201d1d] border-[rgba(15,0,0,0.12)] font-['Berkeley_Mono']" footer={footer}>
+    <Modal isOpen={isOpen} onClose={handleClose} title={title} size="xl" className="p-4! bg-[#201d1d] border-[rgba(15,0,0,0.12)] font-['Berkeley_Mono']" footer={footer}>
       <div className="mb-3">
         <div className="relative">
           <span className="material-symbols-outlined absolute left-[12px] top-1/2 -translate-y-1/2 text-[16px] text-[#9a9898]">
@@ -185,7 +185,7 @@ export default function OpenCodeModelSelectModal({
         </div>
       </div>
 
-      <div className="max-h-[400px] space-y-3 overflow-y-auto custom-scrollbar">
+      <div className="max-h-[520px] space-y-4 overflow-y-auto custom-scrollbar pr-1">
         {filteredCombos.length > 0 ? (
           <div>
             <div className="sticky top-0 mb-1.5 flex items-center gap-1.5 bg-[#201d1d] py-0.5">
@@ -193,7 +193,7 @@ export default function OpenCodeModelSelectModal({
               <span className="text-[16px] font-bold text-[#fdfcfc]">Combos</span>
               <span className="text-[14px] text-[#9a9898]">({filteredCombos.length})</span>
             </div>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
               {filteredCombos.map((combo, index) => {
                 const comboName = String(combo?.name || "");
                 const isSelected = multiSelect ? pendingSelection.includes(comboName) : selectedModel === comboName;
@@ -229,7 +229,7 @@ export default function OpenCodeModelSelectModal({
               <span className="text-[16px] font-bold text-[#fdfcfc]">{group.name || providerId}</span>
               <span className="text-[14px] text-[#9a9898]">({group.models?.length || 0})</span>
             </div>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
               {(group.models || []).map((model, index) => {
                 const isSelected = multiSelect ? pendingSelection.includes(model.value) : selectedModel === model.value;
                 const isPlaceholder = model.isPlaceholder;

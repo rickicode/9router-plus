@@ -5,7 +5,6 @@ import { Card, Button, Toggle, Input } from "@/shared/components";
 import { useTheme } from "@/shared/hooks/useTheme";
 import { cn } from "@/shared/utils/cn";
 import { APP_CONFIG } from "@/shared/constants/config";
-import { DEFAULT_AUTO_COMPACT_SETTINGS } from "open-sse/utils/autoCompactCore.js";
 
 const DEFAULT_CHAT_RUNTIME_SETTINGS = {
   upstreamTimeoutMs: 45000,
@@ -69,28 +68,6 @@ function buildChatRuntimePayload(form) {
     observabilitySampleRate: Number.parseFloat(form.observabilitySampleRate),
     highThroughputSelection: form.highThroughputSelection === true,
   };
-}
-
-function normalizeAutoCompactForm(value = {}) {
-  const source = value && typeof value === "object" ? value : {};
-  return {
-    enabled: source.enabled === true,
-    minMessages: String(source.minMessages ?? DEFAULT_AUTO_COMPACT_SETTINGS.minMessages),
-    compressionRatio: String(source.compressionRatio ?? DEFAULT_AUTO_COMPACT_SETTINGS.compressionRatio),
-  };
-}
-
-function buildAutoCompactPayload(form) {
-  return {
-    enabled: form.enabled === true,
-    minMessages: Number.parseInt(form.minMessages, 10),
-    compressionRatio: Number.parseFloat(form.compressionRatio),
-  };
-}
-
-function hasUsableMorphApiKey(settings = {}) {
-  return Array.isArray(settings?.morph?.apiKeys)
-    && settings.morph.apiKeys.some((entry) => entry?.key && entry.status !== "inactive" && entry.isExhausted !== true);
 }
 
 function SectionIntro({ icon, title, description, tone = "neutral", eyebrow = "Settings" }) {
@@ -157,9 +134,6 @@ export default function ProfileSettingsContent() {
   const [chatRuntimeForm, setChatRuntimeForm] = useState(normalizeChatRuntimeForm(DEFAULT_CHAT_RUNTIME_SETTINGS));
   const [chatRuntimeStatus, setChatRuntimeStatus] = useState({ type: "", message: "" });
   const [chatRuntimeLoading, setChatRuntimeLoading] = useState(false);
-  const [autoCompactForm, setAutoCompactForm] = useState(normalizeAutoCompactForm(DEFAULT_AUTO_COMPACT_SETTINGS));
-  const [autoCompactStatus, setAutoCompactStatus] = useState({ type: "", message: "" });
-  const [autoCompactLoading, setAutoCompactLoading] = useState(false);
 
   useEffect(() => {
     fetch("/api/settings")
@@ -183,7 +157,6 @@ export default function ProfileSettingsContent() {
           outboundNoProxy: data?.outboundNoProxy || "",
         });
         setChatRuntimeForm(normalizeChatRuntimeForm(data?.chatRuntime));
-        setAutoCompactForm(normalizeAutoCompactForm(data?.autoCompact));
         setStickyDurationInput(String(data?.routing?.sticky?.durationSeconds || data?.stickyDuration || 300));
         setLoading(false);
       })
@@ -200,7 +173,6 @@ export default function ProfileSettingsContent() {
       const data = await res.json();
       setSettings(data);
       setChatRuntimeForm(normalizeChatRuntimeForm(data?.chatRuntime));
-      setAutoCompactForm(normalizeAutoCompactForm(data?.autoCompact));
       setStickyDurationInput(String(data?.routing?.sticky?.durationSeconds || data?.stickyDuration || 300));
     } catch (err) {
       console.error("Failed to reload settings:", err);
@@ -547,52 +519,6 @@ export default function ProfileSettingsContent() {
     }
   };
 
-  const updateAutoCompactEnabled = async (enabled) => {
-    if (enabled && !hasUsableMorphApiKey(settings)) {
-      setAutoCompactForm((prev) => ({ ...prev, enabled: false }));
-      setAutoCompactStatus({ type: "error", message: "Add a usable Morph API key before enabling auto compact" });
-      return;
-    }
-    const nextForm = { ...autoCompactForm, enabled };
-    setAutoCompactForm(nextForm);
-    await saveAutoCompactSettings(null, nextForm, enabled ? "Auto compact enabled" : "Auto compact disabled");
-  };
-
-  const saveAutoCompactSettings = async (event, overrideForm = null, successMessage = "Auto compact settings saved") => {
-    event?.preventDefault?.();
-    const payload = buildAutoCompactPayload(overrideForm || autoCompactForm);
-    if (!Number.isFinite(payload.minMessages) || payload.minMessages < 1) {
-      setAutoCompactStatus({ type: "error", message: "Minimum messages must be greater than 0" });
-      return;
-    }
-    if (!Number.isFinite(payload.compressionRatio) || payload.compressionRatio < 0.05 || payload.compressionRatio > 1) {
-      setAutoCompactStatus({ type: "error", message: "Compression ratio must be between 0.05 and 1" });
-      return;
-    }
-
-    setAutoCompactLoading(true);
-    setAutoCompactStatus({ type: "", message: "" });
-    try {
-      const res = await fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ autoCompact: payload }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setSettings((prev) => ({ ...prev, ...data }));
-        setAutoCompactForm(normalizeAutoCompactForm(data?.autoCompact));
-        setAutoCompactStatus({ type: "success", message: successMessage });
-      } else {
-        setAutoCompactStatus({ type: "error", message: data.error || "Failed to save auto compact settings" });
-      }
-    } catch {
-      setAutoCompactStatus({ type: "error", message: "An error occurred" });
-    } finally {
-      setAutoCompactLoading(false);
-    }
-  };
-
   const updateCloudRoutingSettings = async (updates, successMessage) => {
     setRoutingLoading(true);
     setRoutingStatus({ type: "", message: "" });
@@ -706,7 +632,6 @@ export default function ProfileSettingsContent() {
   };
 
   const observabilityEnabled = settings.enableObservability === true;
-  const morphKeyAvailable = hasUsableMorphApiKey(settings);
 
   return (
     <div className="flex flex-col gap-6">
@@ -958,68 +883,6 @@ export default function ProfileSettingsContent() {
               {routingStatus.message}
             </p>
           ) : null}
-        </div>
-      </Card>
-
-      <Card>
-        <SectionIntro
-          icon="auto_fix_high"
-          tone="primary"
-          title="Auto Compact"
-          description="Compress long chat history with Morph before forwarding to the selected model."
-          eyebrow="Context"
-        />
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-medium">Enable auto compact</p>
-              <p className="text-sm text-text-muted">
-                {morphKeyAvailable
-                  ? "Uses configured Morph keys and keeps recent messages intact."
-                  : "Add an active Morph API key first. Auto compact stays off without one."}
-              </p>
-            </div>
-            <Toggle
-              checked={autoCompactForm.enabled && morphKeyAvailable}
-              onChange={(enabled) => updateAutoCompactEnabled(enabled)}
-              disabled={loading || autoCompactLoading || !morphKeyAvailable}
-            />
-          </div>
-          <form onSubmit={saveAutoCompactSettings} className="flex flex-col gap-3 border-t border-border/50 pt-4">
-            <div className="grid gap-3 md:grid-cols-2">
-              <Input
-                type="number"
-                min="1"
-                step="1"
-                label="Minimum messages"
-                value={autoCompactForm.minMessages}
-                onChange={(e) => setAutoCompactForm((prev) => ({ ...prev, minMessages: e.target.value }))}
-                disabled={loading || autoCompactLoading}
-                hint="Only plain-text conversations with at least this many messages are compacted."
-              />
-              <Input
-                type="number"
-                min="0.05"
-                max="1"
-                step="0.05"
-                label="Compression ratio"
-                value={autoCompactForm.compressionRatio}
-                onChange={(e) => setAutoCompactForm((prev) => ({ ...prev, compressionRatio: e.target.value }))}
-                disabled={loading || autoCompactLoading}
-                hint="Fraction to keep. 0.5 is balanced; 0.7 is lighter."
-              />
-            </div>
-            <div>
-              <Button type="submit" variant="primary" loading={autoCompactLoading}>
-                Save auto compact
-              </Button>
-            </div>
-            {autoCompactStatus.message ? (
-              <p className={`text-sm ${autoCompactStatus.type === "error" ? "text-[var(--color-danger)]" : "text-[var(--color-success)]"}`}>
-                {autoCompactStatus.message}
-              </p>
-            ) : null}
-          </form>
         </div>
       </Card>
 

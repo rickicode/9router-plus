@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDefaultChatRuntimeSettings, getSettings, normalizeAutoCompactSettings, normalizeChatRuntimeSettings, normalizeMorphSettings, updateSettings } from "@/lib/localDb";
+import { getDefaultChatRuntimeSettings, getSettings, normalizeChatRuntimeSettings, normalizeMorphSettings, updateSettings } from "@/lib/localDb";
 import { applyOutboundProxyEnv } from "@/lib/network/outboundProxy";
 import { getUsageWorkerClient } from "@/lib/usageWorker/client";
 import { buildMorphKeyStatusPatch } from "@/app/api/morph/test-key/route.js";
@@ -127,7 +127,7 @@ export async function PATCH(request) {
   try {
     const body = await request.json();
     const updates = { ...body };
-    const needsCurrentSettings = body.newPassword || body.morph || body.chatRuntime !== undefined || body.autoCompact !== undefined || body.resetChatRuntimeDefaults === true;
+    const needsCurrentSettings = body.newPassword || body.morph || body.chatRuntime !== undefined || body.resetChatRuntimeDefaults === true;
     const currentSettings = needsCurrentSettings ? await getSettings() : null;
 
     // If updating password, hash it
@@ -247,15 +247,6 @@ export async function PATCH(request) {
           : {}),
       });
       delete updates.resetChatRuntimeDefaults;
-    }
-
-    if (body.autoCompact !== undefined) {
-      updates.autoCompact = normalizeAutoCompactSettings({
-        ...(currentSettings?.autoCompact || {}),
-        ...(body.autoCompact && typeof body.autoCompact === "object" && !Array.isArray(body.autoCompact)
-          ? body.autoCompact
-          : {}),
-      });
     }
 
     const settings = await updateSettings(updates);

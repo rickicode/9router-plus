@@ -239,7 +239,7 @@ export default function ModelSelectModal({
         setSearchQuery("");
       }}
       title={title}
-      size="md"
+      size="xl"
       className="p-4!"
     >
       {/* Search - compact */}
@@ -258,8 +258,8 @@ export default function ModelSelectModal({
         </div>
       </div>
 
-      {/* Models grouped by provider - compact */}
-      <div className="max-h-[400px] overflow-y-auto space-y-3">
+      {/* Models grouped by provider */}
+      <div className="max-h-[520px] overflow-y-auto space-y-4 pr-1">
         {/* Combos section - always first */}
         {filteredCombos.length > 0 && (
           <div>
@@ -268,7 +268,7 @@ export default function ModelSelectModal({
               <span className="text-xs font-medium text-[var(--color-primary)]">Combos</span>
               <span className="text-[10px] text-[var(--color-text-muted)]">({filteredCombos.length})</span>
             </div>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
               {filteredCombos.map((combo) => {
                 const isSelected = selectedModel === combo.name;
                 return (
@@ -308,7 +308,7 @@ export default function ModelSelectModal({
               </span>
             </div>
 
-            <div className="flex flex-wrap gap-1.5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
               {group.models.map((model) => {
                 const isSelected = selectedModel === model.value;
                 const isPlaceholder = model.isPlaceholder;

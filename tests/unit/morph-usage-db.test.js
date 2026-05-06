@@ -53,7 +53,7 @@ describe("morph usage pricing", () => {
     expect(result.credits).toBeCloseTo(90, 5);
   });
 
-  it("aggregates auto compact impact separately from Morph request totals", async () => {
+  it("ignores legacy auto compact records in Morph request totals", async () => {
     const { saveMorphUsage, getMorphUsageStats, resetMorphUsageDbForTests } = await import("../../src/lib/morphUsageDb.js");
     resetMorphUsageDbForTests();
 
@@ -72,40 +72,13 @@ describe("morph usage pricing", () => {
       category: "auto_compact",
       status: "ok",
       tokens: { input_tokens: 0, output_tokens: 0 },
-      autoCompactStats: {
-        applied: true,
-        originalMessageCount: 8,
-        compactedMessageCount: 8,
-        originalChars: 2000,
-        compactedChars: 800,
-        savedChars: 1200,
-        originalTokensEstimate: 500,
-        compactedTokensEstimate: 200,
-        savedTokensEstimate: 300,
-        reductionPercent: 60,
-        compressionRatioTarget: 0.5,
-      },
       timestamp: "2026-05-01T11:05:00.000Z",
     });
 
     const stats = await getMorphUsageStats("24h");
     expect(stats.totalRequests).toBe(1);
     expect(stats.totalRequestsLifetime).toBe(1);
-    expect(stats.autoCompact).toMatchObject({
-      appliedCount: 1,
-      savedTokensEstimate: 300,
-      savedChars: 1200,
-      avgReductionPercent: 60,
-      maxReductionPercent: 60,
-      totalOriginalTokensEstimate: 500,
-      totalCompactedTokensEstimate: 200,
-    });
-    expect(stats.autoCompact.trend).toEqual([expect.objectContaining({
-      date: "2026-05-01",
-      appliedCount: 1,
-      savedTokensEstimate: 300,
-      avgReductionPercent: 60,
-    })]);
     expect(stats.recentRequests).toHaveLength(1);
+    expect(stats).not.toHaveProperty("autoCompact");
   });
 });

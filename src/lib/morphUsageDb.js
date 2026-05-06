@@ -23,33 +23,6 @@ const defaultData = {
   dailySummary: {},
 };
 
-function normalizeAutoCompactStats(value = null) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-
-  const originalTokens = Number(value.originalTokensEstimate) || 0;
-  const compactedTokens = Number(value.compactedTokensEstimate) || 0;
-  const savedTokens = Number(value.savedTokensEstimate ?? (originalTokens - compactedTokens)) || 0;
-  const originalChars = Number(value.originalChars) || 0;
-  const compactedChars = Number(value.compactedChars) || 0;
-  const savedChars = Number(value.savedChars ?? (originalChars - compactedChars)) || 0;
-  const reductionPercent = Number(value.reductionPercent) || 0;
-
-  return {
-    applied: value.applied === true,
-    originalMessageCount: Number(value.originalMessageCount) || 0,
-    compactedMessageCount: Number(value.compactedMessageCount) || 0,
-    originalChars,
-    compactedChars,
-    savedChars,
-    originalTokensEstimate: originalTokens,
-    compactedTokensEstimate: compactedTokens,
-    savedTokensEstimate: savedTokens,
-    reductionPercent,
-    compressionRatioTarget: Number(value.compressionRatioTarget) || 0,
-  };
-}
-
-
 const PERIOD_MS = { "24h": 86400000, "7d": 604800000, "30d": 2592000000, "60d": 5184000000 };
 
 const MORPH_PRICING = Object.freeze({
@@ -279,7 +252,6 @@ export async function saveMorphUsage(entry, options = {}) {
         tokens,
       });
 
-      const autoCompactStats = normalizeAutoCompactStats(entry.autoCompactStats);
       const record = {
         provider: "morph",
         status: entry.status || "ok",
@@ -297,7 +269,6 @@ export async function saveMorphUsage(entry, options = {}) {
         tokens,
         error: entry.error || null,
         category: entry.category || "request",
-        autoCompactStats,
       };
 
       if (!Array.isArray(db.data.history)) db.data.history = [];
@@ -371,53 +342,12 @@ export async function getMorphUsageStats(period = "7d") {
     byApiKey: {},
     byEntrypoint: {},
     recentRequests: buildRecentRequests(history, 20),
-    autoCompact: {
-      appliedCount: 0,
-      savedTokensEstimate: 0,
-      savedChars: 0,
-      avgReductionPercent: 0,
-      maxReductionPercent: 0,
-      totalOriginalTokensEstimate: 0,
-      totalCompactedTokensEstimate: 0,
-      trend: [],
-    },
-  };
-
-  const autoCompactTrend = new Map();
-
-  const addAutoCompactStats = (entry) => {
-    const compact = normalizeAutoCompactStats(entry?.autoCompactStats);
-    if (!compact?.applied) return;
-    stats.autoCompact.appliedCount += 1;
-    stats.autoCompact.savedTokensEstimate += compact.savedTokensEstimate;
-    stats.autoCompact.savedChars += compact.savedChars;
-    stats.autoCompact.totalOriginalTokensEstimate += compact.originalTokensEstimate;
-    stats.autoCompact.totalCompactedTokensEstimate += compact.compactedTokensEstimate;
-    stats.autoCompact.maxReductionPercent = Math.max(stats.autoCompact.maxReductionPercent, compact.reductionPercent);
-    const totalReduction = stats.autoCompact.avgReductionPercent * (stats.autoCompact.appliedCount - 1);
-    stats.autoCompact.avgReductionPercent = (totalReduction + compact.reductionPercent) / stats.autoCompact.appliedCount;
-
-    const dateKey = getLocalDateKey(entry.timestamp);
-    const bucket = autoCompactTrend.get(dateKey) || {
-      date: dateKey,
-      appliedCount: 0,
-      savedTokensEstimate: 0,
-      savedChars: 0,
-      avgReductionPercent: 0,
-    };
-    bucket.appliedCount += 1;
-    bucket.savedTokensEstimate += compact.savedTokensEstimate;
-    bucket.savedChars += compact.savedChars;
-    const bucketTotalReduction = bucket.avgReductionPercent * (bucket.appliedCount - 1);
-    bucket.avgReductionPercent = (bucketTotalReduction + compact.reductionPercent) / bucket.appliedCount;
-    autoCompactTrend.set(dateKey, bucket);
   };
 
   if (period === "24h") {
     for (const entry of history) {
       if (!isTimestampInPeriod(entry.timestamp, period, nowMs)) continue;
       if (entry?.category === "auto_compact") {
-        addAutoCompactStats(entry);
         continue;
       }
       const inputTokens = entry.tokens?.input_tokens || entry.tokens?.prompt_tokens || 0;
@@ -433,16 +363,10 @@ export async function getMorphUsageStats(period = "7d") {
       addToCounter(stats.byEntrypoint, entry.entrypoint || "unknown", values, { entrypoint: entry.entrypoint || "unknown" });
     }
 
-    stats.autoCompact.trend = [...autoCompactTrend.values()].sort((left, right) => String(left.date).localeCompare(String(right.date)));
     return stats;
   }
 
   const periodStart = getPeriodStart(period, nowMs);
-  for (const entry of history) {
-    if (entry?.category === "auto_compact" && isTimestampInPeriod(entry.timestamp, period, nowMs)) {
-      addAutoCompactStats(entry);
-    }
-  }
 
   for (const [dateKey, day] of Object.entries(dailySummary)) {
     const dayTime = getDailySummaryBucketTime(dateKey);
@@ -467,8 +391,6 @@ export async function getMorphUsageStats(period = "7d") {
       addToCounter(stats.byEntrypoint, key, value, { entrypoint: value.entrypoint || key });
     }
   }
-
-  stats.autoCompact.trend = [...autoCompactTrend.values()].sort((left, right) => String(left.date).localeCompare(String(right.date)));
 
   return stats;
 }

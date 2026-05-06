@@ -12,10 +12,6 @@ import {
   normalizeOpenCodePreferences,
   validateOpenCodePreferences,
 } from "@/lib/opencodeSync/schema.js";
-import {
-  DEFAULT_AUTO_COMPACT_SETTINGS,
-  normalizeAutoCompactSettings as normalizeAutoCompactSettingsCore,
-} from "open-sse/utils/autoCompactCore.js";
 
 const DEFAULT_MITM_ROUTER_BASE = "http://localhost:20128";
 export const DB_BACKUP_FORMAT = "9router-db-v1";
@@ -208,7 +204,6 @@ const DEFAULT_SETTINGS = {
   },
   morph: DEFAULT_MORPH_SETTINGS,
   chatRuntime: DEFAULT_CHAT_RUNTIME_SETTINGS,
-  autoCompact: DEFAULT_AUTO_COMPACT_SETTINGS,
 };
 
 const LEGACY_REMOVED_SETTINGS_KEYS = [
@@ -288,10 +283,6 @@ export function normalizeChatRuntimeSettings(settings = {}) {
 
 export function getDefaultChatRuntimeSettings() {
   return { ...DEFAULT_CHAT_RUNTIME_SETTINGS };
-}
-
-export function normalizeAutoCompactSettings(settings = {}) {
-  return normalizeAutoCompactSettingsCore(settings);
 }
 
 function hasUsableMorphApiKey(morph = {}) {
@@ -481,10 +472,6 @@ function mergeSettingsWithDefaults(settings = {}) {
   merged.cloudUsagePollingEnabled = sourceSettings?.cloudUsagePollingEnabled === true;
   merged.morph = normalizeMorphSettings(sourceSettings?.morph);
   merged.chatRuntime = normalizeChatRuntimeSettings(sourceSettings?.chatRuntime);
-  merged.autoCompact = normalizeAutoCompactSettings(sourceSettings?.autoCompact);
-  if (!hasUsableMorphApiKey(merged.morph)) {
-    merged.autoCompact.enabled = false;
-  }
   merged.routing = normalizeRoutingSettings(sourceSettings);
   applyLegacyRoutingAliases(merged);
 
