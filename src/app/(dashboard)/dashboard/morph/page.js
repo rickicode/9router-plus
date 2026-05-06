@@ -1,6 +1,8 @@
 import MorphPageClient from "./MorphPageClient";
 
-export const metadata = { title: "Morph" };
+import { pageTitle } from "@/shared/constants/site";
+
+export const metadata = { title: pageTitle("Morph") };
 
 export default function MorphPage() {
   return <MorphPageClient />;

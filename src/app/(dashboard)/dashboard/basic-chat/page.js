@@ -1,6 +1,8 @@
 import BasicChatPageClient from "./BasicChatPageClient";
 
-export const metadata = { title: "Basic Chat" };
+import { pageTitle } from "@/shared/constants/site";
+
+export const metadata = { title: pageTitle("Basic Chat") };
 
 export default function BasicChatPage() {
   return <BasicChatPageClient />;

@@ -1,6 +1,8 @@
 import OpenCodePageClient from "./OpenCodePageClient";
 
-export const metadata = { title: "OpenCode" };
+import { pageTitle } from "@/shared/constants/site";
+
+export const metadata = { title: pageTitle("OpenCode") };
 
 export default function OpenCodePage() {
   return <OpenCodePageClient />;

@@ -1,6 +1,8 @@
 import MitmPageClient from "./MitmPageClient";
 
-export const metadata = { title: "MITM Proxy" };
+import { pageTitle } from "@/shared/constants/site";
+
+export const metadata = { title: pageTitle("MITM Proxy") };
 
 export default function MitmPage() {
   return <MitmPageClient />;

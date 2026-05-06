@@ -1,9 +1,10 @@
 import { DashboardLayout } from "@/shared/components";
+import { SITE_NAME } from "@/shared/constants/site";
 
 export const metadata = {
   title: {
-    template: "%s - 9Router",
-    default: "Dashboard - 9Router",
+    template: `%s - ${SITE_NAME}`,
+    default: `Dashboard - ${SITE_NAME}`,
   },
 };
 

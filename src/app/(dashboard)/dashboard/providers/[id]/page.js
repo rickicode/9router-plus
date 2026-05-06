@@ -964,7 +964,9 @@ export default function ProviderDetailPage() {
     if (isAnthropicCompatible) {
       return "/providers/anthropic-m.png";
     }
-    return `/providers/${providerInfo.id}.png`;
+    // SVG-first fallback: prefer .svg if available, otherwise .png
+    const ext = providerInfo.id === "commandcode" ? ".svg" : ".png";
+    return `/providers/${providerInfo.id}${ext}`;
   };
 
   const nextQuotaResetLabel = quotaSummary.nextResetAt
